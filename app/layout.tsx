@@ -1,15 +1,13 @@
-import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import type { Metadata, Viewport } from 'next'
+import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
+const _inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: 'v0 App',
-  description: 'Created with v0',
-  generator: 'v0.app',
+  title: 'CareNest HMS - Pediatric Hospital Management',
+  description: 'Enterprise-grade Pediatric Hospital Management System for CareNest Children\'s Hospital - a 200-bed multi-speciality child care facility.',
   icons: {
     icon: [
       {
@@ -27,6 +25,11 @@ export const metadata: Metadata = {
     ],
     apple: '/apple-icon.png',
   },
+}
+
+export const viewport: Viewport = {
+  themeColor: '#1a56db',
+  userScalable: true,
 }
 
 export default function RootLayout({
