@@ -1,7 +1,6 @@
 "use client"
 
 import {
-  Area,
   Line,
   ComposedChart,
   XAxis,
@@ -150,47 +149,7 @@ export function GrowthPercentileChart({
                 }
               />
 
-              {/* WHO Percentile bands as shaded areas */}
-              <Area
-                dataKey="p97"
-                stroke="none"
-                fill={COLORS.p97Fill}
-                fillOpacity={1}
-                isAnimationActive={false}
-                legendType="none"
-                tooltipType="none"
-              />
-              <Area
-                dataKey="p85"
-                stroke="none"
-                fill={COLORS.p85Fill}
-                fillOpacity={1}
-                isAnimationActive={false}
-                legendType="none"
-                tooltipType="none"
-              />
-              <Area
-                dataKey="p50"
-                stroke="none"
-                fill={COLORS.p50Fill}
-                fillOpacity={1}
-                isAnimationActive={false}
-                legendType="none"
-                tooltipType="none"
-              />
-
-              {/* Danger zone below P3 */}
-              <Area
-                dataKey="p3"
-                stroke="none"
-                fill={COLORS.dangerZone}
-                fillOpacity={1}
-                isAnimationActive={false}
-                legendType="none"
-                tooltipType="none"
-              />
-
-              {/* WHO reference lines */}
+              {/* WHO reference lines -- using Line only to avoid duplicate Area+Line dataKey conflicts */}
               <Line
                 dataKey="p97"
                 stroke={COLORS.p97}
@@ -199,6 +158,7 @@ export function GrowthPercentileChart({
                 dot={false}
                 isAnimationActive={false}
                 name="97th %ile"
+                legendType="line"
               />
               <Line
                 dataKey="p85"
@@ -208,6 +168,7 @@ export function GrowthPercentileChart({
                 dot={false}
                 isAnimationActive={false}
                 name="85th %ile"
+                legendType="line"
               />
               <Line
                 dataKey="p50"
@@ -217,6 +178,7 @@ export function GrowthPercentileChart({
                 dot={false}
                 isAnimationActive={false}
                 name="50th %ile (Median)"
+                legendType="line"
               />
               <Line
                 dataKey="p15"
@@ -226,6 +188,7 @@ export function GrowthPercentileChart({
                 dot={false}
                 isAnimationActive={false}
                 name="15th %ile"
+                legendType="line"
               />
               <Line
                 dataKey="p3"
@@ -235,6 +198,7 @@ export function GrowthPercentileChart({
                 dot={false}
                 isAnimationActive={false}
                 name="3rd %ile"
+                legendType="line"
               />
 
               {/* Patient's actual measurements -- rendered last to be on top */}

@@ -230,7 +230,7 @@ export function PatientsListContent() {
         {(["all", "OP", "IP", "NICU", "Discharged"] as const).map((s) => {
           const isActive = statusFilter === s
           const count = statusCounts[s]
-          const chipIcon = s === "all" ? Users : s === "NICU" ? Baby : s === "IP" ? Stethoscope : s === "Discharged" ? LogOutIcon : Users
+          const ChipIcon = s === "all" ? Users : s === "NICU" ? Baby : s === "IP" ? Stethoscope : s === "Discharged" ? LogOutIcon : Users
           return (
             <button
               key={s}
@@ -242,7 +242,7 @@ export function PatientsListContent() {
                   : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
               )}
             >
-              <chipIcon className="size-3.5" />
+              <ChipIcon className="size-3.5" />
               <span>{s === "all" ? "All" : s}</span>
               <span className={cn(
                 "flex items-center justify-center size-5 rounded-full text-[10px] font-bold",
