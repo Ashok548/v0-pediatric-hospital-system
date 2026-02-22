@@ -124,6 +124,8 @@ export function PatientRegistrationContent() {
   const [policyHolder, setPolicyHolder] = useState<FormField>(emptyField())
   const [validTill, setValidTill] = useState<FormField>(emptyField())
 
+  const [abhaId, setAbhaId] = useState<FormField>(emptyField())
+
   const [referralSource, setReferralSource] = useState<FormField>(emptyField())
   const [referringDoctor, setReferringDoctor] = useState<FormField>(emptyField())
   const [knownAllergies, setKnownAllergies] = useState<FormField>(emptyField())
@@ -152,6 +154,13 @@ export function PatientRegistrationContent() {
   const validatePincode = useCallback((field: FormField): string => {
     if (!field.value.trim()) return "Pincode is required"
     if (!/^\d{6}$/.test(field.value)) return "Enter a valid 6-digit pincode"
+    return ""
+  }, [])
+
+  const validateAbha = useCallback((field: FormField): string => {
+    if (!field.value.trim()) return ""
+    const cleaned = field.value.replace(/[\s-]/g, "")
+    if (!/^\d{14}$/.test(cleaned)) return "ABHA ID must be a 14-digit number (e.g. 91-1234-5678-9012)"
     return ""
   }, [])
 
@@ -453,6 +462,23 @@ export function PatientRegistrationContent() {
                   placeholder="e.g. 3.2"
                   required={false}
                 />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormInput
+                  label="ABHA ID"
+                  field={abhaId}
+                  setField={setAbhaId}
+                  validationFn={validateAbha}
+                  placeholder="e.g. 91-1234-5678-9012"
+                  required={false}
+                  icon={CreditCard}
+                  maxLength={17}
+                />
+                <div className="flex flex-col gap-1.5 justify-end">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    Ayushman Bharat Health Account ID. Optional but recommended for ABDM-linked digital health records.
+                  </p>
+                </div>
               </div>
             </CardContent>
           </Card>
