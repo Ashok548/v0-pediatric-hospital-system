@@ -1,10 +1,12 @@
 import {
   Users,
-  BedDouble,
-  CalendarDays,
   Baby,
+  CalendarDays,
+  Syringe,
+  IndianRupee,
 } from "lucide-react"
 import { StatCard } from "./stat-card"
+import { CriticalAlerts } from "./critical-alerts"
 import { BedOccupancy } from "./bed-occupancy"
 import { RecentPatients } from "./recent-patients"
 import { UpcomingAppointments } from "./upcoming-appointments"
@@ -16,18 +18,19 @@ export function DashboardContent() {
       {/* Page Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-xl lg:text-2xl font-bold text-foreground tracking-tight text-balance">
-          Dashboard Overview
+          Admin Dashboard
         </h1>
         <p className="text-sm text-muted-foreground">
-          CareNest 200-Bed Multi-Speciality Childcare Hospital &middot; Real-time operational snapshot
+          CareNest 200-Bed Multi-Speciality Childcare Hospital &middot; Real-time operational overview for Feb 22, 2026
         </p>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/* KPI Stat Cards - 5 across */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <StatCard
           title="Total Patients"
           value="139"
+          subtitle="In-patients today"
           change="+12 from yesterday"
           changeType="positive"
           icon={Users}
@@ -35,45 +38,63 @@ export function DashboardContent() {
           iconBg="bg-primary/10"
         />
         <StatCard
-          title="Beds Occupied"
-          value="139/200"
-          change="69.5% occupancy"
-          changeType="neutral"
-          icon={BedDouble}
-          iconColor="text-chart-2"
-          iconBg="bg-chart-2/10"
-        />
-        <StatCard
-          title="Today's Appointments"
-          value="47"
-          change="8 pending check-in"
-          changeType="neutral"
-          icon={CalendarDays}
-          iconColor="text-chart-3"
-          iconBg="bg-chart-3/10"
-        />
-        <StatCard
-          title="NICU Admissions"
-          value="18"
-          change="2 critical alerts"
+          title="NICU Occupancy"
+          value="18 / 20"
+          subtitle="Beds occupied"
+          change="2 ventilator-assisted"
           changeType="negative"
           icon={Baby}
           iconColor="text-destructive"
           iconBg="bg-destructive/10"
+          percentage={90}
+        />
+        <StatCard
+          title="Today's Appointments"
+          value="47"
+          subtitle="Across all departments"
+          change="8 pending check-in"
+          changeType="neutral"
+          icon={CalendarDays}
+          iconColor="text-chart-2"
+          iconBg="bg-chart-2/10"
+        />
+        <StatCard
+          title="Vaccination Due"
+          value="23"
+          subtitle="Scheduled for today"
+          change="5 walk-in slots open"
+          changeType="positive"
+          icon={Syringe}
+          iconColor="text-chart-5"
+          iconBg="bg-chart-5/10"
+        />
+        <StatCard
+          title="Revenue Today"
+          value="4,72,850"
+          subtitle="Total collections"
+          change="+18.3% vs last week"
+          changeType="positive"
+          icon={IndianRupee}
+          iconColor="text-chart-3"
+          iconBg="bg-chart-3/10"
         />
       </div>
 
-      {/* Main Grid */}
+      {/* Critical Alerts Panel */}
+      <CriticalAlerts />
+
+      {/* Recent Admissions Table */}
+      <RecentPatients />
+
+      {/* Bottom Grid: Appointments + Bed Occupancy + Quick Actions */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Left Column - 2 cols wide */}
-        <div className="xl:col-span-2 flex flex-col gap-6">
-          <RecentPatients />
+        <div className="xl:col-span-1">
           <UpcomingAppointments />
         </div>
-
-        {/* Right Column */}
-        <div className="flex flex-col gap-6">
+        <div className="xl:col-span-1">
           <BedOccupancy />
+        </div>
+        <div className="xl:col-span-1">
           <QuickActions />
         </div>
       </div>
