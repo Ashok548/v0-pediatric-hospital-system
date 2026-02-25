@@ -177,15 +177,22 @@ function PulseIndicator({ status }: { status: BabyStatus }) {
   )
 }
 
-interface NicuBabyCardProps {
-  baby: NicuBaby
+function daysInNicu(admittedDate: string): number {
+  const diff = Date.now() - new Date(admittedDate).getTime()
+  return Math.max(0, Math.floor(diff / 86400000))
 }
 
-export function NicuBabyCard({ baby }: NicuBabyCardProps) {
+interface NicuBabyCardProps {
+  baby: NicuBaby
+  onViewDetails?: () => void
+}
+
+export function NicuBabyCard({ baby, onViewDetails }: NicuBabyCardProps) {
   const cfg = statusConfig[baby.status]
   const hrLevel = isAbnormal("heartRate", baby.vitals.heartRate)
   const spo2Level = isAbnormal("spo2", baby.vitals.spo2)
   const tempLevel = isAbnormal("temperature", baby.vitals.temperature)
+  const los = daysInNicu(baby.admittedDate)
 
   return (
     <Card
@@ -220,7 +227,7 @@ export function NicuBabyCard({ baby }: NicuBabyCardProps) {
               {baby.name}
             </span>
             <span className="text-[11px] text-muted-foreground leading-tight">
-              Bed {baby.bed} &middot; {baby.weight}
+              Bed {baby.bed} &middot; Day {los} &middot; {baby.weight}
             </span>
           </div>
         </div>
@@ -297,6 +304,7 @@ export function NicuBabyCard({ baby }: NicuBabyCardProps) {
             variant="ghost"
             size="sm"
             className="text-xs h-7 px-2.5 text-primary hover:text-primary gap-1.5"
+            onClick={onViewDetails}
           >
             <Eye className="size-3" />
             View Details

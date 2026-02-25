@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import React, { useState, useMemo, useCallback } from "react"
+import Link from "next/link"
 import {
   Search,
   Plus,
@@ -25,27 +26,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { getPatients, subscribe, updatePatientStatus } from "@/lib/store/patients"
+import type { Patient, PatientStatus } from "@/lib/data/types"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-type PatientStatus = "OP" | "IP" | "NICU" | "Discharged"
 type SortKey = "lastModified" | "name" | "uhid" | "age"
 type SortDir = "asc" | "desc"
-
-interface Patient {
-  uhid: string
-  firstName: string
-  lastName: string
-  ageYears: number
-  ageMonths: number
-  gender: "M" | "F"
-  guardianName: string
-  status: PatientStatus
-  doctor: string
-  lastModified: Date
-  phone: string
-  wardBed?: string
-}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function timeAgo(date: Date): string {
@@ -91,30 +84,12 @@ const statusConfig: Record<PatientStatus, { label: string; className: string }> 
   },
 }
 
-// ─── Sample Data ──────────────────────────────────────────────────────────────
-const now = new Date()
-function minsAgo(m: number) { return new Date(now.getTime() - m * 60000) }
-
-const patients: Patient[] = [
-  { uhid: "CN-2026-0001", firstName: "Arya", lastName: "Sharma", ageYears: 0, ageMonths: 11, gender: "F", guardianName: "Vikram Sharma", status: "IP", doctor: "Dr. Priya Reddy", lastModified: minsAgo(3), phone: "9876543210", wardBed: "Peds-W1 / B-04" },
-  { uhid: "CN-2026-0002", firstName: "Rohan", lastName: "Mehta", ageYears: 5, ageMonths: 2, gender: "M", guardianName: "Sunita Mehta", status: "OP", doctor: "Dr. Anil Kumar", lastModified: minsAgo(12), phone: "9876543211" },
-  { uhid: "CN-2026-0003", firstName: "Anika", lastName: "Patel", ageYears: 0, ageMonths: 3, gender: "F", guardianName: "Raj Patel", status: "NICU", doctor: "Dr. Meera Iyer", lastModified: minsAgo(5), phone: "9876543212", wardBed: "NICU / Inc-07" },
-  { uhid: "CN-2026-0004", firstName: "Vivaan", lastName: "Reddy", ageYears: 3, ageMonths: 7, gender: "M", guardianName: "Priya Reddy", status: "Discharged", doctor: "Dr. Priya Reddy", lastModified: minsAgo(120), phone: "9876543213" },
-  { uhid: "CN-2026-0005", firstName: "Saanvi", lastName: "Nair", ageYears: 7, ageMonths: 0, gender: "F", guardianName: "Ajay Nair", status: "IP", doctor: "Dr. Anil Kumar", lastModified: minsAgo(30), phone: "9876543214", wardBed: "Peds-W2 / B-11" },
-  { uhid: "CN-2026-0006", firstName: "Ishaan", lastName: "Desai", ageYears: 1, ageMonths: 4, gender: "M", guardianName: "Kavita Desai", status: "OP", doctor: "Dr. Meera Iyer", lastModified: minsAgo(45), phone: "9876543215" },
-  { uhid: "CN-2026-0007", firstName: "Diya", lastName: "Gupta", ageYears: 0, ageMonths: 1, gender: "F", guardianName: "Mohan Gupta", status: "NICU", doctor: "Dr. Priya Reddy", lastModified: minsAgo(2), phone: "9876543216", wardBed: "NICU / Inc-02" },
-  { uhid: "CN-2026-0008", firstName: "Aarav", lastName: "Singh", ageYears: 10, ageMonths: 8, gender: "M", guardianName: "Deepak Singh", status: "IP", doctor: "Dr. Anil Kumar", lastModified: minsAgo(90), phone: "9876543217", wardBed: "Peds-W1 / B-09" },
-  { uhid: "CN-2026-0009", firstName: "Myra", lastName: "Joshi", ageYears: 4, ageMonths: 3, gender: "F", guardianName: "Rahul Joshi", status: "Discharged", doctor: "Dr. Meera Iyer", lastModified: minsAgo(300), phone: "9876543218" },
-  { uhid: "CN-2026-0010", firstName: "Kabir", lastName: "Rao", ageYears: 2, ageMonths: 0, gender: "M", guardianName: "Lakshmi Rao", status: "OP", doctor: "Dr. Priya Reddy", lastModified: minsAgo(60), phone: "9876543219" },
-  { uhid: "CN-2026-0011", firstName: "Anaya", lastName: "Verma", ageYears: 0, ageMonths: 6, gender: "F", guardianName: "Suresh Verma", status: "NICU", doctor: "Dr. Meera Iyer", lastModified: minsAgo(8), phone: "9876543220", wardBed: "NICU / Inc-12" },
-  { uhid: "CN-2026-0012", firstName: "Reyansh", lastName: "Tiwari", ageYears: 6, ageMonths: 5, gender: "M", guardianName: "Neha Tiwari", status: "IP", doctor: "Dr. Anil Kumar", lastModified: minsAgo(150), phone: "9876543221", wardBed: "PICU / B-03" },
-  { uhid: "CN-2026-0013", firstName: "Kiara", lastName: "Bhat", ageYears: 8, ageMonths: 11, gender: "F", guardianName: "Ganesh Bhat", status: "OP", doctor: "Dr. Priya Reddy", lastModified: minsAgo(200), phone: "9876543222" },
-  { uhid: "CN-2026-0014", firstName: "Advait", lastName: "Menon", ageYears: 0, ageMonths: 2, gender: "M", guardianName: "Sanjay Menon", status: "NICU", doctor: "Dr. Meera Iyer", lastModified: minsAgo(1), phone: "9876543223", wardBed: "NICU / Inc-18" },
-  { uhid: "CN-2026-0015", firstName: "Prisha", lastName: "Kulkarni", ageYears: 12, ageMonths: 1, gender: "F", guardianName: "Amit Kulkarni", status: "Discharged", doctor: "Dr. Anil Kumar", lastModified: minsAgo(1440), phone: "9876543224" },
-]
+// ─── Sample Data ─────────────────────────────────────────────────────────────
+// Data is now centrally defined in lib/data/patients.ts and imported above.
 
 // ─── Component ────────────────────────────────────────────────────────────────
 export function PatientsListContent() {
+  const [patients, setPatients] = useState<Patient[]>(getPatients())
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<PatientStatus | "all">("all")
   const [doctorFilter, setDoctorFilter] = useState<string>("all")
@@ -123,7 +98,13 @@ export function PatientsListContent() {
   const [showFilters, setShowFilters] = useState(false)
   const [selectedRow, setSelectedRow] = useState<string | null>(null)
 
-  const doctors = useMemo(() => [...new Set(patients.map(p => p.doctor))].sort(), [])
+  // Subscribe to patient store updates
+  React.useEffect(() => {
+    setPatients(getPatients())
+    return subscribe(() => setPatients(getPatients()))
+  }, [])
+
+  const doctors = useMemo(() => [...new Set(patients.map(p => p.doctor))].sort(), [patients])
 
   const handleSort = useCallback((key: SortKey) => {
     if (sortKey === key) {
@@ -168,7 +149,7 @@ export function PatientsListContent() {
             return dir * (a.lastModified.getTime() - b.lastModified.getTime())
         }
       })
-  }, [search, statusFilter, doctorFilter, sortKey, sortDir])
+  }, [search, statusFilter, doctorFilter, sortKey, sortDir, patients])
 
   const statusCounts = useMemo(() => ({
     all: patients.length,
@@ -176,9 +157,9 @@ export function PatientsListContent() {
     IP: patients.filter(p => p.status === "IP").length,
     NICU: patients.filter(p => p.status === "NICU").length,
     Discharged: patients.filter(p => p.status === "Discharged").length,
-  }), [])
+  }), [patients])
 
-  const isRecent = (date: Date) => (now.getTime() - date.getTime()) < 10 * 60000
+  const isRecent = (date: Date) => (new Date().getTime() - date.getTime()) < 10 * 60000
 
   const clearFilters = () => {
     setStatusFilter("all")
@@ -445,12 +426,37 @@ export function PatientsListContent() {
 
                       {/* Status */}
                       <td className="px-4 py-3">
-                        <Badge
-                          variant="outline"
-                          className={cn("text-[11px] font-semibold px-2.5 py-0.5 rounded-full", sc.className)}
-                        >
-                          {sc.label}
-                        </Badge>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              onClick={(e) => e.stopPropagation()}
+                              className={cn(
+                                "flex items-center justify-center text-[11px] font-semibold px-2.5 py-0.5 rounded-full border transition-opacity hover:opacity-80 outline-none",
+                                sc.className
+                              )}
+                            >
+                              {sc.label}
+                              <ChevronDown className="size-3 ml-1 opacity-50" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="start" className="w-36">
+                            {(["OP", "IP", "NICU", "Discharged"] as PatientStatus[]).map((status) => (
+                              <DropdownMenuItem
+                                key={status}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  updatePatientStatus(p.uhid, status)
+                                }}
+                                className={cn(
+                                  "text-xs cursor-pointer",
+                                  p.status === status && "bg-muted font-medium"
+                                )}
+                              >
+                                {statusConfig[status].label}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         {p.wardBed && (
                           <p className="text-[10px] text-muted-foreground mt-0.5">{p.wardBed}</p>
                         )}
@@ -473,17 +479,17 @@ export function PatientsListContent() {
 
                       {/* Action */}
                       <td className="px-4 py-3 text-right">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="gap-1.5 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                          }}
-                        >
-                          <Eye className="size-3.5" />
-                          <span className="hidden sm:inline">View</span>
-                        </Button>
+                        <Link href={`/patients/${p.uhid}`}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1.5 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <Eye className="size-3.5" />
+                            <span className="hidden sm:inline">View</span>
+                          </Button>
+                        </Link>
                       </td>
                     </tr>
                   )

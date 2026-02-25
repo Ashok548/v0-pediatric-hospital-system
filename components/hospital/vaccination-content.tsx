@@ -415,7 +415,7 @@ const statusConfig: Record<
 }
 
 // ─── Component ──────────────────────────────────────────────
-export function VaccinationContent() {
+export function VaccinationContent({ patientId: _patientId }: { patientId?: string } = {}) {
   const [completedVaccines, setCompletedVaccines] = useState<Set<string>>(new Set())
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
     new Set(vaccineGroups.filter((g) => g.vaccines.some((v) => v.status === "due-today" || v.status === "missed")).map((g) => g.ageLabel))
@@ -461,11 +461,11 @@ export function VaccinationContent() {
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
         <Link
-          href="/patients"
+          href="/vaccination"
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" />
-          Patients
+          Vaccination
         </Link>
         <span className="text-muted-foreground">/</span>
         <span className="text-foreground font-medium">Vaccination Record</span>

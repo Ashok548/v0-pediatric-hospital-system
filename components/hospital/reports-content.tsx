@@ -1,0 +1,299 @@
+"use client"
+
+import {
+    BarChart3,
+    TrendingUp,
+    TrendingDown,
+    Users,
+    Baby,
+    CalendarDays,
+    IndianRupee,
+    Syringe,
+    FlaskConical,
+    Download,
+} from "lucide-react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import {
+    BarChart,
+    Bar,
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip,
+    ResponsiveContainer,
+    PieChart,
+    Pie,
+    Cell,
+} from "recharts"
+
+// ─── Mock Data ──────────────────────────────────────────────────────────────
+const admissionsByMonth = [
+    { month: "Sep", admissions: 98, discharges: 91 },
+    { month: "Oct", admissions: 112, discharges: 108 },
+    { month: "Nov", admissions: 124, discharges: 119 },
+    { month: "Dec", admissions: 107, discharges: 102 },
+    { month: "Jan", admissions: 132, discharges: 128 },
+    { month: "Feb", admissions: 139, discharges: 97 },
+]
+
+const revenueByWeek = [
+    { week: "W1", revenue: 342000, target: 400000 },
+    { week: "W2", revenue: 415000, target: 400000 },
+    { week: "W3", revenue: 388000, target: 400000 },
+    { week: "W4", revenue: 472850, target: 400000 },
+]
+
+const departmentLoad = [
+    { name: "General Paediatrics", value: 48, color: "#3b82f6" },
+    { name: "NICU", value: 18, color: "#ef4444" },
+    { name: "Paediatric Cardiology", value: 24, color: "#8b5cf6" },
+    { name: "PICU", value: 15, color: "#f59e0b" },
+    { name: "Others", value: 34, color: "#6b7280" },
+]
+
+const vaccinationTrend = [
+    { day: "Mon", count: 42 },
+    { day: "Tue", count: 38 },
+    { day: "Wed", count: 51 },
+    { day: "Thu", count: 44 },
+    { day: "Fri", count: 47 },
+    { day: "Sat", count: 23 },
+]
+
+const topDiagnoses = [
+    { diagnosis: "Pneumonia", count: 28, trend: "up" },
+    { diagnosis: "Febrile Seizures", count: 22, trend: "down" },
+    { diagnosis: "Bronchiolitis", count: 19, trend: "up" },
+    { diagnosis: "Gastroenteritis", count: 17, trend: "stable" },
+    { diagnosis: "Neonatal Jaundice", count: 14, trend: "down" },
+    { diagnosis: "Urinary Tract Infection", count: 11, trend: "stable" },
+]
+
+const kpiStats = [
+    { label: "Bed Occupancy Rate", value: "87%", change: "+3%", positive: true, icon: Users, iconColor: "text-primary", iconBg: "bg-primary/10" },
+    { label: "Avg Length of Stay", value: "4.2 days", change: "-0.4 days", positive: true, icon: CalendarDays, iconColor: "text-chart-2", iconBg: "bg-chart-2/10" },
+    { label: "NICU Utilisation", value: "90%", change: "+5%", positive: false, icon: Baby, iconColor: "text-destructive", iconBg: "bg-destructive/10" },
+    { label: "Revenue This Month", value: "₹16.2L", change: "+18.3%", positive: true, icon: IndianRupee, iconColor: "text-chart-3", iconBg: "bg-chart-3/10" },
+    { label: "Vaccinations This Month", value: "245", change: "+12%", positive: true, icon: Syringe, iconColor: "text-chart-5", iconBg: "bg-chart-5/10" },
+    { label: "Lab Tests Ordered", value: "612", change: "+8%", positive: true, icon: FlaskConical, iconColor: "text-chart-4", iconBg: "bg-chart-4/10" },
+]
+
+// ─── Component ──────────────────────────────────────────────────────────────
+export function ReportsContent() {
+    return (
+        <div className="p-4 lg:p-6 flex flex-col gap-6 max-w-[1600px] mx-auto">
+            {/* Page Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                    <h1 className="text-xl font-bold text-foreground tracking-tight">Reports & Analytics</h1>
+                    <p className="text-sm text-muted-foreground mt-0.5">
+                        CareNest Hospital &middot; Period: Feb 2026 &middot; All departments
+                    </p>
+                </div>
+                <Button variant="outline" className="gap-2 shrink-0">
+                    <Download className="size-4" />
+                    Export Report
+                </Button>
+            </div>
+
+            {/* KPI Grid */}
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+                {kpiStats.map(stat => (
+                    <Card key={stat.label} className="py-0">
+                        <CardContent className="px-4 py-3 flex flex-col gap-2">
+                            <div className={`flex items-center justify-center size-9 rounded-lg ${stat.iconBg} self-start`}>
+                                <stat.icon className={`size-4.5 ${stat.iconColor}`} />
+                            </div>
+                            <div>
+                                <p className="text-lg font-bold text-foreground tabular-nums leading-tight">{stat.value}</p>
+                                <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">{stat.label}</p>
+                            </div>
+                            <div className={`flex items-center gap-1 text-[11px] font-medium ${stat.positive ? "text-[#1a7a4c]" : "text-[#c53030]"}`}>
+                                {stat.positive ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+                                {stat.change}
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
+
+            {/* Charts Row 1: Admissions + Revenue */}
+            <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+                {/* Admissions vs Discharges */}
+                <Card className="xl:col-span-3 py-0">
+                    <CardHeader className="px-4 pt-4 pb-2">
+                        <CardTitle className="text-sm font-semibold">Admissions vs Discharges</CardTitle>
+                        <CardDescription className="text-xs">Last 6 months</CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                        <ResponsiveContainer width="100%" height={220}>
+                            <BarChart data={admissionsByMonth} barGap={4} barCategoryGap="30%">
+                                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
+                                <XAxis dataKey="month" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <Tooltip
+                                    contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                                    cursor={{ fill: "hsl(var(--muted))" }}
+                                />
+                                <Bar dataKey="admissions" name="Admissions" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="discharges" name="Discharges" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex items-center justify-center gap-4 mt-1">
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <span className="size-2.5 rounded-sm bg-primary inline-block" />Admissions
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                <span className="size-2.5 rounded-sm bg-chart-2 inline-block" />Discharges
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+
+                {/* Department Load – Pie */}
+                <Card className="xl:col-span-2 py-0">
+                    <CardHeader className="px-4 pt-4 pb-2">
+                        <CardTitle className="text-sm font-semibold">Census by Department</CardTitle>
+                        <CardDescription className="text-xs">Current inpatients</CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-4 pb-4">
+                        <div className="flex items-center justify-center">
+                            <ResponsiveContainer width="100%" height={160}>
+                                <PieChart>
+                                    <Pie data={departmentLoad} dataKey="value" cx="50%" cy="50%" outerRadius={72} innerRadius={44} paddingAngle={2}>
+                                        {departmentLoad.map((entry, i) => (
+                                            <Cell key={i} fill={entry.color} />
+                                        ))}
+                                    </Pie>
+                                    <Tooltip
+                                        contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                                    />
+                                </PieChart>
+                            </ResponsiveContainer>
+                        </div>
+                        <div className="flex flex-col gap-1.5 mt-1">
+                            {departmentLoad.map(d => (
+                                <div key={d.name} className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                        <span className="size-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                                        <span className="truncate max-w-[140px]">{d.name}</span>
+                                    </div>
+                                    <span className="text-xs font-semibold text-foreground tabular-nums">{d.value}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Charts Row 2: Revenue + Vaccination */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                {/* Weekly Revenue vs Target */}
+                <Card className="py-0">
+                    <CardHeader className="px-4 pt-4 pb-2">
+                        <CardTitle className="text-sm font-semibold">Weekly Revenue vs Target</CardTitle>
+                        <CardDescription className="text-xs">Feb 2026 · Target ₹4,00,000/week</CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                        <ResponsiveContainer width="100%" height={200}>
+                            <BarChart data={revenueByWeek} barGap={4} barCategoryGap="35%">
+                                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
+                                <XAxis dataKey="week" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `₹${(v / 1000).toFixed(0)}k`} />
+                                <Tooltip
+                                    contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                                    formatter={(v: number) => [`₹${new Intl.NumberFormat("en-IN").format(v)}`, ""]}
+                                    cursor={{ fill: "hsl(var(--muted))" }}
+                                />
+                                <Bar dataKey="target" name="Target" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} />
+                                <Bar dataKey="revenue" name="Revenue" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
+
+                {/* Vaccination Trend */}
+                <Card className="py-0">
+                    <CardHeader className="px-4 pt-4 pb-2">
+                        <CardTitle className="text-sm font-semibold">Daily Vaccination Count</CardTitle>
+                        <CardDescription className="text-xs">This week · Feb 17–22, 2026</CardDescription>
+                    </CardHeader>
+                    <CardContent className="px-2 pb-4">
+                        <ResponsiveContainer width="100%" height={200}>
+                            <LineChart data={vaccinationTrend}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
+                                <XAxis dataKey="day" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                                <Tooltip
+                                    contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                                />
+                                <Line
+                                    type="monotone"
+                                    dataKey="count"
+                                    name="Vaccinations"
+                                    stroke="hsl(var(--chart-5))"
+                                    strokeWidth={2.5}
+                                    dot={{ r: 4, fill: "hsl(var(--chart-5))", strokeWidth: 0 }}
+                                    activeDot={{ r: 6 }}
+                                />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </CardContent>
+                </Card>
+            </div>
+
+            {/* Top Diagnoses */}
+            <Card className="py-0">
+                <CardHeader className="px-4 pt-4 pb-2">
+                    <CardTitle className="text-sm font-semibold">Top Diagnoses This Month</CardTitle>
+                    <CardDescription className="text-xs">Feb 2026 · all inpatient and outpatient cases</CardDescription>
+                </CardHeader>
+                <CardContent className="px-4 pb-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {topDiagnoses.map((diag, i) => (
+                            <div key={diag.diagnosis} className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2.5">
+                                <div className="flex items-center gap-2.5">
+                                    <span className="flex items-center justify-center size-6 rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+                                        {i + 1}
+                                    </span>
+                                    <span className="text-sm font-medium text-foreground">{diag.diagnosis}</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-foreground tabular-nums">{diag.count}</span>
+                                    <Badge
+                                        variant="outline"
+                                        className={
+                                            diag.trend === "up"
+                                                ? "text-[11px] text-[#c53030] border-[#f5bcbc] bg-[#fde8e8]"
+                                                : diag.trend === "down"
+                                                    ? "text-[11px] text-[#1a7a4c] border-[#b4e4cb] bg-[#e6f6ee]"
+                                                    : "text-[11px] text-[#856404] border-[#ffeaa0] bg-[#fef3cd]"
+                                        }
+                                    >
+                                        {diag.trend === "up" ? "↑" : diag.trend === "down" ? "↓" : "→"}
+                                    </Badge>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </CardContent>
+            </Card>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground border-t border-border pt-4">
+                <div className="flex items-center gap-1.5">
+                    <BarChart3 className="size-3.5" />
+                    <span>CareNest HMS · Analytics Module · Data as of 22 Feb 2026, 1:36 PM IST</span>
+                </div>
+                <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1 text-muted-foreground">
+                    <Download className="size-3" />
+                    PDF Report
+                </Button>
+            </div>
+        </div>
+    )
+}

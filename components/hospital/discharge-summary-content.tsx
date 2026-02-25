@@ -25,40 +25,15 @@ import {
   ShieldCheck,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
+import { getPatientDetail, updatePatientStatus } from "@/lib/store/patients"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 
-// ─── Patient & Admission Data ──────────────────────────────────
-const patient = {
-  id: "PED-20260114",
-  name: "Rohan Verma",
-  dob: "Jun 12, 2022",
-  age: "3 years 8 months",
-  gender: "Male",
-  bloodGroup: "O+",
-  weight: "14.2 kg",
-  guardian: "Sanjay Verma (Father)",
-  phone: "+91 88765 12340",
-}
-
-const admission = {
-  admissionDate: "Feb 14, 2026",
-  admissionTime: "10:32 AM",
-  dischargeDate: "Feb 22, 2026",
-  dischargeTime: "11:00 AM",
-  los: 8,
-  ward: "Pediatric General - Bed 42B",
-  admittingDoctor: "Dr. Priya Reddy",
-  consultants: ["Dr. Priya Reddy (Pediatrics)", "Dr. Anand Joshi (Pulmonology)"],
-  diagnosis: "Acute Bronchopneumonia with Moderate Respiratory Distress",
-  icdCode: "J18.0",
-  admissionType: "Emergency",
-  conditionAtAdmission: "Moderate",
-  conditionAtDischarge: "Stable / Improved",
-}
-
+// ─── Static clinical stay template (replace with API when available) ────────
+// The patient demographics are loaded dynamically from the store.
 const hospitalStay = {
   keyFindings: [
     "Bilateral crackles on auscultation; chest X-ray showing right lower lobe consolidation",
@@ -120,8 +95,38 @@ Review with Dr. Priya Reddy on 01 Mar 2026. Repeat chest X-ray if cough persists
 This summary has been generated using CareNest AI Clinical Documentation Assistant and reviewed by the attending physician.`
 
 // ─── Component ─────────────────────────────────────────────────
-export function DischargeSummaryContent() {
-  const [summary, setSummary] = useState(defaultAiSummary)
+export function DischargeSummaryContent({ patientId }: { patientId?: string } = {}) {
+  const router = useRouter()
+
+  // Load real patient from store
+  const pt = patientId ? getPatientDetail(patientId) : undefined
+
+  // Build dynamic AI summary from real patient data
+  const dynamicSummary = pt ? `DISCHARGE SUMMARY
+
+Patient: ${pt.name} (${pt.uhid}), ${pt.age} ${pt.gender === "F" ? "female" : "male"} child, was admitted on ${pt.admissionDate ?? "Feb 14, 2026"} with ${pt.diagnosis}.
+
+CLINICAL PRESENTATION:
+On examination, the child presented with features consistent with the admitting diagnosis. Full clinical workup was performed as documented in the clinical notes.
+
+HOSPITAL COURSE:
+${hospitalStay.keyFindings.join("\n")}
+
+Treatment administered: ${hospitalStay.treatmentGiven.join("; ")}.
+
+CONDITION AT DISCHARGE:
+The child is clinically stable, afebrile, feeding well, and is safe for discharge. Condition: Stable / Improved.
+
+DISCHARGE MEDICATIONS:
+${hospitalStay.dischargeMedications.map((m, i) => `${i + 1}. ${m.name} ${m.dosage} for ${m.duration}`).join("\n")}
+
+FOLLOW-UP:
+${hospitalStay.followUpInstructions.join("\n")}
+
+This summary has been generated using CareNest AI Clinical Documentation Assistant and reviewed by the attending physician.`
+    : defaultAiSummary
+
+  const [summary, setSummary] = useState(dynamicSummary)
   const [isRegenerating, setIsRegenerating] = useState(false)
   const [isSigned, setIsSigned] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -130,15 +135,42 @@ export function DischargeSummaryContent() {
   const isDrawingRef = useRef(false)
   const lastPointRef = useRef<{ x: number; y: number } | null>(null)
 
+  // Dynamic admission data derived from real patient
+  const patient = pt
+    ? { name: pt.name, id: pt.uhid, dob: pt.dob, age: pt.age, gender: pt.gender === "F" ? "Female" : "Male", bloodGroup: pt.bloodGroup, weight: pt.weight, guardian: pt.guardian, phone: pt.phone }
+    : { name: "Rohan Verma", id: "PED-20260114", dob: "Jun 12, 2022", age: "3 years 8 months", gender: "Male", bloodGroup: "O+", weight: "14.2 kg", guardian: "Sanjay Verma (Father)", phone: "+91 88765 12340" }
+
+  const admission = {
+    admissionDate: pt?.admissionDate ?? "Feb 14, 2026",
+    admissionTime: "10:32 AM",
+    dischargeDate: "Feb 22, 2026",
+    dischargeTime: "11:00 AM",
+    los: 8,
+    ward: pt?.wardBed ?? "Pediatric General - Bed 42B",
+    admittingDoctor: pt?.doctor ?? "Dr. Priya Reddy",
+    consultants: [pt?.doctor ?? "Dr. Priya Reddy"],
+    diagnosis: pt?.diagnosis ?? "Acute Bronchopneumonia with Moderate Respiratory Distress",
+    icdCode: "J18.0",
+    admissionType: "Emergency",
+    conditionAtAdmission: "Moderate",
+    conditionAtDischarge: "Stable / Improved",
+  }
+
   function handleRegenerate() {
     setIsRegenerating(true)
-    setTimeout(() => setIsRegenerating(false), 2000)
+    // Rebuild from current patient data
+    if (pt) setSummary(dynamicSummary)
+    setTimeout(() => setIsRegenerating(false), 1800)
   }
 
   function handleSign() {
     if (!signatureDrawn) return
     setIsSigned(true)
     setIsEditing(false)
+    // ── Update patient status to Discharged in the store ────────
+    if (patientId) {
+      updatePatientStatus(patientId, "Discharged")
+    }
   }
 
   // Canvas signature drawing
@@ -193,15 +225,15 @@ export function DischargeSummaryContent() {
   }
 
   return (
-    <div className="p-4 lg:p-6 flex flex-col gap-6 max-w-[1100px] mx-auto">
+    <div className="p-4 lg:p-6 flex flex-col gap-6 max-w-[1100px] mx-auto print:p-0 print:gap-4">
       {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm print:hidden">
         <Link
-          href="/patients"
+          href={patientId ? `/patients/${patientId}` : "/patients"}
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" />
-          Patients
+          {patientId ? "Patient" : "Patients"}
         </Link>
         <span className="text-muted-foreground">/</span>
         <span className="text-foreground font-medium">Discharge Summary</span>
@@ -549,8 +581,8 @@ export function DischargeSummaryContent() {
       </Card>
 
       {/* ─── Doctor Digital Signature ─────────────────────────── */}
-      <Card className="gap-0 py-0">
-        <CardHeader className="px-5 py-4 border-b border-border">
+      <Card className="gap-0 py-0 print:border-0 print:shadow-none">
+        <CardHeader className="px-5 py-4 border-b border-border print:hidden">
           <CardTitle className="flex items-center gap-2 text-sm">
             <FileText className="size-4 text-primary" />
             Doctor&apos;s Digital Signature
@@ -559,7 +591,7 @@ export function DischargeSummaryContent() {
             Sign below to authorize and finalize the discharge summary
           </CardDescription>
         </CardHeader>
-        <CardContent className="px-5 py-5">
+        <CardContent className="px-5 py-5 print:p-0">
           <div className="flex flex-col gap-5">
             {/* Signing Doctor Info */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -640,7 +672,7 @@ export function DischargeSummaryContent() {
 
             {/* Actions */}
             {!isSigned ? (
-              <div className="flex items-center gap-3 pt-2 border-t border-border">
+              <div className="flex items-center gap-3 pt-2 border-t border-border print:hidden">
                 <Button
                   size="lg"
                   className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
@@ -655,7 +687,7 @@ export function DischargeSummaryContent() {
                 </span>
               </div>
             ) : (
-              <div className="flex items-center gap-3 pt-4 border-t border-border">
+              <div className="flex items-center gap-3 pt-4 border-t border-border print:hidden">
                 <div className="flex items-center gap-2 bg-[#22a06b]/8 rounded-lg px-4 py-3 flex-1">
                   <ShieldCheck className="size-5 text-[#22a06b] shrink-0" />
                   <div className="flex flex-col gap-0.5">
@@ -665,6 +697,10 @@ export function DischargeSummaryContent() {
                     </span>
                   </div>
                 </div>
+                <Button onClick={() => window.print()} className="gap-2 shrink-0">
+                  <Printer className="size-4" />
+                  Print / Save PDF
+                </Button>
               </div>
             )}
           </div>

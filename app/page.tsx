@@ -1,10 +1,5 @@
-import { AppShell } from "@/components/hospital/app-shell"
-import { PatientsListContent } from "@/components/hospital/patients-list-content"
+import { redirect } from "next/navigation"
 
-export default function DashboardPage() {
-  return (
-    <AppShell activeItem="Patients">
-      <PatientsListContent />
-    </AppShell>
-  )
+export default function RootPage() {
+  redirect("/dashboard")
 }

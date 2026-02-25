@@ -1,10 +1,11 @@
 import { AppShell } from "@/components/hospital/app-shell"
-import { VaccinationContent } from "@/components/hospital/vaccination-content"
+import { VaccinationDashboardContent } from "@/components/hospital/vaccination-dashboard-content"
 
 export default function VaccinationPage() {
   return (
     <AppShell activeItem="Vaccination">
-      <VaccinationContent />
+      <VaccinationDashboardContent />
     </AppShell>
   )
 }
+

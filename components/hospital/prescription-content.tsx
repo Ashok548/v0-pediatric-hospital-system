@@ -270,8 +270,8 @@ function checkAllergyConflict(drugId: string, allergies: string[]) {
   if (!drug) return null
   for (const allergy of allergies) {
     if (drug.name.toLowerCase().includes(allergy.toLowerCase()) ||
-        drug.generic.toLowerCase().includes(allergy.toLowerCase()) ||
-        drug.contraindications.some((c) => c.toLowerCase().includes(allergy.toLowerCase()))) {
+      drug.generic.toLowerCase().includes(allergy.toLowerCase()) ||
+      drug.contraindications.some((c) => c.toLowerCase().includes(allergy.toLowerCase()))) {
       return { drug: drug.name, allergy }
     }
   }
@@ -279,7 +279,7 @@ function checkAllergyConflict(drugId: string, allergies: string[]) {
 }
 
 // ─── Component ─────────────────────────────────────────────────
-export function PrescriptionContent() {
+export function PrescriptionContent({ patientId }: { patientId?: string } = {}) {
   const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([
     {
       id: 1,
@@ -313,11 +313,11 @@ export function PrescriptionContent() {
 
   const filteredDrugs = drugSearchQuery.trim()
     ? drugDatabase.filter(
-        (d) =>
-          d.name.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
-          d.generic.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
-          d.category.toLowerCase().includes(drugSearchQuery.toLowerCase())
-      )
+      (d) =>
+        d.name.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
+        d.generic.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
+        d.category.toLowerCase().includes(drugSearchQuery.toLowerCase())
+    )
     : drugDatabase
 
   const addDrug = useCallback(
@@ -394,11 +394,11 @@ export function PrescriptionContent() {
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
         <Link
-          href="/patients"
+          href={patientId ? `/patients/${patientId}` : "/patients"}
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" />
-          Patients
+          {patientId ? "Patient" : "Patients"}
         </Link>
         <span className="text-muted-foreground">/</span>
         <span className="text-foreground font-medium">Prescription Entry</span>

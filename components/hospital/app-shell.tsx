@@ -17,7 +17,7 @@ export function AppShell({ children, activeItem = "Dashboard" }: AppShellProps) 
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       {/* Desktop Sidebar */}
-      <div className="hidden lg:flex">
+      <div className="hidden lg:flex print:hidden">
         <Sidebar
           collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -34,7 +34,9 @@ export function AppShell({ children, activeItem = "Dashboard" }: AppShellProps) 
 
       {/* Main Content Area */}
       <div className="flex flex-col flex-1 min-w-0">
-        <Header onMobileMenuToggle={() => setMobileMenuOpen(true)} />
+        <div className="print:hidden">
+          <Header onMobileMenuToggle={() => setMobileMenuOpen(true)} />
+        </div>
 
         <main className="flex-1 overflow-y-auto">
           {children}

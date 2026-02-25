@@ -177,7 +177,7 @@ const summaryStats = [
 ]
 
 // ─── Component ────────────────────────────────────────────────
-export function GrowthTrackingContent() {
+export function GrowthTrackingContent({ patientId }: { patientId?: string } = {}) {
   const [standard, setStandard] = useState("who")
 
   return (
@@ -185,11 +185,11 @@ export function GrowthTrackingContent() {
       {/* Breadcrumb / Back */}
       <div className="flex items-center gap-2 text-sm">
         <Link
-          href="/patients"
+          href={patientId ? `/patients/${patientId}` : "/patients"}
           className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
         >
           <ArrowLeft className="size-3.5" />
-          Patients
+          {patientId ? "Patient" : "Patients"}
         </Link>
         <span className="text-muted-foreground">/</span>
         <span className="text-foreground font-medium">Growth Tracking</span>
