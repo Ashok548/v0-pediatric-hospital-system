@@ -1,5 +1,5 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
-import { Bed } from "@/lib/data/mock-beds"
+import { Bed } from "@/lib/data/mock-floors"
 import { Activity, Clock, LogOut, ArrowRightLeft, Brush, AlertTriangle, User, BedDouble } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 

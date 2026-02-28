@@ -2,6 +2,8 @@
 
 import { Bell, Search, ChevronDown, Menu, LogOut, User, HelpCircle } from "lucide-react"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
+import { useAuthStore } from "@/lib/store/auth-store"
+import { RoleSwitcher } from "@/components/hospital/role-switcher"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -20,6 +22,7 @@ interface HeaderProps {
 
 export function Header({ onMobileMenuToggle }: HeaderProps) {
   const [notificationOpen, setNotificationOpen] = useState(false)
+  const { currentUser } = useAuthStore()
 
   return (
     <header className="flex items-center justify-between h-16 px-4 lg:px-6 bg-card border-b border-border shrink-0">
@@ -48,6 +51,9 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-2">
+        {/* Role Switcher */}
+        <RoleSwitcher />
+        <div className="hidden sm:block w-px h-6 bg-border" role="separator" />
         {/* Mobile search */}
         <Button
           variant="ghost"
@@ -125,12 +131,12 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
             <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-muted transition-colors outline-none" aria-label="User menu">
               <Avatar className="size-8">
                 <AvatarFallback className="bg-primary text-primary-foreground text-xs font-semibold">
-                  DR
+                  {currentUser.avatar}
                 </AvatarFallback>
               </Avatar>
               <div className="hidden sm:flex flex-col items-start">
-                <span className="text-sm font-medium text-foreground leading-tight">Dr. Priya Reddy</span>
-                <span className="text-[11px] text-muted-foreground leading-tight">Pediatrician</span>
+                <span className="text-sm font-medium text-foreground leading-tight">{currentUser.name}</span>
+                <span className="text-[11px] text-muted-foreground leading-tight">{currentUser.department}</span>
               </div>
               <ChevronDown className="hidden sm:block size-3.5 text-muted-foreground" />
             </button>
@@ -138,8 +144,8 @@ export function Header({ onMobileMenuToggle }: HeaderProps) {
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>
               <div className="flex flex-col">
-                <span>Dr. Priya Reddy</span>
-                <span className="text-xs font-normal text-muted-foreground">priya.reddy@carenest.in</span>
+                <span>{currentUser.name}</span>
+                <span className="text-xs font-normal text-muted-foreground">{currentUser.name.toLowerCase().replace(/ /g, '.')}@carenest.in</span>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />

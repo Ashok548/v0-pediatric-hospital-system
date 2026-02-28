@@ -20,7 +20,8 @@ import {
     UserPlus,
     AlertTriangle,
     CheckCircle2,
-    ArrowRight
+    ArrowRight,
+    History,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -30,6 +31,7 @@ import { cn } from "@/lib/utils"
 import { getPatientDetail, subscribe, admitToWard } from "@/lib/store/patients"
 import { addNicuBaby } from "@/lib/store/nicu"
 import { updatePatientStatus } from "@/lib/store/patients"
+import { usePatientActivity } from "@/lib/store/activity-store"
 import { appointments } from "@/lib/data/appointments"
 import type { PatientStatus, ApptStatus, PatientDetail, BabyStatus } from "@/lib/data/types"
 
@@ -257,6 +259,7 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
     const [patient, setPatient] = useState<PatientDetail | undefined>(getPatientDetail(patientId))
     const [admitWardOpen, setAdmitWardOpen] = useState(false)
     const [admitNicuOpen, setAdmitNicuOpen] = useState(false)
+    const activityLog = usePatientActivity(patientId)
 
     useEffect(() => {
         // Keep synced with store
@@ -451,34 +454,48 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                     )
                 })()}
 
-                {/* ── Recent Activity ──────────────────────────────────────────────── */}
+                {/* ── Patient Activity Timeline ────────────────────────────────────── */}
                 <Card className="py-0">
-                    <CardHeader className="px-5 pt-4 pb-2 border-b border-border">
-                        <CardTitle className="text-sm font-semibold">Recent Activity</CardTitle>
+                    <CardHeader className="px-5 pt-4 pb-3 border-b border-border">
+                        <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                            <History className="size-4 text-primary" />
+                            Patient Timeline
+                            <Badge variant="secondary" className="text-[10px] font-mono">{activityLog.length}</Badge>
+                        </CardTitle>
                     </CardHeader>
                     <CardContent className="px-5 py-3">
-                        <div className="flex flex-col gap-0">
-                            {[
-                                { label: "Prescription updated", detail: "Amoxicillin + Paracetamol prescribed", time: "Today, 10:30 AM", icon: FileText, iconColor: "text-primary" },
-                                { label: "Vitals recorded", detail: `Temp 98.6°F · SpO2 98% · HR 102 bpm`, time: "Today, 9:15 AM", icon: Activity, iconColor: "text-[#1a7a4c]" },
-                                { label: "Vaccination checked", detail: "Due vaccines reviewed", time: "Yesterday, 4:00 PM", icon: Syringe, iconColor: "text-[#1a6fb5]" },
-                                { label: "Growth measurement", detail: `Weight ${patient.weight} recorded`, time: "22 Feb 2026", icon: TrendingUp, iconColor: "text-[#856404]" },
-                            ].map((item, i, arr) => (
-                                <div key={i} className={cn(
-                                    "flex items-start gap-3 py-3",
-                                    i < arr.length - 1 && "border-b border-border"
-                                )}>
-                                    <div className="flex items-center justify-center size-7 rounded-full bg-muted shrink-0 mt-0.5">
-                                        <item.icon className={cn("size-3.5", item.iconColor)} />
+                        {activityLog.length === 0 ? (
+                            <p className="text-xs text-muted-foreground text-center py-6">No activity recorded yet.</p>
+                        ) : (
+                            <div className="flex flex-col gap-0">
+                                {activityLog.map((entry, i) => (
+                                    <div key={entry.id} className={cn(
+                                        "flex items-start gap-3 py-3",
+                                        i < activityLog.length - 1 && "border-b border-border"
+                                    )}>
+                                        <div className="flex items-center justify-center size-7 rounded-full bg-muted shrink-0 mt-0.5">
+                                            <Activity className="size-3.5 text-primary" />
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-sm font-medium text-foreground">{entry.action}</p>
+                                            {entry.details && <p className="text-[11px] text-muted-foreground">{entry.details}</p>}
+                                            <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                                                {entry.actor} · {new Date(entry.timestamp).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                            </p>
+                                        </div>
+                                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 ${entry.category === "admission" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" :
+                                                entry.category === "discharge" ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" :
+                                                    entry.category === "billing" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" :
+                                                        entry.category === "vitals" ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" :
+                                                            entry.category === "pharmacy" ? "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300" :
+                                                                "bg-muted text-muted-foreground"
+                                            }`}>
+                                            {entry.category}
+                                        </span>
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium text-foreground">{item.label}</p>
-                                        <p className="text-[11px] text-muted-foreground">{item.detail}</p>
-                                    </div>
-                                    <span className="text-[11px] text-muted-foreground shrink-0">{item.time}</span>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
             </div>

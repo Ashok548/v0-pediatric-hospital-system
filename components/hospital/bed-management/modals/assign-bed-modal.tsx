@@ -1,14 +1,16 @@
 import { useState } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
-import { Bed } from "@/lib/data/mock-beds"
+import { Bed, Floor } from "@/lib/data/mock-floors"
 import { assignBed } from "@/lib/store/bed-store"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
 
 interface AssignBedModalProps {
     bed: Bed
+    floorId: string
     wardId: string
+    floors: Floor[]
     open: boolean
     onClose: () => void
 }
@@ -20,14 +22,14 @@ const mockPendingPatients = [
     { id: "PED-20260225", name: "Vikram Singh", reason: "Observation" }
 ]
 
-export function AssignBedModal({ bed, wardId, open, onClose }: AssignBedModalProps) {
+export function AssignBedModal({ bed, floorId, wardId, floors, open, onClose }: AssignBedModalProps) {
     const [selectedPatientId, setSelectedPatientId] = useState("")
 
     const handleAssign = () => {
         if (!selectedPatientId) return
         const pt = mockPendingPatients.find(p => p.id === selectedPatientId)
         if (!pt) return
-        assignBed(wardId, bed.id, pt.name, `ADM-${Date.now().toString().slice(-6)}`)
+        assignBed(floorId, wardId, bed.id, pt.name, `ADM-${Date.now().toString().slice(-6)}`)
         onClose()
     }
 
@@ -37,14 +39,19 @@ export function AssignBedModal({ bed, wardId, open, onClose }: AssignBedModalPro
                 <DialogHeader>
                     <DialogTitle>Assign Patient to Bed</DialogTitle>
                     <DialogDescription>
-                        Select a pending admission to assign to bed {bed.id}.
+                        Select a pending admission to assign to this bed.
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="grid gap-4 py-4">
                     <div className="grid gap-2">
-                        <Label>Target Bed</Label>
-                        <div className="text-sm font-medium p-2 bg-muted rounded-md">{bed.id}</div>
+                        <Label>Target Location</Label>
+                        <div className="text-sm border rounded-md p-3 bg-muted/30">
+                            <span className="font-semibold text-primary">{floors.find(f => f.id === floorId)?.name}</span> <br />
+                            <span className="text-muted-foreground mt-1 inline-block text-xs">
+                                {floors.find(f => f.id === floorId)?.wards.find(w => w.id === wardId)?.name} → Bed {bed.id}
+                            </span>
+                        </div>
                     </div>
 
                     <div className="grid gap-2">

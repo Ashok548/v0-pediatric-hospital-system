@@ -1,6 +1,6 @@
-import { Ward, Bed, BedStatus, initialWards } from "../data/mock-beds"
+import { Floor, Ward, Bed, BedStatus, initialFloors } from "../data/mock-floors"
 
-let _wards: Ward[] = [...initialWards]
+let _floors: Floor[] = [...initialFloors]
 let _listeners: (() => void)[] = []
 
 function _notify() {
@@ -14,31 +14,49 @@ export function subscribeBeds(callback: () => void) {
     }
 }
 
-export function getWards(): Ward[] {
-    return _wards
+export function getFloors(): Floor[] {
+    return _floors
 }
 
-export function getBedDetails(wardId: string, bedId: string): Bed | undefined {
-    const ward = _wards.find(w => w.id === wardId)
+export function getBedDetails(floorId: string, wardId: string, bedId: string): Bed | undefined {
+    const floor = _floors.find(f => f.id === floorId)
+    const ward = floor?.wards.find(w => w.id === wardId)
     return ward?.beds.find(b => b.id === bedId)
 }
 
-export function assignBed(wardId: string, bedId: string, patientName: string, admissionId: string) {
-    _wards = _wards.map(ward => {
-        if (ward.id !== wardId) return ward
+// Global lookup for backward compatibility in some components
+export function getBedDetailsGlobal(bedId: string): { bed: Bed, ward: Ward, floor: Floor } | undefined {
+    for (const floor of _floors) {
+        for (const ward of floor.wards) {
+            const bed = ward.beds.find(b => b.id === bedId)
+            if (bed) return { bed, ward, floor }
+        }
+    }
+    return undefined
+}
+
+export function assignBed(floorId: string, wardId: string, bedId: string, patientName: string, admissionId: string) {
+    _floors = _floors.map(floor => {
+        if (floor.id !== floorId) return floor
         return {
-            ...ward,
-            beds: ward.beds.map(bed => {
-                if (bed.id !== bedId) return bed
+            ...floor,
+            wards: floor.wards.map(ward => {
+                if (ward.id !== wardId) return ward
                 return {
-                    ...bed,
-                    status: "OCCUPIED" as BedStatus,
-                    patientName,
-                    admissionId,
-                    history: [
-                        { action: "ASSIGNED", timestamp: new Date().toISOString(), details: `Assigned to ${patientName}` },
-                        ...bed.history
-                    ]
+                    ...ward,
+                    beds: ward.beds.map(bed => {
+                        if (bed.id !== bedId) return bed
+                        return {
+                            ...bed,
+                            status: "Occupied" as BedStatus,
+                            patientName,
+                            admissionId,
+                            history: [
+                                { action: "Assigned", timestamp: new Date().toISOString(), details: `Assigned to ${patientName}` },
+                                ...bed.history
+                            ]
+                        }
+                    })
                 }
             })
         }
@@ -46,33 +64,40 @@ export function assignBed(wardId: string, bedId: string, patientName: string, ad
     _notify()
 }
 
-export function updateBedStatus(wardId: string, bedId: string, newStatus: BedStatus, notes?: string) {
-    _wards = _wards.map(ward => {
-        if (ward.id !== wardId) return ward
+export function updateBedStatus(floorId: string, wardId: string, bedId: string, newStatus: BedStatus, notes?: string) {
+    _floors = _floors.map(floor => {
+        if (floor.id !== floorId) return floor
         return {
-            ...ward,
-            beds: ward.beds.map(bed => {
-                if (bed.id !== bedId) return bed
-
-                const actionMap: Record<BedStatus, string> = {
-                    AVAILABLE: "MARKED_AVAILABLE",
-                    OCCUPIED: "MARKED_OCCUPIED",
-                    CLEANING: "MARKED_CLEANING",
-                    RESERVED: "RESERVED",
-                    MAINTENANCE: "MAINTENANCE"
-                }
-
-                const isAvailableNow = newStatus === "AVAILABLE"
-
+            ...floor,
+            wards: floor.wards.map(ward => {
+                if (ward.id !== wardId) return ward
                 return {
-                    ...bed,
-                    status: newStatus,
-                    patientName: isAvailableNow ? undefined : bed.patientName,
-                    admissionId: isAvailableNow ? undefined : bed.admissionId,
-                    history: [
-                        { action: actionMap[newStatus], timestamp: new Date().toISOString(), details: notes },
-                        ...bed.history
-                    ]
+                    ...ward,
+                    beds: ward.beds.map(bed => {
+                        if (bed.id !== bedId) return bed
+
+                        const actionMap: Record<BedStatus, string> = {
+                            "Available": "Marked Available",
+                            "Occupied": "Marked Occupied",
+                            "Cleaning": "Marked Cleaning",
+                            "Reserved": "Reserved",
+                            "Maintenance": "Maintenance"
+                        }
+
+                        // Clear patient data when bed becomes Available or Maintenance
+                        const shouldClearPatient = newStatus === "Available" || newStatus === "Maintenance"
+
+                        return {
+                            ...bed,
+                            status: newStatus,
+                            patientName: shouldClearPatient ? undefined : bed.patientName,
+                            admissionId: shouldClearPatient ? undefined : bed.admissionId,
+                            history: [
+                                { action: actionMap[newStatus], timestamp: new Date().toISOString(), details: notes },
+                                ...bed.history
+                            ]
+                        }
+                    })
                 }
             })
         }
@@ -80,50 +105,66 @@ export function updateBedStatus(wardId: string, bedId: string, newStatus: BedSta
     _notify()
 }
 
-export function transferBed(oldWardId: string, oldBedId: string, newWardId: string, newBedId: string, reason?: string) {
-    const oldBed = getBedDetails(oldWardId, oldBedId)
+export function transferBed(oldFloorId: string, oldWardId: string, oldBedId: string, newFloorId: string, newWardId: string, newBedId: string, reason?: string) {
+    const oldBed = getBedDetails(oldFloorId, oldWardId, oldBedId)
     if (!oldBed || !oldBed.patientName || !oldBed.admissionId) return
 
-    // Need to atomic operation across two wards potentially
-    _wards = _wards.map(ward => {
-        // Process removals from old ward
-        let updatedWard = { ...ward }
-        if (ward.id === oldWardId) {
-            updatedWard.beds = updatedWard.beds.map(bed => {
-                if (bed.id !== oldBedId) return bed
+    // Atomic operation across potentially different floors
+    _floors = _floors.map(floor => {
+        let updatedFloor = { ...floor }
+
+        // Needs clearing old bed?
+        if (floor.id === oldFloorId) {
+            updatedFloor.wards = updatedFloor.wards.map(ward => {
+                if (ward.id !== oldWardId) return ward
                 return {
-                    ...bed,
-                    status: "CLEANING" as BedStatus, // Assuming it goes strictly to cleaning after transfer
-                    patientName: undefined,
-                    admissionId: undefined,
-                    nicuData: undefined,
-                    history: [
-                        { action: "TRANSFERRED_OUT", timestamp: new Date().toISOString(), details: `Transferred to ${newBedId}` },
-                        ...bed.history
-                    ]
+                    ...ward,
+                    beds: ward.beds.map(bed => {
+                        if (bed.id !== oldBedId) return bed
+                        return {
+                            ...bed,
+                            status: "Cleaning" as BedStatus,
+                            patientName: undefined,
+                            admissionId: undefined,
+                            nicuData: undefined,
+                            history: [
+                                { action: "Transferred Out", timestamp: new Date().toISOString(), details: `Transferred to ${newBedId}` },
+                                ...bed.history
+                            ]
+                        }
+                    })
                 }
             })
         }
 
-        // Process additions to new ward
-        if (ward.id === newWardId) {
-            updatedWard.beds = updatedWard.beds.map(bed => {
-                if (bed.id !== newBedId) return bed
+        // Needs occupying new bed?
+        if (floor.id === newFloorId) {
+            // Re-fetch wards to ensure we don't overwrite if source and target are on same floor
+            const targetWards = updatedFloor.id === oldFloorId ? updatedFloor.wards : floor.wards
+
+            updatedFloor.wards = targetWards.map(ward => {
+                if (ward.id !== newWardId) return ward
                 return {
-                    ...bed,
-                    status: "OCCUPIED" as BedStatus,
-                    patientName: oldBed.patientName,
-                    admissionId: oldBed.admissionId,
-                    nicuData: oldBed.nicuData,
-                    history: [
-                        { action: "TRANSFERRED_IN", timestamp: new Date().toISOString(), details: `Transferred from ${oldBedId}. Reason: ${reason || 'N/A'}` },
-                        ...bed.history
-                    ]
+                    ...ward,
+                    beds: ward.beds.map(bed => {
+                        if (bed.id !== newBedId) return bed
+                        return {
+                            ...bed,
+                            status: "Occupied" as BedStatus,
+                            patientName: oldBed.patientName,
+                            admissionId: oldBed.admissionId,
+                            nicuData: oldBed.nicuData,
+                            history: [
+                                { action: "Transferred In", timestamp: new Date().toISOString(), details: `Transferred from ${oldBedId}. Reason: ${reason || 'N/A'}` },
+                                ...bed.history
+                            ]
+                        }
+                    })
                 }
             })
         }
 
-        return updatedWard
+        return updatedFloor
     })
     _notify()
 }

@@ -15,21 +15,26 @@ import {
   Heart,
   ClipboardList,
   BedDouble,
+  Stethoscope,
+  Pill,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { useAuthStore } from "@/lib/store/auth-store"
 
-const navItems = [
-  { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
-  { label: "Patients", icon: Users, href: "/patients" },
-  { label: "NICU", icon: Baby, href: "/nicu" },
-  { label: "Appointments", icon: CalendarDays, href: "/appointments" },
-  { label: "Admissions", icon: ClipboardList, href: "/admissions" },
-  { label: "Beds", icon: BedDouble, href: "/beds" },
-  { label: "Lab", icon: FlaskConical, href: "/lab" },
-  { label: "Billing", icon: CreditCard, href: "/billing" },
-  { label: "Vaccination", icon: Syringe, href: "/vaccination" },
-  { label: "Reports", icon: BarChart3, href: "/reports" },
-  { label: "Settings", icon: Settings, href: "/settings" },
+const ALL_NAV_ITEMS = [
+  { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", feature: "dashboard" },
+  { label: "Patients", icon: Users, href: "/patients", feature: "patients" },
+  { label: "NICU", icon: Baby, href: "/nicu", feature: "nicu" },
+  { label: "Appointments", icon: CalendarDays, href: "/appointments", feature: "appointments" },
+  { label: "Admissions", icon: ClipboardList, href: "/admissions", feature: "admissions" },
+  { label: "Nursing", icon: Stethoscope, href: "/nursing", feature: "nursing" },
+  { label: "Beds", icon: BedDouble, href: "/beds", feature: "beds" },
+  { label: "Pharmacy", icon: Pill, href: "/pharmacy", feature: "pharmacy" },
+  { label: "Lab", icon: FlaskConical, href: "/lab", feature: "lab" },
+  { label: "Billing", icon: CreditCard, href: "/billing", feature: "billing" },
+  { label: "Vaccination", icon: Syringe, href: "/vaccination", feature: "vaccination" },
+  { label: "Reports", icon: BarChart3, href: "/reports", feature: "reports" },
+  { label: "Settings", icon: Settings, href: "/settings", feature: "settings" },
 ]
 
 interface MobileSidebarProps {
@@ -39,6 +44,8 @@ interface MobileSidebarProps {
 }
 
 export function MobileSidebar({ open, onClose, activeItem = "Dashboard" }: MobileSidebarProps) {
+  const { canAccess } = useAuthStore()
+  const navItems = ALL_NAV_ITEMS.filter(item => canAccess(item.feature))
   return (
     <>
       {/* Overlay */}
