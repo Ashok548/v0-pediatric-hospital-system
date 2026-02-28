@@ -15,6 +15,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Heart,
+  ClipboardList,
+  BedDouble,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import {
@@ -29,6 +31,8 @@ const navItems = [
   { label: "Patients", icon: Users, href: "/patients" },
   { label: "NICU", icon: Baby, href: "/nicu" },
   { label: "Appointments", icon: CalendarDays, href: "/appointments" },
+  { label: "Admissions", icon: ClipboardList, href: "/admissions" },
+  { label: "Beds", icon: BedDouble, href: "/beds" },
   { label: "Lab", icon: FlaskConical, href: "/lab" },
   { label: "Billing", icon: CreditCard, href: "/billing" },
   { label: "Vaccination", icon: Syringe, href: "/vaccination" },
