@@ -37,6 +37,23 @@ let FloorsService = class FloorsService {
         ]);
         return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
     }
+    async findHierarchy() {
+        return database_1.prisma.floor.findMany({
+            where: { status: "ACTIVE" },
+            orderBy: { floorNumber: "asc" },
+            include: {
+                wards: {
+                    where: { status: "ACTIVE" },
+                    orderBy: { name: "asc" },
+                    include: {
+                        beds: {
+                            orderBy: { bedNumber: "asc" },
+                        },
+                    },
+                },
+            },
+        });
+    }
     async findOne(id) {
         const floor = await database_1.prisma.floor.findUnique({
             where: { id },

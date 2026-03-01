@@ -1,12 +1,12 @@
 "use client"
 
 import { useEffect, useRef } from "react"
-import { Ward } from "@/lib/data/mock-floors"
+import type { ApiWardWithBeds } from "@/lib/types/admission"
 import { cn } from "@/lib/utils"
 import { Card, CardContent } from "@/components/ui/card"
 
 interface WardListProps {
-    wards: Ward[]
+    wards: ApiWardWithBeds[]
     activeWardId: string | undefined
     onSelectWard: (id: string) => void
 }
@@ -24,7 +24,7 @@ export function WardList({ wards, activeWardId, onSelectWard }: WardListProps) {
             <h3 className="font-semibold text-sm mb-1">Select Ward</h3>
             {wards.map((ward) => {
                 const isActive = activeWardId === ward.id
-                const occupiedCount = ward.beds.filter(b => b.status === "Occupied").length
+                const occupiedCount = ward.beds.filter(b => b.status === "OCCUPIED").length
                 // Fix #1 — Use live bed count, not static totalBeds
                 const occupancyRate = ward.beds.length > 0 ? (occupiedCount / ward.beds.length) * 100 : 0
 
@@ -48,8 +48,8 @@ export function WardList({ wards, activeWardId, onSelectWard }: WardListProps) {
                                         "text-[10px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded",
                                         ward.type === "NICU" ? "bg-purple-100 text-purple-700" :
                                             ward.type === "PICU" ? "bg-amber-100 text-amber-700" :
-                                                ward.type === "Surgical" ? "bg-red-100 text-red-700" :
-                                                    ward.type === "Private" ? "bg-indigo-100 text-indigo-700" :
+                                                ward.type === "SURGICAL" ? "bg-red-100 text-red-700" :
+                                                    ward.type === "PRIVATE" ? "bg-indigo-100 text-indigo-700" :
                                                         "bg-blue-100 text-blue-700"
                                     )}>
                                         {ward.type}

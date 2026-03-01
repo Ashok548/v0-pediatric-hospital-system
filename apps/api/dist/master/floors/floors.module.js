@@ -15,7 +15,7 @@ let FloorsModule = class FloorsModule {
 exports.FloorsModule = FloorsModule;
 exports.FloorsModule = FloorsModule = __decorate([
     (0, common_1.Module)({
-        controllers: [floors_controller_1.FloorsController],
+        controllers: [floors_controller_1.FloorsController, floors_controller_1.BedsHierarchyController],
         providers: [floors_service_1.FloorsService],
         exports: [floors_service_1.FloorsService],
     })

@@ -13,4 +13,8 @@ export class UpdateBedDto {
     @IsOptional()
     @IsEnum(["AVAILABLE", "OCCUPIED", "CLEANING", "RESERVED", "MAINTENANCE"])
     status?: "AVAILABLE" | "OCCUPIED" | "CLEANING" | "RESERVED" | "MAINTENANCE";
+
+    @IsOptional()
+    @IsString()
+    notes?: string;
 }

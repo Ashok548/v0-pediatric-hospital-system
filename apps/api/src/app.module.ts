@@ -9,8 +9,12 @@ import { MasterModule } from "./master/master.module";
 import { JwtAuthGuard } from "./auth/guards/jwt-auth.guard";
 import { RolesGuard } from "./auth/guards/roles.guard";
 import { ConfigModule } from '@nestjs/config';
+import { PatientsModule } from './patients/patients.module';
+import { AdmissionsModule } from './admissions/admissions.module';
+import { NicuModule } from './nicu/nicu.module';
+import { GrowthModule } from './growth/growth.module';
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule],
   controllers: [AppController],
   providers: [
     AppService,

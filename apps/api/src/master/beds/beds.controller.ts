@@ -34,6 +34,7 @@ export class BedsController {
     }
 
     @Patch(":id")
+    @Roles("ADMIN", "DOCTOR", "NURSE")
     update(
         @Param("id", ParseUUIDPipe) id: string,
         @Body() dto: UpdateBedDto,

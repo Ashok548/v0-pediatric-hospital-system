@@ -25,11 +25,16 @@ export function useMutation<TData = any, TVariables = any>(
         const url = typeof endpoint === "function" ? endpoint(variables as TVariables) : endpoint;
 
         try {
-            const data = await apiClient<TData>(url, {
-                method,
-                // Only attach body for POST/PATCH/PUT
-                body: ["POST", "PATCH", "PUT"].includes(method) && variables ? JSON.stringify(variables) : undefined,
-            });
+            // FIX: FormData-aware body serialization.
+            // Passing FormData through JSON.stringify would corrupt it — detect and pass as-is.
+            let body: BodyInit | undefined;
+            if (["POST", "PATCH", "PUT"].includes(method) && variables !== undefined) {
+                body = variables instanceof FormData
+                    ? variables
+                    : JSON.stringify(variables);
+            }
+
+            const data = await apiClient<TData>(url, { method, body });
 
             if (options?.successMessage) {
                 toast({
@@ -54,7 +59,12 @@ export function useMutation<TData = any, TVariables = any>(
             }
 
             options?.onError?.(err);
-            throw err; // Re-throw so caller can await and catch if needed
+
+            // FIX: Do NOT re-throw. Components use onSuccess/onError callbacks or
+            // check the returned `undefined` value. Re-throwing causes unhandled
+            // promise rejections in components that call `await trigger()` without
+            // their own try/catch (which is the entire point of this abstraction).
+            return undefined;
         } finally {
             setIsMutating(false);
         }

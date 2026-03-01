@@ -10,6 +10,7 @@ export declare class FloorsService {
         limit: number;
         totalPages: number;
     }>;
+    findHierarchy(): Promise<any>;
     findOne(id: string): Promise<any>;
     update(id: string, dto: UpdateFloorDto): Promise<any>;
     softDelete(id: string): Promise<any>;

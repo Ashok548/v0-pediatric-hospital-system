@@ -11,6 +11,19 @@ import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "../../auth/guards/roles.guard";
 import { Roles } from "../../auth/decorators/roles.decorator";
 
+// ─── Public hierarchy endpoint (any logged-in user) ──────────────────────────
+@UseGuards(JwtAuthGuard)
+@Controller("beds")
+export class BedsHierarchyController {
+    constructor(private floorsService: FloorsService) { }
+
+    @Get("hierarchy")
+    getHierarchy() {
+        return this.floorsService.findHierarchy();
+    }
+}
+
+// ─── Admin-only master CRUD ───────────────────────────────────────────────────
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles("ADMIN")
 @Controller("master/floors")

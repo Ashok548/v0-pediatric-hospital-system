@@ -1,4 +1,6 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/api` : "http://localhost:4000/api";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
+    ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, "")}/api`
+    : "http://localhost:4000/api";
 
 export class ApiError extends Error {
     constructor(
@@ -17,8 +19,9 @@ export class ApiError extends Error {
  * 2. JWT Cookie injection — the `access_token` HttpOnly cookie is stored by the
  *    login Server Action and automatically sent by the browser via credentials:"include"
  * 3. 401 Unauthorized handling (SSR-safe redirect to /login)
- * 4. Standardized JSON response parsing and error throwing
- * 5. FormData-safe Content-Type (never overrides multipart boundary)
+ * 4. 204 No Content early-return (avoids casting empty text as T)
+ * 5. Standardized JSON response parsing and error throwing
+ * 6. FormData-safe Content-Type (never overrides multipart boundary)
  */
 export async function apiClient<T>(
     endpoint: string,
@@ -50,8 +53,14 @@ export async function apiClient<T>(
         throw new ApiError(401, "Session expired. Please log in again.");
     }
 
-    // Parse JSON, handle empty responses (204 No Content) gracefully
-    let data;
+    // FIX: 204 No Content — DELETE/PATCH operations often return no body.
+    // Trying to parse an empty response as JSON would throw a SyntaxError.
+    if (response.status === 204) {
+        return undefined as unknown as T;
+    }
+
+    // Parse JSON, handle plain-text responses gracefully
+    let data: any;
     const contentType = response.headers.get("content-type");
     if (contentType && contentType.includes("application/json")) {
         data = await response.json();

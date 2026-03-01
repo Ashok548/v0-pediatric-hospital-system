@@ -1,17 +1,18 @@
 "use client"
 
 import { useState } from "react"
-import { useAdmissionStore, type DischargeClearance } from "@/lib/store/admission-store"
-import { DischargeType, type Admission } from "@/lib/data/admissions"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
-import { CheckCircle, Circle, Clock, Stethoscope, Pill, CreditCard, LogOut } from "lucide-react"
+import { CheckCircle, Circle, Clock, Stethoscope, Pill, CreditCard, LogOut, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
+import { updateDischargeClearance, finalizeDischarge, useAdmission } from "@/lib/api/admissions"
+import type { ApiAdmission, DischargeType } from "@/lib/types/admission"
 
 interface StepConfig {
     id: string
@@ -27,35 +28,43 @@ const STEPS: StepConfig[] = [
     { id: "finalize", label: "Finalize Discharge", icon: <LogOut className="h-5 w-5" />, description: "Complete discharge with type and summary" },
 ]
 
-function getActiveStep(dc: DischargeClearance): number {
-    if (!dc.clinicalCleared) return 0
-    if (!dc.pharmacyCleared) return 1
-    if (!dc.billingCleared) return 2
-    if (dc.status !== "completed") return 3
-    return 4 // all done
+function getActiveStep(adm: ApiAdmission): number {
+    if (!adm.clinicalCleared) return 0
+    if (!adm.pharmacyCleared) return 1
+    if (!adm.billingCleared) return 2
+    if (adm.dischargeStatus !== "COMPLETED") return 3
+    return 4
 }
 
-interface Props { admission: Admission; onDone?: () => void }
+interface Props { admission: ApiAdmission; onDone?: () => void }
 
-export function DischargeClearanceStepper({ admission, onDone }: Props) {
-    const {
-        initiateDischargeClearance,
-        setClinicalClearance,
-        setPharmacyClearance,
-        setBillingClearance,
-        finalizeDischarge,
-    } = useAdmissionStore()
+export function DischargeClearanceStepper({ admission: initialAdmission, onDone }: Props) {
+    const router = useRouter()
+    const [submitting, setSubmitting] = useState(false)
+
+    // Always fetch fresh data so the stepper reflects realtime state
+    const { admission, mutate } = useAdmission(initialAdmission.id)
+    const adm = admission ?? initialAdmission
 
     const [clinicalNote, setClinicalNote] = useState("")
-    const [clinicalBy, setClinicalBy] = useState("")
-    const [pharmacyBy, setPharmacyBy] = useState("")
-    const [billingBy, setBillingBy] = useState("")
-    const [dischargeType, setDischargeType] = useState<DischargeType>(DischargeType.NORMAL)
+    const [dischargeType, setDischargeType] = useState<DischargeType>("NORMAL")
     const [finalSummary, setFinalSummary] = useState("")
-    const [finalBy, setFinalBy] = useState("")
 
-    const dc: DischargeClearance | null = admission.discharge as DischargeClearance | null
-    const hasStarted = dc && dc.clinicalCleared !== undefined
+    const hasStarted = adm.dischargeStatus != null
+    const isComplete = adm.dischargeStatus === "COMPLETED" || adm.status === "DISCHARGED"
+    const activeStep = isComplete ? 4 : getActiveStep(adm)
+
+    const runStep = async (fn: () => Promise<void>) => {
+        setSubmitting(true)
+        try {
+            await fn()
+            await mutate()
+        } catch (err: any) {
+            toast.error(err.message ?? "Operation failed")
+        } finally {
+            setSubmitting(false)
+        }
+    }
 
     if (!hasStarted) {
         return (
@@ -65,15 +74,19 @@ export function DischargeClearanceStepper({ admission, onDone }: Props) {
                 <p className="text-sm text-muted-foreground text-center max-w-sm">
                     Initiating discharge will start the multi-department clearance workflow.
                 </p>
-                <Button onClick={() => { initiateDischargeClearance(admission.id); toast.info("Discharge clearance initiated") }}>
+                <Button
+                    disabled={submitting}
+                    onClick={() => runStep(async () => {
+                        await updateDischargeClearance(adm.id, { step: "clinical", note: "" })
+                        toast.info("Discharge clearance initiated")
+                    })}
+                >
+                    {submitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                     Initiate Discharge Clearance
                 </Button>
             </div>
         )
     }
-
-    const activeStep = getActiveStep(dc)
-    const isComplete = dc.status === "completed"
 
     return (
         <div className="space-y-6">
@@ -114,8 +127,10 @@ export function DischargeClearanceStepper({ admission, onDone }: Props) {
                     <CardContent className="pt-5 text-center space-y-2">
                         <CheckCircle className="h-10 w-10 mx-auto text-green-600" />
                         <p className="font-semibold text-green-800 dark:text-green-300 text-lg">Patient Discharged</p>
-                        <p className="text-sm text-muted-foreground">{dc.finalSummary}</p>
-                        <p className="text-xs text-muted-foreground">Type: {dc.type} · By: {/* finalizedBy not stored yet */} </p>
+                        <p className="text-sm text-muted-foreground">{adm.dischargeSummary}</p>
+                        <p className="text-xs text-muted-foreground">
+                            Type: {adm.dischargeType} · Discharged: {adm.dischargeDate ? new Date(adm.dischargeDate).toLocaleString("en-IN") : "—"}
+                        </p>
                     </CardContent>
                 </Card>
             )}
@@ -128,30 +143,26 @@ export function DischargeClearanceStepper({ admission, onDone }: Props) {
                             <p className="font-medium">Clinical Clearance</p>
                             <p className="text-sm text-muted-foreground">Confirm patient is clinically stable and ready for discharge.</p>
                         </div>
-                        <div className="grid gap-3">
-                            <div className="space-y-1">
-                                <Label>Doctor Name</Label>
-                                <Input value={clinicalBy} onChange={e => setClinicalBy(e.target.value)} placeholder="e.g. Dr. Priya Reddy" />
-                            </div>
-                            <div className="space-y-1">
-                                <Label>Clinical Discharge Note</Label>
-                                <Textarea
-                                    value={clinicalNote}
-                                    onChange={e => setClinicalNote(e.target.value)}
-                                    placeholder="Condition stable, treatment complete..."
-                                    rows={3}
-                                />
-                            </div>
+                        <div className="space-y-1">
+                            <Label>Clinical Discharge Note</Label>
+                            <Textarea
+                                value={clinicalNote}
+                                onChange={e => setClinicalNote(e.target.value)}
+                                placeholder="Condition stable, treatment complete..."
+                                rows={3}
+                            />
                         </div>
                         <Button
-                            disabled={!clinicalNote || !clinicalBy}
-                            onClick={() => {
-                                setClinicalClearance(admission.id, clinicalNote, clinicalBy)
+                            disabled={!clinicalNote || submitting}
+                            onClick={() => runStep(async () => {
+                                await updateDischargeClearance(adm.id, { step: "clinical", note: clinicalNote })
                                 toast.success("Clinical clearance granted")
-                            }}
+                                setClinicalNote("")
+                            })}
                             className="gap-2"
                         >
-                            <CheckCircle className="h-4 w-4" /> Grant Clinical Clearance
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                            Grant Clinical Clearance
                         </Button>
                     </CardContent>
                 </Card>
@@ -165,22 +176,19 @@ export function DischargeClearanceStepper({ admission, onDone }: Props) {
                             <p className="font-medium">Pharmacy Clearance</p>
                             <p className="text-sm text-muted-foreground">Confirm no pending medications or returns for this patient.</p>
                         </div>
-                        <div className="space-y-1">
-                            <Label>Pharmacist Name</Label>
-                            <Input value={pharmacyBy} onChange={e => setPharmacyBy(e.target.value)} placeholder="e.g. Pharmacist Suresh" />
-                        </div>
                         <div className="text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded-md px-3 py-2.5">
                             ✓ All prescriptions have been verified as dispensed or cancelled.
                         </div>
                         <Button
-                            disabled={!pharmacyBy}
-                            onClick={() => {
-                                setPharmacyClearance(admission.id, pharmacyBy)
+                            disabled={submitting}
+                            onClick={() => runStep(async () => {
+                                await updateDischargeClearance(adm.id, { step: "pharmacy" })
                                 toast.success("Pharmacy clearance granted")
-                            }}
+                            })}
                             className="gap-2"
                         >
-                            <CheckCircle className="h-4 w-4" /> Grant Pharmacy Clearance
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                            Grant Pharmacy Clearance
                         </Button>
                     </CardContent>
                 </Card>
@@ -192,24 +200,21 @@ export function DischargeClearanceStepper({ admission, onDone }: Props) {
                     <CardContent className="pt-5 space-y-4">
                         <div>
                             <p className="font-medium">Billing Clearance</p>
-                            <p className="text-sm text-muted-foreground">Confirm all dues are settled. This will move the IP bill to Pending Settlement.</p>
-                        </div>
-                        <div className="space-y-1">
-                            <Label>Billing Clerk Name</Label>
-                            <Input value={billingBy} onChange={e => setBillingBy(e.target.value)} placeholder="e.g. Ravi Shankar" />
+                            <p className="text-sm text-muted-foreground">Confirm all dues are settled.</p>
                         </div>
                         <div className="text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded-md px-3 py-2.5">
                             Bill will move to "Pending Settlement" status automatically on clearance.
                         </div>
                         <Button
-                            disabled={!billingBy}
-                            onClick={() => {
-                                setBillingClearance(admission.id, billingBy)
+                            disabled={submitting}
+                            onClick={() => runStep(async () => {
+                                await updateDischargeClearance(adm.id, { step: "billing" })
                                 toast.success("Billing clearance granted")
-                            }}
+                            })}
                             className="gap-2"
                         >
-                            <CheckCircle className="h-4 w-4" /> Grant Billing Clearance
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                            Grant Billing Clearance
                         </Button>
                     </CardContent>
                 </Card>
@@ -229,10 +234,10 @@ export function DischargeClearanceStepper({ admission, onDone }: Props) {
                                 <Select value={dischargeType} onValueChange={v => setDischargeType(v as DischargeType)}>
                                     <SelectTrigger><SelectValue /></SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value={DischargeType.NORMAL}>Normal</SelectItem>
-                                        <SelectItem value={DischargeType.LAMA}>LAMA (Left Against Medical Advice)</SelectItem>
-                                        <SelectItem value={DischargeType.REFERRED}>Referred</SelectItem>
-                                        <SelectItem value={DischargeType.EXPIRED}>Expired</SelectItem>
+                                        <SelectItem value="NORMAL">Normal</SelectItem>
+                                        <SelectItem value="LAMA">LAMA (Left Against Medical Advice)</SelectItem>
+                                        <SelectItem value="REFERRED">Referred</SelectItem>
+                                        <SelectItem value="EXPIRED">Expired</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -245,38 +250,32 @@ export function DischargeClearanceStepper({ admission, onDone }: Props) {
                                     rows={4}
                                 />
                             </div>
-                            <div className="space-y-1">
-                                <Label>Finalized By</Label>
-                                <Input value={finalBy} onChange={e => setFinalBy(e.target.value)} placeholder="Name / Designation" />
-                            </div>
                         </div>
                         <Button
-                            disabled={!finalSummary || !finalBy}
+                            disabled={!finalSummary || submitting}
                             variant="destructive"
-                            onClick={() => {
-                                const result = finalizeDischarge(admission.id, dischargeType, finalSummary, finalBy)
-                                if (result.success) {
-                                    toast.success("Patient discharged successfully")
-                                    onDone?.()
-                                } else {
-                                    toast.error(result.error ?? "Finalization failed")
-                                }
-                            }}
+                            onClick={() => runStep(async () => {
+                                await finalizeDischarge(adm.id, { dischargeType, dischargeSummary: finalSummary })
+                                toast.success("Patient discharged successfully")
+                                onDone?.()
+                                router.push("/admissions")
+                            })}
                             className="gap-2"
                         >
-                            <LogOut className="h-4 w-4" /> Finalize & Discharge Patient
+                            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
+                            Finalize & Discharge Patient
                         </Button>
                     </CardContent>
                 </Card>
             )}
 
-            {/* Clearance status summary */}
+            {/* Clearance summary badges */}
             {!isComplete && hasStarted && (
                 <div className="grid grid-cols-3 gap-3 text-sm">
                     {[
-                        { label: "Clinical", done: dc.clinicalCleared, by: dc.clinicalClearedBy },
-                        { label: "Pharmacy", done: dc.pharmacyCleared, by: dc.pharmacyClearedBy },
-                        { label: "Billing", done: dc.billingCleared, by: dc.billingClearedBy },
+                        { label: "Clinical", done: adm.clinicalCleared, by: adm.clinicalClearedBy },
+                        { label: "Pharmacy", done: adm.pharmacyCleared, by: adm.pharmacyClearedBy },
+                        { label: "Billing", done: adm.billingCleared, by: adm.billingClearedBy },
                     ].map(({ label, done, by }) => (
                         <div key={label} className={cn(
                             "rounded-lg px-3 py-2 text-xs border",

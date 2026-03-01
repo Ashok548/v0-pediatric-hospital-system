@@ -1,11 +1,11 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { Floor } from "@/lib/data/mock-floors"
+import type { ApiFloorWithWards } from "@/lib/types/admission"
 import { Building2 } from "lucide-react"
 
 interface FloorSelectorProps {
-    floors: Floor[]
+    floors: ApiFloorWithWards[]
     activeFloorId: string
     onSelectFloor: (id: string) => void
 }
@@ -15,7 +15,7 @@ export function FloorSelector({ floors, activeFloorId, onSelectFloor }: FloorSel
         <div className="flex w-full items-center gap-2 overflow-x-auto pb-2 border-b">
             {floors.map((floor) => {
                 const allBeds = floor.wards.flatMap(w => w.beds)
-                const availableCount = allBeds.filter(b => b.status === "Available").length
+                const availableCount = allBeds.filter(b => b.status === "AVAILABLE").length
                 const isActive = activeFloorId === floor.id
 
                 return (

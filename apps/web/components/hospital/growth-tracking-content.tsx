@@ -1,385 +1,340 @@
 "use client"
 
-import { useState } from "react"
-import {
-  Baby,
-  Ruler,
-  Weight,
-  CircleDot,
-  AlertTriangle,
-  ArrowLeft,
-  Printer,
-  Download,
-  CalendarDays,
-  User2,
-  Stethoscope,
-} from "lucide-react"
-import Link from "next/link"
-import { cn } from "@/lib/utils"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import React, { useState } from "react"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer,
+} from "recharts"
 import {
-  GrowthPercentileChart,
-  type GrowthDataPoint,
-} from "./growth-percentile-chart"
+  TrendingUp, Plus, Search, Trash2, Baby, Scale, Ruler,
+  ChevronDown, ChevronUp, Info, Circle,
+} from "lucide-react"
+import { usePatients } from "@/lib/api/patients"
+import { usePatientGrowth, useAddGrowthRecord, deleteGrowthRecord } from "@/lib/api/nicu"
+import type { ApiGrowthRecord, CreateGrowthRecordPayload } from "@/lib/types/nicu"
+import { toast } from "sonner"
 
-// ─── Patient Info ─────────────────────────────────────────────
-const patient = {
-  id: "PED-20240318",
-  name: "Arya Sharma",
-  dob: "Mar 18, 2025",
-  age: "11 months",
-  gender: "Female",
-  bloodGroup: "B+",
-  doctor: "Dr. Priya Reddy",
-  lastVisit: "Feb 20, 2026",
-  nextVisit: "Mar 20, 2026",
+// ─── WHO Weight-for-Age Percentile Reference (boys 0-24 months) ──────────────
+// 3rd / 15th / 50th / 85th / 97th percentiles (kg)
+// Source: WHO Child Growth Standards 2006
+const WHO_WEIGHT_BOYS = [
+  { month: 0, p3: 2.5, p15: 2.9, p50: 3.3, p85: 3.9, p97: 4.3 },
+  { month: 1, p3: 3.4, p15: 3.9, p50: 4.5, p85: 5.1, p97: 5.7 },
+  { month: 2, p3: 4.4, p15: 5.1, p50: 5.6, p85: 6.3, p97: 7.0 },
+  { month: 3, p3: 5.1, p15: 5.8, p50: 6.4, p85: 7.2, p97: 7.9 },
+  { month: 4, p3: 5.6, p15: 6.3, p50: 7.0, p85: 7.8, p97: 8.7 },
+  { month: 5, p3: 6.1, p15: 6.9, p50: 7.5, p85: 8.4, p97: 9.3 },
+  { month: 6, p3: 6.4, p15: 7.1, p50: 7.9, p85: 8.8, p97: 9.7 },
+  { month: 9, p3: 7.1, p15: 8.0, p50: 8.9, p85: 9.9, p97: 10.9 },
+  { month: 12, p3: 7.7, p15: 8.6, p50: 9.6, p85: 10.8, p97: 11.8 },
+  { month: 15, p3: 8.2, p15: 9.2, p50: 10.3, p85: 11.5, p97: 12.6 },
+  { month: 18, p3: 8.7, p15: 9.7, p50: 10.9, p85: 12.2, p97: 13.4 },
+  { month: 21, p3: 9.1, p15: 10.2, p50: 11.5, p85: 12.8, p97: 14.2 },
+  { month: 24, p3: 9.7, p15: 10.8, p50: 12.2, p85: 13.6, p97: 15.0 },
+]
+
+function buildChartData(records: ApiGrowthRecord[]) {
+  const patientByMonth = new Map<number, number | undefined>()
+  records.forEach(r => {
+    if (r.weight != null) patientByMonth.set(r.ageMonths, Number(r.weight))
+  })
+  const allMonths = new Set([...WHO_WEIGHT_BOYS.map(d => d.month), ...patientByMonth.keys()])
+  const whoMap = new Map(WHO_WEIGHT_BOYS.map(d => [d.month, d]))
+  return [...allMonths].sort((a, b) => a - b).map(m => ({
+    month: m,
+    ...(whoMap.get(m) ?? {}),
+    patWeight: patientByMonth.get(m),
+  }))
 }
 
-// ─── WHO-aligned data ─────────────────────────────────────────
-// Weight-for-age (kg) -- Girls 0-12 months  (WHO 2006 standards)
-const weightData: GrowthDataPoint[] = [
-  { month: 0, value: 3.2, p3: 2.4, p15: 2.8, p50: 3.2, p85: 3.7, p97: 4.2 },
-  { month: 1, value: 3.8, p3: 3.2, p15: 3.6, p50: 4.2, p85: 4.8, p97: 5.4 },
-  { month: 2, value: 4.6, p3: 3.9, p15: 4.4, p50: 5.1, p85: 5.8, p97: 6.5 },
-  { month: 3, value: 5.2, p3: 4.5, p15: 5.1, p50: 5.8, p85: 6.6, p97: 7.4 },
-  { month: 4, value: 5.7, p3: 5.0, p15: 5.6, p50: 6.4, p85: 7.3, p97: 8.1 },
-  { month: 5, value: 6.1, p3: 5.4, p15: 6.1, p50: 6.9, p85: 7.8, p97: 8.7 },
-  { month: 6, value: 6.3, p3: 5.7, p15: 6.4, p50: 7.3, p85: 8.2, p97: 9.2 },
-  { month: 7, value: 6.6, p3: 6.0, p15: 6.7, p50: 7.6, p85: 8.6, p97: 9.6 },
-  { month: 8, value: 6.8, p3: 6.2, p15: 7.0, p50: 7.9, p85: 9.0, p97: 10.0 },
-  { month: 9, value: 7.0, p3: 6.4, p15: 7.2, p50: 8.2, p85: 9.3, p97: 10.4 },
-  { month: 10, value: 7.1, p3: 6.5, p15: 7.4, p50: 8.5, p85: 9.6, p97: 10.7 },
-  { month: 11, value: 7.2, p3: 6.7, p15: 7.6, p50: 8.7, p85: 9.9, p97: 11.0 },
-]
-
-// Length-for-age (cm) -- Girls 0-12 months
-const heightData: GrowthDataPoint[] = [
-  { month: 0, value: 49.0, p3: 45.4, p15: 47.3, p50: 49.1, p85: 51.0, p97: 52.9 },
-  { month: 1, value: 52.5, p3: 49.8, p15: 51.3, p50: 53.7, p85: 55.6, p97: 57.6 },
-  { month: 2, value: 55.8, p3: 53.0, p15: 54.7, p50: 57.1, p85: 59.1, p97: 61.1 },
-  { month: 3, value: 58.5, p3: 55.6, p15: 57.4, p50: 59.8, p85: 61.9, p97: 63.9 },
-  { month: 4, value: 60.2, p3: 57.8, p15: 59.6, p50: 62.1, p85: 64.2, p97: 66.3 },
-  { month: 5, value: 62.5, p3: 59.6, p15: 61.5, p50: 64.0, p85: 66.2, p97: 68.2 },
-  { month: 6, value: 64.0, p3: 61.2, p15: 63.2, p50: 65.7, p85: 67.8, p97: 70.0 },
-  { month: 7, value: 65.2, p3: 62.7, p15: 64.6, p50: 67.3, p85: 69.4, p97: 71.6 },
-  { month: 8, value: 66.4, p3: 64.0, p15: 66.0, p50: 68.7, p85: 70.9, p97: 73.2 },
-  { month: 9, value: 67.5, p3: 65.3, p15: 67.3, p50: 70.1, p85: 72.3, p97: 74.5 },
-  { month: 10, value: 68.2, p3: 66.5, p15: 68.5, p50: 71.5, p85: 73.7, p97: 75.9 },
-  { month: 11, value: 69.0, p3: 67.7, p15: 69.7, p50: 72.8, p85: 75.0, p97: 77.2 },
-]
-
-// Head circumference-for-age (cm) -- Girls 0-12 months
-const hcData: GrowthDataPoint[] = [
-  { month: 0, value: 33.5, p3: 31.5, p15: 32.7, p50: 33.9, p85: 35.1, p97: 36.2 },
-  { month: 1, value: 35.8, p3: 34.0, p15: 35.1, p50: 36.5, p85: 37.7, p97: 38.9 },
-  { month: 2, value: 37.0, p3: 35.7, p15: 36.9, p50: 38.3, p85: 39.5, p97: 40.7 },
-  { month: 3, value: 38.5, p3: 37.1, p15: 38.2, p50: 39.5, p85: 40.9, p97: 42.0 },
-  { month: 4, value: 39.5, p3: 38.1, p15: 39.2, p50: 40.6, p85: 41.8, p97: 43.0 },
-  { month: 5, value: 40.5, p3: 38.9, p15: 40.1, p50: 41.5, p85: 42.7, p97: 43.8 },
-  { month: 6, value: 41.2, p3: 39.6, p15: 40.7, p50: 42.2, p85: 43.4, p97: 44.6 },
-  { month: 7, value: 42.0, p3: 40.2, p15: 41.3, p50: 42.8, p85: 44.1, p97: 45.2 },
-  { month: 8, value: 42.5, p3: 40.6, p15: 41.8, p50: 43.4, p85: 44.6, p97: 45.8 },
-  { month: 9, value: 43.0, p3: 41.0, p15: 42.2, p50: 43.8, p85: 45.1, p97: 46.2 },
-  { month: 10, value: 43.3, p3: 41.4, p15: 42.6, p50: 44.2, p85: 45.5, p97: 46.7 },
-  { month: 11, value: 43.5, p3: 41.7, p15: 42.9, p50: 44.6, p85: 45.9, p97: 47.0 },
-]
-
-// ─── Risk evaluation ──────────────────────────────────────────
-function evaluatePercentile(data: GrowthDataPoint[]): {
-  percentile: number
-  status: "normal" | "warning" | "critical"
-} {
-  const latest = data[data.length - 1]
-  if (latest.value < latest.p3)
-    return { percentile: 2, status: "critical" }
-  if (latest.value < latest.p15)
-    return { percentile: 10, status: "warning" }
-  if (latest.value < latest.p50)
-    return { percentile: 30, status: "normal" }
-  if (latest.value < latest.p85)
-    return { percentile: 60, status: "normal" }
-  if (latest.value < latest.p97)
-    return { percentile: 90, status: "normal" }
-  return { percentile: 98, status: "normal" }
+function CustomTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="rounded-xl border border-border bg-card shadow-lg p-3 text-xs min-w-[120px]">
+      <p className="font-semibold text-foreground mb-1.5">Month {label}</p>
+      {payload.map((p: any) => p.value != null && (
+        <div key={p.dataKey} className="flex justify-between gap-4" style={{ color: p.color }}>
+          <span>{p.name}</span>
+          <span className="font-bold">{Number(p.value).toFixed(1)}</span>
+        </div>
+      ))}
+    </div>
+  )
 }
 
-const weightEval = evaluatePercentile(weightData)
-const heightEval = evaluatePercentile(heightData)
-const hcEval = evaluatePercentile(hcData)
+function GrowthRecordsTable({ records, onDeleted }: { records: ApiGrowthRecord[]; onDeleted: () => void }) {
+  const [deleting, setDeleting] = useState<string | null>(null)
 
-const risks: { label: string; message: string; severity: "critical" | "warning" }[] = []
+  async function handleDelete(id: string) {
+    setDeleting(id)
+    try {
+      await deleteGrowthRecord(id)
+      toast.success("Record deleted")
+      onDeleted()
+    } catch {
+      toast.error("Failed to delete record")
+    } finally { setDeleting(null) }
+  }
 
-if (weightEval.status === "critical")
-  risks.push({
-    label: "Underweight",
-    message: `Weight is below the 3rd percentile (P${weightEval.percentile}). Immediate nutritional assessment recommended per WHO guidelines.`,
-    severity: "critical",
-  })
-else if (weightEval.status === "warning")
-  risks.push({
-    label: "Low Weight",
-    message: `Weight is between 3rd and 15th percentile (P${weightEval.percentile}). Monitor closely at next visit.`,
-    severity: "warning",
-  })
-
-if (heightEval.status === "critical")
-  risks.push({
-    label: "Stunted Growth",
-    message: `Length/height is below the 3rd percentile (P${heightEval.percentile}). Consider endocrine referral.`,
-    severity: "critical",
-  })
-else if (heightEval.status === "warning")
-  risks.push({
-    label: "Short Stature Risk",
-    message: `Length/height is between 3rd and 15th percentile (P${heightEval.percentile}). Continue monitoring.`,
-    severity: "warning",
-  })
-
-if (hcEval.status === "critical")
-  risks.push({
-    label: "Microcephaly Risk",
-    message: `Head circumference is below the 3rd percentile (P${hcEval.percentile}). Neurology evaluation recommended.`,
-    severity: "critical",
-  })
-
-// ─── Summary stats ────────────────────────────────────────────
-const summaryStats = [
-  {
-    label: "Weight",
-    value: `${weightData[weightData.length - 1].value} kg`,
-    percentile: `P${weightEval.percentile}`,
-    icon: Weight,
-    status: weightEval.status,
-  },
-  {
-    label: "Height",
-    value: `${heightData[heightData.length - 1].value} cm`,
-    percentile: `P${heightEval.percentile}`,
-    icon: Ruler,
-    status: heightEval.status,
-  },
-  {
-    label: "Head Circ.",
-    value: `${hcData[hcData.length - 1].value} cm`,
-    percentile: `P${hcEval.percentile}`,
-    icon: CircleDot,
-    status: hcEval.status,
-  },
-]
-
-// ─── Component ────────────────────────────────────────────────
-export function GrowthTrackingContent({ patientId }: { patientId?: string } = {}) {
-  const [standard, setStandard] = useState("who")
+  if (records.length === 0) return (
+    <div className="flex flex-col items-center py-8 gap-2">
+      <TrendingUp className="size-8 text-muted-foreground/30" />
+      <p className="text-sm text-muted-foreground">No growth records yet. Add the first measurement.</p>
+    </div>
+  )
 
   return (
-    <div className="p-4 lg:p-6 flex flex-col gap-6 max-w-[1600px] mx-auto">
-      {/* Breadcrumb / Back */}
-      <div className="flex items-center gap-2 text-sm">
-        <Link
-          href={patientId ? `/patients/${patientId}` : "/patients"}
-          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="size-3.5" />
-          {patientId ? "Patient" : "Patients"}
-        </Link>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-foreground font-medium">Growth Tracking</span>
+    <div className="overflow-x-auto rounded-lg border border-border">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-border bg-muted/40">
+            <th className="text-left px-3 py-2 font-semibold text-muted-foreground">Date</th>
+            <th className="text-right px-3 py-2 font-semibold text-muted-foreground">Age (m)</th>
+            <th className="text-right px-3 py-2 font-semibold text-muted-foreground">Weight (kg)</th>
+            <th className="text-right px-3 py-2 font-semibold text-muted-foreground">Height (cm)</th>
+            <th className="text-right px-3 py-2 font-semibold text-muted-foreground">HC (cm)</th>
+            <th className="px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {records.map(r => (
+            <tr key={r.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors">
+              <td className="px-3 py-2 text-muted-foreground">{new Date(r.recordedAt).toLocaleDateString()}</td>
+              <td className="px-3 py-2 text-right font-medium">{r.ageMonths}</td>
+              <td className="px-3 py-2 text-right">{r.weight != null ? Number(r.weight).toFixed(3) : "—"}</td>
+              <td className="px-3 py-2 text-right">{r.height != null ? Number(r.height).toFixed(1) : "—"}</td>
+              <td className="px-3 py-2 text-right">{r.headCircumference != null ? Number(r.headCircumference).toFixed(1) : "—"}</td>
+              <td className="px-3 py-2">
+                <Button variant="ghost" size="icon" className="size-6 text-muted-foreground hover:text-destructive"
+                  disabled={deleting === r.id} onClick={() => handleDelete(r.id)}>
+                  <Trash2 className="size-3" />
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function AddMeasurementForm({ patientId, onAdded }: { patientId: string; onAdded: () => void }) {
+  const addRecord = useAddGrowthRecord()
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState<Partial<CreateGrowthRecordPayload>>({})
+
+  function setNum(key: keyof CreateGrowthRecordPayload, raw: string) {
+    setForm(prev => ({ ...prev, [key]: raw === "" ? undefined : Number(raw) }))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (form.ageMonths == null) { toast.error("Age in months is required"); return }
+    setLoading(true)
+    try {
+      await addRecord(patientId, { ageMonths: form.ageMonths, weight: form.weight, height: form.height, headCircumference: form.headCircumference })
+      toast.success("Growth record added")
+      setForm({})
+      onAdded()
+    } catch { toast.error("Failed to add record") }
+    finally { setLoading(false) }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Age (months) <span className="text-destructive">*</span></label>
+        <Input className="h-9 text-sm" type="number" min={0} placeholder="e.g. 6" value={form.ageMonths ?? ""} onChange={e => setNum("ageMonths", e.target.value)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><Scale className="size-3" />Weight (kg)</label>
+        <Input className="h-9 text-sm" type="number" step="0.001" placeholder="e.g. 7.200" value={form.weight ?? ""} onChange={e => setNum("weight", e.target.value)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><Ruler className="size-3" />Height (cm)</label>
+        <Input className="h-9 text-sm" type="number" step="0.1" placeholder="e.g. 65.0" value={form.height ?? ""} onChange={e => setNum("height", e.target.value)} />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-muted-foreground flex items-center gap-1"><Circle className="size-3" />Head Circ. (cm)</label>
+        <Input className="h-9 text-sm" type="number" step="0.1" placeholder="e.g. 42.5" value={form.headCircumference ?? ""} onChange={e => setNum("headCircumference", e.target.value)} />
+      </div>
+      <Button type="submit" disabled={loading} className="gap-2 col-span-2 sm:col-span-4">
+        <Plus className="size-4" />
+        {loading ? "Saving…" : "Add Measurement"}
+      </Button>
+    </form>
+  )
+}
+
+// ─── Main ──────────────────────────────────────────────────────────────────────
+interface GrowthTrackingContentProps {
+  patientId?: string
+}
+
+export function GrowthTrackingContent({ patientId: initialPatientId }: GrowthTrackingContentProps) {
+  const [search, setSearch] = useState("")
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(initialPatientId ?? null)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [showRecords, setShowRecords] = useState(true)
+
+  const { patients, isLoading: patientsLoading } = usePatients({ search, limit: 10 })
+  const showDropdown = search.length > 0 && !selectedPatientId
+  const { records, isLoading: recordsLoading, mutate } = usePatientGrowth(selectedPatientId)
+  const selectedPatient = patients.find(p => p.id === selectedPatientId)
+  const chartData = buildChartData(records)
+  const hasWeightData = records.some(r => r.weight != null)
+
+  return (
+    <div className="p-4 lg:p-6 flex flex-col gap-6 max-w-[1200px] mx-auto">
+      {/* Header */}
+      <div>
+        <h1 className="text-xl font-bold text-foreground tracking-tight flex items-center gap-2">
+          <TrendingUp className="size-5 text-primary" />
+          Growth Tracking
+        </h1>
+        <p className="text-sm text-muted-foreground mt-0.5">WHO standard growth charts for pediatric patients</p>
       </div>
 
-      {/* Patient Header */}
-      <Card className="gap-0 py-0">
-        <CardContent className="px-5 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            {/* Patient identity */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center justify-center size-14 rounded-full bg-primary/10 shrink-0">
-                <Baby className="size-7 text-primary" />
-              </div>
-              <div className="flex flex-col gap-0.5 min-w-0">
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-lg font-bold text-foreground tracking-tight">
-                    {patient.name}
-                  </h1>
-                  <Badge variant="secondary" className="text-[11px] font-medium">
-                    {patient.id}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                  <span className="flex items-center gap-1">
-                    <CalendarDays className="size-3" />
-                    DOB: {patient.dob}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <User2 className="size-3" />
-                    {patient.age} &middot; {patient.gender}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Stethoscope className="size-3" />
-                    {patient.doctor}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Actions */}
+      {/* Patient Search */}
+      <Card>
+        <CardContent className="pt-4 pb-4">
+          <div className="relative">
             <div className="flex items-center gap-2">
-              <Select value={standard} onValueChange={setStandard}>
-                <SelectTrigger size="sm" className="w-[180px] text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="who">WHO Standards (2006)</SelectItem>
-                  <SelectItem value="cdc">CDC Growth Charts</SelectItem>
-                  <SelectItem value="iap">IAP Standards</SelectItem>
-                </SelectContent>
-              </Select>
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                <Printer className="size-3.5" />
-                <span className="hidden sm:inline">Print</span>
-              </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                <Download className="size-3.5" />
-                <span className="hidden sm:inline">Export</span>
-              </Button>
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  className="pl-9"
+                  placeholder="Search patient by name or UHID…"
+                  value={selectedPatientId
+                    ? `${selectedPatient?.firstName ?? ""} ${selectedPatient?.lastName ?? ""} (${selectedPatient?.uhid ?? ""})`
+                    : search}
+                  onChange={e => { setSearch(e.target.value); setSelectedPatientId(null) }}
+                />
+              </div>
+              {selectedPatientId && (
+                <Button variant="outline" size="sm" onClick={() => { setSelectedPatientId(null); setSearch("") }}>Clear</Button>
+              )}
             </div>
+            {showDropdown && (
+              <div className="absolute top-full mt-1 left-0 right-0 z-50 rounded-xl border border-border bg-card shadow-xl overflow-hidden">
+                {patientsLoading ? (
+                  <div className="p-3 text-sm text-muted-foreground">Searching…</div>
+                ) : patients.length === 0 ? (
+                  <div className="p-3 text-sm text-muted-foreground">No patients found</div>
+                ) : patients.map(p => (
+                  <button key={p.id} className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-muted/50 transition-colors"
+                    onClick={() => { setSelectedPatientId(p.id); setSearch("") }}>
+                    <Baby className="size-4 text-muted-foreground shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium">{p.firstName} {p.lastName}</p>
+                      <p className="text-xs text-muted-foreground">{p.uhid} · {new Date(p.dateOfBirth).toLocaleDateString()}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      {/* Summary Measurement Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {summaryStats.map((stat) => {
-          const statusColor =
-            stat.status === "critical"
-              ? { bg: "bg-destructive/8", text: "text-destructive", dot: "bg-destructive" }
-              : stat.status === "warning"
-                ? { bg: "bg-warning/10", text: "text-warning-foreground", dot: "bg-warning" }
-                : { bg: "bg-success/8", text: "text-success", dot: "bg-success" }
-
-          return (
-            <Card key={stat.label} className="py-4 gap-0">
-              <CardContent className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center size-10 rounded-lg bg-primary/10 shrink-0">
-                    <stat.icon className="size-5 text-primary" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-                      {stat.label}
-                    </span>
-                    <span className="text-xl font-bold text-foreground tabular-nums leading-tight">
-                      {stat.value}
-                    </span>
-                  </div>
+      {selectedPatientId && (
+        <>
+          {/* WHO Weight-for-Age Chart */}
+          <Card>
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Scale className="size-4 text-primary" />Weight-for-Age Chart
+                  </CardTitle>
+                  <CardDescription className="text-xs">Patient weight vs WHO percentile reference (Boys 0–24 months)</CardDescription>
                 </div>
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold",
-                    statusColor.bg,
-                    statusColor.text
-                  )}
-                >
-                  <span className={cn("size-1.5 rounded-full", statusColor.dot)} aria-hidden="true" />
-                  {stat.percentile}
-                </span>
-              </CardContent>
-            </Card>
-          )
-        })}
-      </div>
-
-      {/* Risk Warnings */}
-      {risks.length > 0 && (
-        <Card
-          className={cn(
-            "gap-0 py-0",
-            risks.some((r) => r.severity === "critical")
-              ? "border-destructive/30 bg-destructive/[0.03]"
-              : "border-warning/30 bg-warning/[0.03]"
-          )}
-        >
-          <CardHeader className="px-5 py-4">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <AlertTriangle
-                className={cn(
-                  "size-4",
-                  risks.some((r) => r.severity === "critical")
-                    ? "text-destructive"
-                    : "text-warning-foreground"
-                )}
-              />
-              Growth Risk Assessment
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 pb-4 flex flex-col gap-3">
-            {risks.map((risk) => (
-              <div key={risk.label} className="flex items-start gap-3">
-                <span
-                  className={cn(
-                    "mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider shrink-0",
-                    risk.severity === "critical"
-                      ? "bg-destructive/10 text-destructive"
-                      : "bg-warning/10 text-warning-foreground"
-                  )}
-                >
-                  {risk.severity}
-                </span>
-                <div className="flex flex-col gap-0.5 min-w-0">
-                  <span className="text-sm font-semibold text-foreground">{risk.label}</span>
-                  <span className="text-xs text-muted-foreground leading-relaxed">{risk.message}</span>
-                </div>
+                <Badge variant="outline" className="text-[10px] gap-1"><Info className="size-3" />WHO 2006</Badge>
               </div>
-            ))}
-          </CardContent>
-        </Card>
+            </CardHeader>
+            <CardContent>
+              {recordsLoading ? <Skeleton className="h-64 w-full" /> : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border/40" />
+                    <XAxis dataKey="month" tickFormatter={v => `${v}m`} tick={{ fontSize: 11 }} />
+                    <YAxis unit=" kg" tick={{ fontSize: 11 }} width={45} />
+                    <Tooltip content={<CustomTooltip />} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line dataKey="p97" name="97th %" stroke="#f87171" strokeDasharray="4 4" dot={false} strokeWidth={1} />
+                    <Line dataKey="p85" name="85th %" stroke="#fb923c" strokeDasharray="4 4" dot={false} strokeWidth={1} />
+                    <Line dataKey="p50" name="50th %" stroke="#64748b" strokeDasharray="4 4" dot={false} strokeWidth={1.5} />
+                    <Line dataKey="p15" name="15th %" stroke="#fb923c" strokeDasharray="4 4" dot={false} strokeWidth={1} />
+                    <Line dataKey="p3" name="3rd %" stroke="#f87171" strokeDasharray="4 4" dot={false} strokeWidth={1} />
+                    {hasWeightData && (
+                      <Line dataKey="patWeight" name="Patient" stroke="#3b82f6" strokeWidth={2.5} dot={{ fill: "#3b82f6", r: 4 }} connectNulls={false} />
+                    )}
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+              {!recordsLoading && !hasWeightData && (
+                <p className="text-xs text-muted-foreground text-center mt-1">Add weight measurements below to plot on the chart</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Add Measurement */}
+          <Card>
+            <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowAddForm(v => !v)}>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2"><Plus className="size-4 text-primary" />Add Measurement</CardTitle>
+                {showAddForm ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+              </div>
+            </CardHeader>
+            {showAddForm && (
+              <CardContent className="pt-0">
+                <AddMeasurementForm patientId={selectedPatientId} onAdded={() => { mutate(); setShowAddForm(false) }} />
+              </CardContent>
+            )}
+          </Card>
+
+          {/* Records Table */}
+          <Card>
+            <CardHeader className="pb-2 cursor-pointer" onClick={() => setShowRecords(v => !v)}>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <TrendingUp className="size-4 text-primary" />Measurement History
+                  <Badge variant="secondary" className="text-[10px]">{records.length}</Badge>
+                </CardTitle>
+                {showRecords ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+              </div>
+            </CardHeader>
+            {showRecords && (
+              <CardContent className="pt-0">
+                {recordsLoading ? <Skeleton className="h-32 w-full" /> : (
+                  <GrowthRecordsTable records={records} onDeleted={mutate} />
+                )}
+              </CardContent>
+            )}
+          </Card>
+        </>
       )}
 
-      {/* Growth Charts */}
-      <div className="flex flex-col gap-4">
-        <GrowthPercentileChart
-          title="Weight-for-Age"
-          description="WHO Child Growth Standards - Girls, 0-12 months"
-          unit="kg"
-          data={weightData}
-          currentPercentile={weightEval.percentile}
-          status={weightEval.status}
-        />
-        <GrowthPercentileChart
-          title="Length/Height-for-Age"
-          description="WHO Child Growth Standards - Girls, 0-12 months"
-          unit="cm"
-          data={heightData}
-          currentPercentile={heightEval.percentile}
-          status={heightEval.status}
-        />
-        <GrowthPercentileChart
-          title="Head Circumference-for-Age"
-          description="WHO Child Growth Standards - Girls, 0-12 months"
-          unit="cm"
-          data={hcData}
-          currentPercentile={hcEval.percentile}
-          status={hcEval.status}
-        />
-      </div>
+      {!selectedPatientId && !search && (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="size-16 rounded-full bg-primary/10 flex items-center justify-center">
+            <Baby className="size-8 text-primary" />
+          </div>
+          <div className="text-center">
+            <p className="font-semibold text-foreground">Select a Patient</p>
+            <p className="text-sm text-muted-foreground mt-1">Search for a patient above to view or add growth measurements</p>
+          </div>
+        </div>
+      )}
 
-      {/* Footer */}
-      <div className="flex flex-col gap-1 text-[11px] text-muted-foreground border-t border-border pt-4">
-        <span>
-          Reference: WHO Child Growth Standards (2006) &middot; Percentile calculation based on LMS method
-        </span>
-        <span>
-          Last measurement recorded: {patient.lastVisit} &middot; Next scheduled visit: {patient.nextVisit}
-        </span>
-      </div>
+      <p className="text-[10px] text-muted-foreground border-t border-border pt-3">
+        Reference: WHO Child Growth Standards (2006) · Data stored per patient via API
+      </p>
     </div>
   )
 }

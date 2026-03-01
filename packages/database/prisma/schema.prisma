@@ -26,6 +26,7 @@ enum WardType {
   PRIVATE
   NICU
   PICU
+  SURGICAL
 }
 
 enum BedStatus {
@@ -65,6 +66,9 @@ model User {
   lockedUntil  DateTime?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  // Relations to other modules
+  admissions   Admission[]
 }
 
 // ─── Master Data Models ───────────────────────────────────────────────────────
@@ -108,7 +112,11 @@ model Bed {
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  ward      Ward      @relation(fields: [wardId], references: [id])
+  ward              Ward           @relation(fields: [wardId], references: [id])
+  currentAdmissions Admission[]    @relation("CurrentBed")
+  transfersFrom     BedTransfer[]  @relation("TransferFrom")
+  transfersTo       BedTransfer[]  @relation("TransferTo")
+  activityLogs      BedActivityLog[]
 
   @@unique([wardId, bedNumber])
   @@index([wardId])
@@ -142,3 +150,226 @@ model Service {
   @@map("services")
 }
 
+// ─── Patient Data Models ───────────────────────────────────────────────────────
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+model Patient {
+  id            String     @id @default(uuid()) @db.Uuid
+  uhid          String     @unique @db.VarChar(20)
+  firstName     String     @map("first_name") @db.VarChar(100)
+  lastName      String     @map("last_name") @db.VarChar(100)
+  gender        Gender
+  dateOfBirth   DateTime   @map("date_of_birth") @db.Date
+  bloodGroup    String?    @map("blood_group") @db.VarChar(5)
+  abhaId        String?    @map("abha_id") @db.VarChar(17) // Standard ABHA ID format: XX-XXXX-XXXX-XXXX
+  
+  // Contact Info
+  phone         String     @db.VarChar(20)
+  email         String?    @db.VarChar(100)
+  guardianName          String     @map("guardian_name") @db.VarChar(200)
+  guardianPhone         String?    @map("guardian_phone") @db.VarChar(20)
+  guardianRelationship  String?    @map("guardian_relationship") @db.VarChar(30)
+  birthWeight           Decimal?   @map("birth_weight") @db.Decimal(5, 2)  // in kg
+  address               String?    @db.Text
+  city                  String?    @db.VarChar(100)
+  state                 String?    @db.VarChar(100)
+  pincode               String?    @db.VarChar(10)
+  
+  // Using the existing UserStatus enum (ACTIVE/INACTIVE) to avoid duplication
+  status        UserStatus @default(ACTIVE)
+  
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  // Relations
+  admissions    Admission[]
+  growthRecords GrowthRecord[]
+
+  // Indexed for high-performance searching
+  @@index([lastName, firstName])
+  @@index([phone])
+  @@index([uhid])
+  @@index([status])
+  
+  @@map("patients")
+}
+
+// Dedicated table to guarantee atomic UHID sequence increments
+model PatientSequence {
+  id        Int      @id @default(1)
+  year      Int      // e.g., 2025
+  lastValue Int      @default(0) @map("last_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([id, year])
+  @@map("patient_sequences")
+}
+
+// ─── Admission Data Models ────────────────────────────────────────────────────
+
+enum AdmissionStatus {
+  DRAFT        // Initiated, bed not physically assigned
+  BED_ASSIGNED // Bed locked, patient en route
+  ADMITTED     // Patient in bed
+  DISCHARGED   // Patient has left
+  CANCELLED    // Admission void
+}
+
+enum AdmissionType {
+  EMERGENCY
+  SCHEDULED
+  REFERRAL
+}
+
+enum AdmissionPriority {
+  CRITICAL
+  HIGH
+  NORMAL
+}
+
+model Admission {
+  id                String            @id @default(uuid())
+  admissionNumber   String            @unique @map("admission_number") @db.VarChar(20) // ADM-2026-000001
+
+  // Patient link
+  patientId         String            @map("patient_id") @db.Uuid
+  patient           Patient           @relation(fields: [patientId], references: [id])
+
+  // Core admission details
+  status            AdmissionStatus   @default(ADMITTED)
+  admissionType     AdmissionType     @map("admission_type")
+  priority          AdmissionPriority @default(NORMAL)
+  department        String            @db.VarChar(50)   // e.g. NICU, PICU, General, Surgery
+  admittingDoctorId String?           @map("admitting_doctor_id") // FK to User (nullable until Users module fully verified)
+  admittingDoctor   User?             @relation(fields: [admittingDoctorId], references: [id])
+  admissionDate     DateTime          @map("admission_date")
+  expectedDischarge DateTime?         @map("expected_discharge") // for bed planning
+  initialDiagnosis  String?           @map("initial_diagnosis") @db.Text
+
+  // Current bed (nullable — null before bed assignment or after discharge)
+  currentBedId      String?           @map("current_bed_id")
+  currentBed        Bed?              @relation("CurrentBed", fields: [currentBedId], references: [id])
+
+  // NICU-specific (follows the admission, not the bed)
+  gestationalAge    String?           @map("gestational_age") @db.VarChar(30)
+  nicuRiskLevel     String?           @map("nicu_risk_level") @db.VarChar(20)
+
+  // ── Discharge Clearance (multi-step, with per-step audit) ──
+  dischargeStatus       String?       @map("discharge_status")     // IN_PROGRESS | COMPLETED
+  dischargeType         String?       @map("discharge_type")       // NORMAL | LAMA | REFERRED | EXPIRED
+  clinicalCleared       Boolean       @default(false)  @map("clinical_cleared")
+  clinicalNote          String?       @map("clinical_note") @db.Text
+  clinicalClearedAt     DateTime?     @map("clinical_cleared_at")
+  clinicalClearedBy     String?       @map("clinical_cleared_by")  // User ID string
+  pharmacyCleared       Boolean       @default(false)  @map("pharmacy_cleared")
+  pharmacyClearedAt     DateTime?     @map("pharmacy_cleared_at")
+  pharmacyClearedBy     String?       @map("pharmacy_cleared_by")
+  billingCleared        Boolean       @default(false)  @map("billing_cleared")
+  billingClearedAt      DateTime?     @map("billing_cleared_at")
+  billingClearedBy      String?       @map("billing_cleared_by")
+  dischargeDate         DateTime?     @map("discharge_date")
+  dischargeSummary      String?       @map("discharge_summary") @db.Text
+
+  createdAt         DateTime          @default(now())  @map("created_at")
+  updatedAt         DateTime          @updatedAt       @map("updated_at")
+
+  transfers         BedTransfer[]
+  vitalsRecords     NicuVitals[]
+
+  @@index([patientId])
+  @@index([status])
+  @@index([admissionDate])
+  @@map("admissions")
+}
+
+// Atomic admission number sequences (same pattern as UHID)
+model AdmissionSequence {
+  id        Int      @id @default(1)
+  year      Int
+  lastValue Int      @default(0) @map("last_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([id, year])
+  @@map("admission_sequences")
+}
+
+// Full audit trail of every time a patient changes beds
+model BedTransfer {
+  id           String    @id @default(uuid())
+  admissionId  String    @map("admission_id")
+  fromBedId    String?   @map("from_bed_id")    // null for initial assignment
+  toBedId      String?   @map("to_bed_id")      // null for discharge vacancy
+  reason       String?   @db.VarChar(255)
+  transferDate DateTime  @default(now()) @map("transfer_date")
+  transferredBy String?  @map("transferred_by")  // User ID string
+
+  admission    Admission @relation(fields: [admissionId], references: [id])
+  fromBed      Bed?      @relation("TransferFrom", fields: [fromBedId], references: [id])
+  toBed        Bed?      @relation("TransferTo", fields: [toBedId], references: [id])
+
+  @@index([admissionId])
+  @@map("bed_transfers")
+}
+
+// Non-transfer bed status change events (Cleaning -> Available, Maintenance, etc.)
+model BedActivityLog {
+  id         String   @id @default(uuid())
+  bedId      String   @map("bed_id")
+  action     String   @db.VarChar(50)   // MARKED_AVAILABLE | MARKED_CLEANING | MAINTENANCE | RESERVED
+  notes      String?  @db.VarChar(255)
+  performedBy String? @map("performed_by") // User ID string
+  createdAt  DateTime @default(now())  @map("created_at")
+
+  bed        Bed      @relation(fields: [bedId], references: [id])
+
+  @@index([bedId])
+  @@map("bed_activity_logs")
+}
+
+// ─── NICU Vitals ──────────────────────────────────────────────────────────────
+model NicuVitals {
+  id          String    @id @default(uuid())
+  admissionId String    @map("admission_id")
+  admission   Admission @relation(fields: [admissionId], references: [id], onDelete: Cascade)
+
+  recordedAt             DateTime  @default(now()) @map("recorded_at")
+  recordedBy             String?   @map("recorded_by")
+
+  heartRate              Int?      @map("heart_rate")          // bpm
+  spo2                   Int?                                  // percentage
+  temperature            Decimal?  @db.Decimal(4, 1)           // °C
+  respiratoryRate        Int?      @map("respiratory_rate")    // breaths/min
+  bloodPressureSystolic  Int?      @map("bp_systolic")
+  bloodPressureDiastolic Int?      @map("bp_diastolic")
+  weight                 Decimal?  @db.Decimal(5, 3)           // kg at recording time
+  notes                  String?   @db.Text
+
+  @@index([admissionId])
+  @@index([recordedAt])
+  @@map("nicu_vitals")
+}
+
+// ─── Growth Records ───────────────────────────────────────────────────────────
+model GrowthRecord {
+  id          String   @id @default(uuid())
+  patientId   String   @map("patient_id") @db.Uuid
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  recordedAt        DateTime @default(now()) @map("recorded_at")
+  recordedBy        String?  @map("recorded_by")
+
+  ageMonths         Int      @map("age_months")             // age at time of measurement
+  weight            Decimal? @db.Decimal(5, 3)              // kg
+  height            Decimal? @db.Decimal(5, 1)              // cm
+  headCircumference Decimal? @map("head_circumference") @db.Decimal(4, 1) // cm
+  notes             String?  @db.Text
+
+  @@index([patientId])
+  @@index([recordedAt])
+  @@map("growth_records")
+}

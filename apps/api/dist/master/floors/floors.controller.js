@@ -12,7 +12,7 @@ var __param = (this && this.__param) || function (paramIndex, decorator) {
     return function (target, key) { decorator(target, key, paramIndex); }
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.FloorsController = void 0;
+exports.FloorsController = exports.BedsHierarchyController = void 0;
 const common_1 = require("@nestjs/common");
 const floors_service_1 = require("./floors.service");
 const create_floor_dto_1 = require("./dto/create-floor.dto");
@@ -21,6 +21,27 @@ const query_floors_dto_1 = require("./dto/query-floors.dto");
 const jwt_auth_guard_1 = require("../../auth/guards/jwt-auth.guard");
 const roles_guard_1 = require("../../auth/guards/roles.guard");
 const roles_decorator_1 = require("../../auth/decorators/roles.decorator");
+let BedsHierarchyController = class BedsHierarchyController {
+    floorsService;
+    constructor(floorsService) {
+        this.floorsService = floorsService;
+    }
+    getHierarchy() {
+        return this.floorsService.findHierarchy();
+    }
+};
+exports.BedsHierarchyController = BedsHierarchyController;
+__decorate([
+    (0, common_1.Get)("hierarchy"),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], BedsHierarchyController.prototype, "getHierarchy", null);
+exports.BedsHierarchyController = BedsHierarchyController = __decorate([
+    (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard),
+    (0, common_1.Controller)("beds"),
+    __metadata("design:paramtypes", [floors_service_1.FloorsService])
+], BedsHierarchyController);
 let FloorsController = class FloorsController {
     floorsService;
     constructor(floorsService) {

@@ -2,6 +2,11 @@ import { FloorsService } from "./floors.service";
 import { CreateFloorDto } from "./dto/create-floor.dto";
 import { UpdateFloorDto } from "./dto/update-floor.dto";
 import { QueryFloorsDto } from "./dto/query-floors.dto";
+export declare class BedsHierarchyController {
+    private floorsService;
+    constructor(floorsService: FloorsService);
+    getHierarchy(): Promise<any>;
+}
 export declare class FloorsController {
     private floorsService;
     constructor(floorsService: FloorsService);

@@ -1,10 +1,10 @@
-import { Floor } from "@/lib/data/mock-floors"
+import type { ApiFloorWithWards } from "@/lib/types/admission"
 import { Card, CardContent } from "@/components/ui/card"
 import { BedDouble, UserCheck, Bed, AlertTriangle, Ban, Hammer } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 interface FloorSummaryProps {
-    floor: Floor
+    floor: ApiFloorWithWards
 }
 
 export function FloorSummary({ floor }: FloorSummaryProps) {
@@ -12,11 +12,11 @@ export function FloorSummary({ floor }: FloorSummaryProps) {
 
     const stats = {
         total: allBeds.length,
-        occupied: allBeds.filter(b => b.status === "Occupied").length,
-        available: allBeds.filter(b => b.status === "Available").length,
-        cleaning: allBeds.filter(b => b.status === "Cleaning").length,
-        reserved: allBeds.filter(b => b.status === "Reserved").length,
-        maintenance: allBeds.filter(b => b.status === "Maintenance").length
+        occupied: allBeds.filter(b => b.status === "OCCUPIED").length,
+        available: allBeds.filter(b => b.status === "AVAILABLE").length,
+        cleaning: allBeds.filter(b => b.status === "CLEANING").length,
+        reserved: allBeds.filter(b => b.status === "RESERVED").length,
+        maintenance: allBeds.filter(b => b.status === "MAINTENANCE").length
     }
 
     const statCards = [

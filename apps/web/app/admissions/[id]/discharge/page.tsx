@@ -1,18 +1,17 @@
 "use client"
 
-import { useAdmissionStore } from "@/lib/store/admission-store"
+import { use } from "react"
 import { AppShell } from "@/components/hospital/app-shell"
 import { DischargeClearanceStepper } from "@/components/hospital/discharge-clearance-stepper"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
-import { ArrowLeft, XCircle } from "lucide-react"
-import { use } from "react"
+import { ArrowLeft, AlertCircle } from "lucide-react"
+import { useAdmission } from "@/lib/api/admissions"
 
-interface DischargePageProps {
-    params: Promise<{ id: string }>
-}
+interface Props { params: Promise<{ id: string }> }
 
-export default function DischargePage({ params }: DischargePageProps) {
+export default function DischargePage({ params }: Props) {
     const { id } = use(params)
     return (
         <AppShell activeItem="Admissions">
@@ -22,20 +21,7 @@ export default function DischargePage({ params }: DischargePageProps) {
 }
 
 function DischargePageContent({ admissionId }: { admissionId: string }) {
-    const { getAdmissionById } = useAdmissionStore()
-    const admission = getAdmissionById(admissionId)
-
-    if (!admission) {
-        return (
-            <div className="flex-1 flex flex-col items-center justify-center gap-4 p-8">
-                <XCircle className="h-12 w-12 text-muted-foreground" />
-                <p className="text-muted-foreground">Admission not found: <code className="font-mono">{admissionId}</code></p>
-                <Link href="/admissions">
-                    <Button variant="outline" className="gap-2"><ArrowLeft className="h-4 w-4" />Back to Admissions</Button>
-                </Link>
-            </div>
-        )
-    }
+    const { admission, isLoading, error } = useAdmission(admissionId)
 
     return (
         <div className="flex-1 space-y-6 p-6 pt-4 max-w-2xl mx-auto">
@@ -46,16 +32,35 @@ function DischargePageContent({ admissionId }: { admissionId: string }) {
                     </Button>
                 </Link>
             </div>
-            <div>
-                <h1 className="text-2xl font-bold tracking-tight">Patient Discharge</h1>
-                <p className="text-muted-foreground text-sm mt-0.5">
-                    {admission.patientName} · {admissionId} · Multi-department clearance required
-                </p>
-            </div>
-            <DischargeClearanceStepper
-                admission={admission}
-                onDone={() => { window.location.href = "/admissions" }}
-            />
+
+            {isLoading && (
+                <div className="space-y-4">
+                    <Skeleton className="h-8 w-64" />
+                    <Skeleton className="h-4 w-96" />
+                    <Skeleton className="h-64 w-full" />
+                </div>
+            )}
+
+            {error && (
+                <div className="flex flex-col items-center justify-center gap-3 py-16 text-destructive">
+                    <AlertCircle className="h-10 w-10" />
+                    <p className="font-medium">Failed to load admission</p>
+                    <p className="text-sm text-muted-foreground">{error.message}</p>
+                    <Link href="/admissions"><Button variant="outline">Back to Admissions</Button></Link>
+                </div>
+            )}
+
+            {admission && (
+                <>
+                    <div>
+                        <h1 className="text-2xl font-bold tracking-tight">Patient Discharge</h1>
+                        <p className="text-muted-foreground text-sm mt-0.5">
+                            {admission.patient.firstName} {admission.patient.lastName} · {admission.admissionNumber} · Multi-department clearance required
+                        </p>
+                    </div>
+                    <DischargeClearanceStepper admission={admission} />
+                </>
+            )}
         </div>
     )
 }

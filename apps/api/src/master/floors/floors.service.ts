@@ -45,6 +45,25 @@ export class FloorsService {
         return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
     }
 
+    // ─── Full Hierarchy (for Bed Management UI) ────────────────────────────────
+    async findHierarchy() {
+        return prisma.floor.findMany({
+            where: { status: "ACTIVE" },
+            orderBy: { floorNumber: "asc" },
+            include: {
+                wards: {
+                    where: { status: "ACTIVE" },
+                    orderBy: { name: "asc" },
+                    include: {
+                        beds: {
+                            orderBy: { bedNumber: "asc" },
+                        },
+                    },
+                },
+            },
+        });
+    }
+
     // ─── Get One ───────────────────────────────────────────────────────────────
     async findOne(id: string) {
         const floor = await prisma.floor.findUnique({

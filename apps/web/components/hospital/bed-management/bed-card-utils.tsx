@@ -1,4 +1,3 @@
-import { BedStatus } from "@/lib/data/mock-floors"
 import { LucideIcon, User, Brush, Clock, Hammer } from "lucide-react"
 
 // Inline SVG check icon to avoid lucide type mismatch
@@ -19,18 +18,18 @@ export interface StatusConfigEntry {
 }
 
 // Cast CheckIcon to LucideIcon since it matches the same call signature
-export const bedStatusConfig: Record<BedStatus, StatusConfigEntry> = {
-    "Available": { label: "Available", color: "text-success", bg: "bg-success/10", border: "border-success/30", icon: CheckIcon as unknown as LucideIcon },
-    "Occupied": { label: "Occupied", color: "text-destructive", bg: "bg-destructive/10", border: "border-destructive/30", icon: User },
-    "Cleaning": { label: "Cleaning", color: "text-yellow-600 dark:text-yellow-500", bg: "bg-yellow-500/10", border: "border-yellow-500/30", icon: Brush },
-    "Reserved": { label: "Reserved", color: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/30", icon: Clock },
-    "Maintenance": { label: "Maintenance", color: "text-muted-foreground", bg: "bg-muted", border: "border-border", icon: Hammer },
+export const bedStatusConfig: Record<string, StatusConfigEntry> = {
+    "AVAILABLE": { label: "Available", color: "text-success", bg: "bg-success/10", border: "border-success/30", icon: CheckIcon as unknown as LucideIcon },
+    "OCCUPIED": { label: "Occupied", color: "text-destructive", bg: "bg-destructive/10", border: "border-destructive/30", icon: User },
+    "CLEANING": { label: "Cleaning", color: "text-yellow-600 dark:text-yellow-500", bg: "bg-yellow-500/10", border: "border-yellow-500/30", icon: Brush },
+    "RESERVED": { label: "Reserved", color: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/30", icon: Clock },
+    "MAINTENANCE": { label: "Maintenance", color: "text-muted-foreground", bg: "bg-muted", border: "border-border", icon: Hammer },
 }
 
 /** Status transitions allowed from each status (for the overflow action menu) */
-export const allowedTransitions: Partial<Record<BedStatus, BedStatus[]>> = {
-    "Available": ["Reserved", "Maintenance"],
-    "Cleaning": ["Available", "Maintenance"],
-    "Maintenance": ["Available"],
-    "Reserved": ["Available"],
+export const allowedTransitions: Record<string, string[]> = {
+    "AVAILABLE": ["RESERVED", "MAINTENANCE"],
+    "CLEANING": ["AVAILABLE", "MAINTENANCE"],
+    "MAINTENANCE": ["AVAILABLE"],
+    "RESERVED": ["AVAILABLE"],
 }

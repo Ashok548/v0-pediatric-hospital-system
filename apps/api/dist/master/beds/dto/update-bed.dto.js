@@ -15,6 +15,7 @@ class UpdateBedDto {
     wardId;
     bedNumber;
     status;
+    notes;
 }
 exports.UpdateBedDto = UpdateBedDto;
 __decorate([
@@ -33,4 +34,9 @@ __decorate([
     (0, class_validator_1.IsEnum)(["AVAILABLE", "OCCUPIED", "CLEANING", "RESERVED", "MAINTENANCE"]),
     __metadata("design:type", String)
 ], UpdateBedDto.prototype, "status", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], UpdateBedDto.prototype, "notes", void 0);
 //# sourceMappingURL=update-bed.dto.js.map

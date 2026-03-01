@@ -3,39 +3,34 @@
 import React, { useState } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import {
-  Baby, HeartPulse, AlertTriangle, Filter, RefreshCw, Thermometer,
-  Droplets, Bed, User2, Stethoscope, Clock, ArrowRight, CheckCircle2,
-  Phone,
+  Baby, HeartPulse, AlertTriangle, CheckCircle2, Search, RefreshCw,
+  ArrowRight, Stethoscope, Clock, Activity, Thermometer, Droplets, Wind,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { NicuBabyCard, type NicuBaby, type BabyStatus } from "./nicu-baby-card"
+import { NicuBabyCard } from "./nicu-baby-card"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { updatePatientStatus } from "@/lib/store/patients"
-import { getNicuBabies, subscribeNicu, removeNicuBaby, setNicuBabies } from "@/lib/store/nicu"
-import { nicuBabies as initialBabies } from "@/lib/data/nicu"
+import { useNicuAdmissions, useAdmissionVitals, useRecordVitals } from "@/lib/api/nicu"
+import { deriveNicuStatus, getVitalLevel } from "@/lib/utils/vitals"
+import type { ApiNicuAdmission, CreateVitalsPayload } from "@/lib/types/nicu"
+import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 
-type FilterOption = "all" | BabyStatus
+type FilterOption = "all" | "stable" | "warning" | "critical"
 
-const WARDS = ["Paediatric General Ward", "PICU", "Surgical Ward", "Day Care"]
-
-// ─── LOS helper ──────────────────────────────────────────────────────────────
-function daysInNicu(admittedDate: string): number {
-  const diff = Date.now() - new Date(admittedDate).getTime()
-  return Math.max(0, Math.floor(diff / 86400000))
-}
-
-// ─── Summary stat card ───────────────────────────────────────────────────────
+// ─── Summary stat card ────────────────────────────────────────────────────────
 function SummaryCard({ label, value, icon: Icon, iconClass, bgClass, active, onClick }: {
   label: string; value: number; icon: React.ElementType; iconClass: string
   bgClass: string; active: boolean; onClick: () => void
 }) {
   return (
-    <button onClick={onClick}
-      className={cn("flex items-center gap-3 rounded-xl border px-4 py-3 transition-all text-left",
-        active ? "border-primary/40 bg-primary/5 ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/20")}>
+    <button onClick={onClick} className={cn(
+      "flex items-center gap-3 rounded-xl border px-4 py-3 transition-all text-left",
+      active ? "border-primary/40 bg-primary/5 ring-1 ring-primary/20" : "border-border bg-card hover:border-primary/20"
+    )}>
       <div className={cn("flex items-center justify-center size-10 rounded-lg shrink-0", bgClass)}>
         <Icon className={cn("size-5", iconClass)} />
       </div>
@@ -47,312 +42,269 @@ function SummaryCard({ label, value, icon: Icon, iconClass, bgClass, active, onC
   )
 }
 
-// ─── Baby Detail Sheet ────────────────────────────────────────────────────────
-function BabyDetailSheet({ baby, onClose, onTransfer }: {
-  baby: NicuBaby; onClose: () => void; onTransfer: () => void
-}) {
-  const los = daysInNicu(baby.admittedDate)
-  const vitals = [
-    { label: "Heart Rate", value: baby.vitals.heartRate, unit: "bpm", icon: HeartPulse },
-    { label: "SpO₂", value: baby.vitals.spo2, unit: "%", icon: Droplets },
-    { label: "Temperature", value: baby.vitals.temperature.toFixed(1), unit: "°C", icon: Thermometer },
-  ]
-  const statusColor: Record<BabyStatus, string> = {
-    stable: "text-[#1a7a4c] bg-[#e6f6ee] border-[#b4e4cb]",
-    warning: "text-[#b45309] bg-[#fff8e1] border-[#fcd34d]",
-    critical: "text-[#c53030] bg-[#fde8e8] border-[#f5bcbc]",
+// ─── Vitals Recording Form ────────────────────────────────────────────────────
+function VitalsForm({ admissionId, onSuccess }: { admissionId: string; onSuccess: () => void }) {
+  const recordVitals = useRecordVitals()
+  const [loading, setLoading] = useState(false)
+  const [form, setForm] = useState<Partial<CreateVitalsPayload>>({})
+
+  function setField(key: keyof CreateVitalsPayload, raw: string) {
+    const num = raw === "" ? undefined : Number(raw)
+    setForm(prev => ({ ...prev, [key]: num }))
   }
 
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    const payload: CreateVitalsPayload = {}
+    if (form.heartRate != null) payload.heartRate = form.heartRate
+    if (form.spo2 != null) payload.spo2 = form.spo2
+    if (form.temperature != null) payload.temperature = form.temperature
+    if (form.respiratoryRate != null) payload.respiratoryRate = form.respiratoryRate
+    if (form.bloodPressureSystolic != null) payload.bloodPressureSystolic = form.bloodPressureSystolic
+    if (form.bloodPressureDiastolic != null) payload.bloodPressureDiastolic = form.bloodPressureDiastolic
+    if (form.weight != null) payload.weight = form.weight
+
+    if (Object.keys(payload).length === 0) {
+      toast.error("Enter at least one vitals value")
+      return
+    }
+    setLoading(true)
+    try {
+      await recordVitals(admissionId, payload)
+      toast.success("Vitals recorded successfully")
+      setForm({})
+      onSuccess()
+    } catch {
+      toast.error("Failed to record vitals")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const inputCls = "h-9 text-sm"
   return (
-    <div className="flex flex-col gap-5 p-1">
-      {/* Status + LOS */}
+    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><HeartPulse className="size-3.5" />Heart Rate (bpm)</label>
+          <Input className={inputCls} type="number" placeholder="e.g. 145" value={form.heartRate ?? ""} onChange={e => setField("heartRate", e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Droplets className="size-3.5" />SpO₂ (%)</label>
+          <Input className={inputCls} type="number" placeholder="e.g. 96" value={form.spo2 ?? ""} onChange={e => setField("spo2", e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Thermometer className="size-3.5" />Temperature (°C)</label>
+          <Input className={inputCls} type="number" step="0.1" placeholder="e.g. 36.8" value={form.temperature ?? ""} onChange={e => setField("temperature", e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Wind className="size-3.5" />Resp. Rate (/min)</label>
+          <Input className={inputCls} type="number" placeholder="e.g. 42" value={form.respiratoryRate ?? ""} onChange={e => setField("respiratoryRate", e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground">BP Systolic</label>
+          <Input className={inputCls} type="number" placeholder="e.g. 90" value={form.bloodPressureSystolic ?? ""} onChange={e => setField("bloodPressureSystolic", e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-medium text-muted-foreground">BP Diastolic</label>
+          <Input className={inputCls} type="number" placeholder="e.g. 60" value={form.bloodPressureDiastolic ?? ""} onChange={e => setField("bloodPressureDiastolic", e.target.value)} />
+        </div>
+        <div className="flex flex-col gap-1.5 col-span-2">
+          <label className="text-xs font-medium text-muted-foreground">Weight (kg)</label>
+          <Input className={inputCls} type="number" step="0.001" placeholder="e.g. 1.820" value={form.weight ?? ""} onChange={e => setField("weight", e.target.value)} />
+        </div>
+      </div>
+      <Button type="submit" disabled={loading} className="w-full gap-2">
+        <Activity className="size-4" />
+        {loading ? "Saving…" : "Record Vitals"}
+      </Button>
+    </form>
+  )
+}
+
+// ─── Baby Detail Sheet (with vitals history + recording form) ─────────────────
+function BabyDetailSheet({ admission, onClose }: { admission: ApiNicuAdmission; onClose: () => void }) {
+  const router = useRouter()
+  const { vitals, isLoading: vitalsLoading, mutate: mutateVitals } = useAdmissionVitals(admission.id)
+  const [activeTab, setActiveTab] = useState<"details" | "vitals" | "record">("details")
+  const status = deriveNicuStatus(admission.vitalsRecords?.[0] ?? null, admission.nicuRiskLevel)
+  const statusColor = { stable: "text-success bg-success/10 border-success/20", warning: "text-warning-foreground bg-warning/10 border-warning/30", critical: "text-destructive bg-destructive/10 border-destructive/30" }
+  const los = Math.max(0, Math.floor((Date.now() - new Date(admission.admissionDate).getTime()) / 86_400_000))
+
+  return (
+    <div className="flex flex-col gap-4 p-1">
+      {/* Status row */}
       <div className="flex items-center justify-between">
-        <Badge variant="outline" className={cn("text-xs font-semibold px-3 py-1 rounded-full capitalize", statusColor[baby.status])}>
-          ● {baby.status}
+        <Badge variant="outline" className={cn("text-xs font-semibold px-3 py-1 rounded-full capitalize", statusColor[status])}>
+          ● {status}
         </Badge>
         <span className="text-xs text-muted-foreground">Day <span className="font-bold text-foreground">{los}</span> in NICU</span>
       </div>
 
-      {/* Baby info */}
-      <Card className="py-0">
-        <CardContent className="px-4 py-4 flex items-start gap-3">
-          <div className={cn("flex items-center justify-center size-12 rounded-xl shrink-0",
-            baby.status === "stable" ? "bg-[#e6f6ee]" : baby.status === "warning" ? "bg-[#fff8e1]" : "bg-[#fde8e8]")}>
-            <Baby className={cn("size-6", baby.status === "stable" ? "text-[#1a7a4c]" : baby.status === "warning" ? "text-[#b45309]" : "text-[#c53030]")} />
-          </div>
-          <div>
-            <p className="font-bold text-foreground">{baby.name}</p>
-            <p className="text-xs text-muted-foreground">Bed {baby.bed} · {baby.weight} · {baby.gestationalAge}</p>
-            <p className="text-xs text-muted-foreground">Admitted: {baby.admittedDate}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Vitals */}
-      <div>
-        <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-2">Live Vitals</p>
-        <div className="grid grid-cols-3 gap-2">
-          {vitals.map(v => (
-            <div key={v.label} className="flex flex-col items-center gap-1 rounded-lg bg-muted/50 border border-border p-2.5">
-              <v.icon className="size-4 text-muted-foreground" />
-              <span className="text-base font-bold tabular-nums text-foreground">{v.value}</span>
-              <span className="text-[10px] text-muted-foreground">{v.unit}</span>
-              <span className="text-[9px] text-muted-foreground text-center leading-tight">{v.label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Alerts */}
-      {baby.alerts.length > 0 && (
-        <div>
-          <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-2">Active Alerts</p>
-          <div className="flex flex-col gap-1.5">
-            {baby.alerts.map(a => (
-              <div key={a} className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-3 py-2">
-                <AlertTriangle className="size-3.5 text-destructive shrink-0" />
-                <span className="text-xs text-destructive">{a}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Doctor */}
-      <div className="flex items-center gap-2.5 rounded-lg border border-border bg-muted/30 px-3 py-2.5">
-        <Stethoscope className="size-4 text-muted-foreground" />
-        <div>
-          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Attending</p>
-          <p className="text-sm font-medium">{baby.doctor}</p>
-        </div>
-      </div>
-
-      {/* Transfer action — only for stable / warning */}
-      {baby.status !== "critical" && (
-        <div className="flex flex-col gap-2 pt-2 border-t border-border">
-          <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Transfer</p>
-          <Button className="gap-2 w-full" onClick={onTransfer}>
-            <ArrowRight className="size-4" />
-            Transfer to General Ward
-          </Button>
-          <p className="text-[11px] text-muted-foreground text-center">Only available when status is Stable or Warning</p>
-        </div>
-      )}
-
-      <Button variant="outline" onClick={onClose} className="w-full mt-1">Close</Button>
-    </div>
-  )
-}
-
-// ─── Transfer Sheet ───────────────────────────────────────────────────────────
-function TransferSheet({ baby, onClose, onConfirm }: {
-  baby: NicuBaby; onClose: () => void; onConfirm: (ward: string, bed: string) => void
-}) {
-  const [ward, setWard] = useState("")
-  const [bed, setBed] = useState("")
-  const [notes, setNotes] = useState("")
-  const [error, setError] = useState("")
-
-  function handleConfirm() {
-    if (!ward) { setError("Please select a ward"); return }
-    if (!bed.trim()) { setError("Please enter a bed number"); return }
-    setError("")
-    onConfirm(ward, bed.trim())
-  }
-
-  const inputCls = "w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all"
-
-  return (
-    <div className="flex flex-col gap-5 p-1">
-      {/* Summary */}
-      <Card className="py-0">
-        <CardContent className="px-4 py-3 flex items-center gap-3">
-          <div className="flex items-center justify-center size-9 rounded-lg bg-[#e6f6ee] shrink-0">
-            <Baby className="size-4 text-[#1a7a4c]" />
-          </div>
-          <div>
-            <p className="text-sm font-medium">{baby.name}</p>
-            <p className="text-[11px] text-muted-foreground">NICU Bed {baby.bed} · Day {daysInNicu(baby.admittedDate)} · {baby.weight}</p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Ward selector */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-semibold uppercase tracking-wider">Transfer to Ward</label>
-        <div className="grid grid-cols-2 gap-2">
-          {WARDS.map(w => (
-            <button key={w} type="button" onClick={() => setWard(w)}
-              className={cn("px-3 py-2 rounded-lg text-xs font-medium border text-left transition-all",
-                ward === w ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:border-primary/40 text-foreground")}>
-              {w}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Bed no. */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-semibold uppercase tracking-wider">Bed Number</label>
-        <div className="relative">
-          <Bed className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <input value={bed} onChange={e => setBed(e.target.value)} placeholder="e.g. Peds-W2 / B-03"
-            className={cn(inputCls, "pl-9")} />
-        </div>
-      </div>
-
-      {/* Transfer notes */}
-      <div className="flex flex-col gap-1.5">
-        <label className="text-xs font-semibold uppercase tracking-wider">Transfer Notes <span className="font-normal normal-case text-muted-foreground">(optional)</span></label>
-        <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-          placeholder="Clinical reasons for transfer, special instructions..."
-          className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all resize-none placeholder:text-muted-foreground" />
-      </div>
-
-      {/* Checklist */}
-      <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex flex-col gap-2">
-        <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Pre-transfer Checklist</p>
-        {["Attending doctor notified", "Ward nurse informed", "Patient stable for transfer", "Transfer notes documented"].map(item => (
-          <div key={item} className="flex items-center gap-2">
-            <CheckCircle2 className="size-3.5 text-[#1a7a4c] shrink-0" />
-            <span className="text-xs text-foreground">{item}</span>
-          </div>
+      {/* Tabs */}
+      <div className="flex gap-1 rounded-lg bg-muted p-1">
+        {(["details", "vitals", "record"] as const).map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={cn("flex-1 text-xs py-1.5 rounded-md font-medium capitalize transition-all",
+              activeTab === tab ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
+            {tab === "record" ? "Record Vitals" : tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
         ))}
       </div>
 
-      {error && (
-        <p className="text-xs text-destructive flex items-center gap-1.5">
-          <AlertTriangle className="size-3.5" />{error}
-        </p>
+      {/* Details tab */}
+      {activeTab === "details" && (
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            {[
+              ["Admission #", admission.admissionNumber],
+              ["Department", admission.department],
+              ["Gestational Age", admission.gestationalAge ?? "—"],
+              ["Risk Level", admission.nicuRiskLevel ?? "—"],
+              ["Admitted", new Date(admission.admissionDate).toLocaleDateString()],
+              ["Attending", admission.admittingDoctor ? `Dr. ${admission.admittingDoctor.name}` : "—"],
+            ].map(([label, value]) => (
+              <div key={label} className="flex flex-col gap-0.5 rounded-lg bg-muted/40 border border-border p-2.5">
+                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
+                <span className="font-medium text-foreground">{value}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col gap-2 pt-2 border-t border-border">
+            <Button className="gap-2 w-full" variant="outline" onClick={() => router.push(`/admissions/${admission.id}/transfer`)}>
+              <ArrowRight className="size-4" />
+              Transfer to General Ward
+            </Button>
+          </div>
+        </div>
       )}
 
-      <div className="flex gap-2 pt-1">
-        <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-        <Button className="flex-1 gap-2" onClick={handleConfirm}>
-          <ArrowRight className="size-4" />Confirm Transfer
-        </Button>
-      </div>
+      {/* Vitals history tab */}
+      {activeTab === "vitals" && (
+        <div className="flex flex-col gap-2">
+          {vitalsLoading ? (
+            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
+          ) : vitals.length === 0 ? (
+            <div className="flex flex-col items-center py-8 gap-2">
+              <Activity className="size-8 text-muted-foreground/30" />
+              <p className="text-sm text-muted-foreground">No vitals recorded yet</p>
+            </div>
+          ) : vitals.map(v => {
+            const ts = deriveNicuStatus(v, null)
+            return (
+              <div key={v.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground flex items-center gap-1"><Clock className="size-3" />{new Date(v.recordedAt).toLocaleString()}</span>
+                  <Badge variant="outline" className={cn("text-[10px]", statusColor[ts])}>● {ts}</Badge>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs">
+                  {v.heartRate != null && <span className={cn("px-2 py-0.5 rounded-md", getVitalLevel("heartRate", v.heartRate) === "critical" ? "bg-destructive/10 text-destructive" : getVitalLevel("heartRate", v.heartRate) === "warning" ? "bg-warning/10 text-warning-foreground" : "bg-muted")}>HR: {v.heartRate}</span>}
+                  {v.spo2 != null && <span className={cn("px-2 py-0.5 rounded-md", getVitalLevel("spo2", v.spo2) === "critical" ? "bg-destructive/10 text-destructive" : getVitalLevel("spo2", v.spo2) === "warning" ? "bg-warning/10 text-warning-foreground" : "bg-muted")}>SpO₂: {v.spo2}%</span>}
+                  {v.temperature != null && <span className={cn("px-2 py-0.5 rounded-md", getVitalLevel("temperature", Number(v.temperature)) !== "normal" ? "bg-warning/10 text-warning-foreground" : "bg-muted")}>T: {Number(v.temperature).toFixed(1)}°C</span>}
+                  {v.respiratoryRate != null && <span className="px-2 py-0.5 rounded-md bg-muted">RR: {v.respiratoryRate}</span>}
+                  {v.weight != null && <span className="px-2 py-0.5 rounded-md bg-muted">Wt: {v.weight} kg</span>}
+                </div>
+                {v.notes && <p className="text-[11px] text-muted-foreground italic">{v.notes}</p>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Record tab */}
+      {activeTab === "record" && (
+        <VitalsForm admissionId={admission.id} onSuccess={() => { mutateVitals(); setActiveTab("vitals") }} />
+      )}
+
+      <Button variant="outline" onClick={onClose} className="w-full">Close</Button>
     </div>
   )
 }
 
 // ─── Main NicuContent ─────────────────────────────────────────────────────────
 export function NicuContent() {
+  const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<FilterOption>("all")
-  const [babies, setBabies] = useState<NicuBaby[]>(getNicuBabies())
-  const [selectedBaby, setSelectedBaby] = useState<NicuBaby | null>(null)
-  const [transferBaby, setTransferBaby] = useState<NicuBaby | null>(null)
-  const [transferredCount, setTransferredCount] = useState(0)
+  const [selectedAdmission, setSelectedAdmission] = useState<ApiNicuAdmission | null>(null)
+  const { admissions, isLoading, mutate } = useNicuAdmissions(search || undefined)
 
-  // Subscribe to NICU store changes
-  React.useEffect(() => {
-    return subscribeNicu(() => {
-      setBabies(getNicuBabies())
-    })
-  }, [])
+  // Derive status for each admission and apply filter
+  const withStatus = admissions.map(adm => ({
+    adm,
+    status: deriveNicuStatus(adm.vitalsRecords?.[0] ?? null, adm.nicuRiskLevel),
+  }))
+  const counts = { critical: 0, warning: 0, stable: 0 }
+  withStatus.forEach(({ status }) => counts[status]++)
 
-  const totalBabies = babies.length
-  const criticalCount = babies.filter(b => b.status === "critical").length
-  const warningCount = babies.filter(b => b.status === "warning").length
-  const stableCount = babies.filter(b => b.status === "stable").length
-
-  const filteredBabies = filter === "all" ? babies : babies.filter(b => b.status === filter)
-
-  function handleTransferConfirm(ward: string, bed: string) {
-    if (!transferBaby) return
-    // Update patient status in the shared store (links to the patient list)
-    updatePatientStatus(transferBaby.id, "IP", `${ward} / Bed ${bed}`)
-    // Remove from local NICU list
-    removeNicuBaby(transferBaby.id)
-    setTransferredCount(c => c + 1)
-    setTransferBaby(null)
-    setSelectedBaby(null)
-  }
+  const filtered = filter === "all" ? withStatus : withStatus.filter(({ status }) => status === filter)
 
   return (
     <>
       <TooltipProvider>
         <div className="p-4 lg:p-6 flex flex-col gap-5 max-w-[1600px] mx-auto">
           {/* Header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h1 className="text-xl font-bold text-foreground tracking-tight">NICU Dashboard</h1>
               <p className="text-sm text-muted-foreground mt-0.5">
-                {totalBabies} babies in care{transferredCount > 0 && ` · ${transferredCount} transferred today`}
+                {isLoading ? "Loading patients…" : `${admissions.length} babies in NICU care`}
               </p>
             </div>
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs"
-              onClick={() => setNicuBabies(initialBabies)}>
-              <RefreshCw className="size-3.5" />Refresh
-            </Button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                <Input className="pl-8 h-8 text-xs w-48" placeholder="Search patient…" value={search} onChange={e => setSearch(e.target.value)} />
+              </div>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs h-8" onClick={() => mutate()}>
+                <RefreshCw className="size-3.5" />Refresh
+              </Button>
+            </div>
           </div>
 
-          {/* Status filter cards */}
+          {/* Summary cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <SummaryCard label="Total Patients" value={totalBabies} icon={Baby}
-              iconClass="text-primary" bgClass="bg-primary/10" active={filter === "all"} onClick={() => setFilter("all")} />
-            <SummaryCard label="Critical" value={criticalCount} icon={AlertTriangle}
-              iconClass="text-destructive" bgClass="bg-destructive/10" active={filter === "critical"} onClick={() => setFilter("critical")} />
-            <SummaryCard label="Needs Attention" value={warningCount} icon={HeartPulse}
-              iconClass="text-warning-foreground" bgClass="bg-warning/10" active={filter === "warning"} onClick={() => setFilter("warning")} />
-            <SummaryCard label="Stable" value={stableCount} icon={CheckCircle2}
-              iconClass="text-[#1a7a4c]" bgClass="bg-[#e6f6ee]" active={filter === "stable"} onClick={() => setFilter("stable")} />
+            <SummaryCard label="Total Patients" value={admissions.length} icon={Baby} iconClass="text-primary" bgClass="bg-primary/10" active={filter === "all"} onClick={() => setFilter("all")} />
+            <SummaryCard label="Critical" value={counts.critical} icon={AlertTriangle} iconClass="text-destructive" bgClass="bg-destructive/10" active={filter === "critical"} onClick={() => setFilter("critical")} />
+            <SummaryCard label="Needs Attention" value={counts.warning} icon={HeartPulse} iconClass="text-warning-foreground" bgClass="bg-warning/10" active={filter === "warning"} onClick={() => setFilter("warning")} />
+            <SummaryCard label="Stable" value={counts.stable} icon={CheckCircle2} iconClass="text-success" bgClass="bg-success/10" active={filter === "stable"} onClick={() => setFilter("stable")} />
           </div>
 
           {/* Baby grid */}
-          {filteredBabies.length === 0 ? (
+          {isLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-48 w-full rounded-xl" />)}
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Baby className="size-10 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">
-                {filter === "all" ? "All babies have been transferred to wards" : `No ${filter} patients`}
+                {filter === "all" ? "No NICU patients found" : `No ${filter} patients`}
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredBabies.map(baby => (
-                <NicuBabyCard key={baby.id} baby={baby} onViewDetails={() => setSelectedBaby(baby)} />
+              {filtered.map(({ adm }) => (
+                <NicuBabyCard key={adm.id} admission={adm} onViewDetails={() => setSelectedAdmission(adm)} />
               ))}
             </div>
           )}
         </div>
       </TooltipProvider>
 
-      {/* Baby Detail Sheet */}
-      <Sheet open={!!selectedBaby} onOpenChange={open => !open && setSelectedBaby(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-[400px] overflow-y-auto">
-          <SheetHeader className="pb-4 border-b border-border mb-5">
-            <SheetTitle className="flex items-center gap-2">
-              <Baby className="size-5 text-primary" />
-              {selectedBaby?.name}
-            </SheetTitle>
-            <SheetDescription>NICU Bed {selectedBaby?.bed} · {selectedBaby?.gestationalAge}</SheetDescription>
-          </SheetHeader>
-          {selectedBaby && (
-            <BabyDetailSheet
-              baby={selectedBaby}
-              onClose={() => setSelectedBaby(null)}
-              onTransfer={() => { setTransferBaby(selectedBaby); setSelectedBaby(null) }}
-            />
-          )}
-        </SheetContent>
-      </Sheet>
-
-      {/* Transfer Sheet */}
-      <Sheet open={!!transferBaby} onOpenChange={open => !open && setTransferBaby(null)}>
+      {/* Detail Sheet */}
+      <Sheet open={!!selectedAdmission} onOpenChange={open => !open && setSelectedAdmission(null)}>
         <SheetContent side="right" className="w-full sm:max-w-[420px] overflow-y-auto">
           <SheetHeader className="pb-4 border-b border-border mb-5">
             <SheetTitle className="flex items-center gap-2">
-              <ArrowRight className="size-5 text-primary" />
-              Transfer to Ward
+              <Baby className="size-5 text-primary" />
+              {selectedAdmission && `${selectedAdmission.patient.firstName} ${selectedAdmission.patient.lastName}`}
             </SheetTitle>
-            <SheetDescription>NICU → General Ward transfer for {transferBaby?.name}</SheetDescription>
+            <SheetDescription>
+              {selectedAdmission?.gestationalAge ?? "NICU Patient"} · {selectedAdmission?.currentBed?.bedNumber ?? "—"}
+            </SheetDescription>
           </SheetHeader>
-          {transferBaby && (
-            <TransferSheet
-              baby={transferBaby}
-              onClose={() => setTransferBaby(null)}
-              onConfirm={handleTransferConfirm}
-            />
+          {selectedAdmission && (
+            <BabyDetailSheet admission={selectedAdmission} onClose={() => setSelectedAdmission(null)} />
           )}
         </SheetContent>
       </Sheet>
