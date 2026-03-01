@@ -1,0 +1,144 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum MasterStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum WardType {
+  GENERAL
+  PRIVATE
+  NICU
+  PICU
+}
+
+enum BedStatus {
+  AVAILABLE
+  OCCUPIED
+  CLEANING
+  RESERVED
+  MAINTENANCE
+}
+
+enum ServiceCategory {
+  CONSULTATION
+  LAB
+  PROCEDURE
+  ROOM
+  MISC
+}
+
+model Role {
+  id          Int     @id @default(autoincrement())
+  name        String  @unique
+  description String?
+  users       User[]
+}
+
+model User {
+  id           String     @id @default(uuid())
+  name         String
+  email        String     @unique
+  phone        String     @unique
+  passwordHash String
+  role         Role       @relation(fields: [roleId], references: [id])
+  roleId       Int
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  failedLogins Int        @default(0)
+  lockedUntil  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+// ─── Master Data Models ───────────────────────────────────────────────────────
+
+model Floor {
+  id          String       @id @default(uuid())
+  name        String
+  floorNumber Int          @unique @map("floor_number")
+  status      MasterStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  wards       Ward[]
+
+  @@map("floors")
+}
+
+model Ward {
+  id        String       @id @default(uuid())
+  floorId   String       @map("floor_id")
+  name      String
+  type      WardType     @default(GENERAL)
+  totalBeds Int          @map("total_beds")
+  status    MasterStatus @default(ACTIVE)
+  createdAt DateTime     @default(now()) @map("created_at")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+
+  floor     Floor        @relation(fields: [floorId], references: [id])
+  beds      Bed[]
+
+  @@unique([floorId, name])
+  @@index([floorId])
+  @@map("wards")
+}
+
+model Bed {
+  id        String    @id @default(uuid())
+  wardId    String    @map("ward_id")
+  bedNumber String    @map("bed_number")
+  status    BedStatus @default(AVAILABLE)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  ward      Ward      @relation(fields: [wardId], references: [id])
+
+  @@unique([wardId, bedNumber])
+  @@index([wardId])
+  @@index([status])
+  @@map("beds")
+}
+
+model Department {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  description String       @default("")
+  status      MasterStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  @@map("departments")
+}
+
+model Service {
+  id         String          @id @default(uuid())
+  name       String
+  category   ServiceCategory @default(CONSULTATION)
+  basePrice  Decimal         @map("base_price") @db.Decimal(10, 2)
+  taxPercent Decimal         @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  status     MasterStatus    @default(ACTIVE)
+  createdAt  DateTime        @default(now()) @map("created_at")
+  updatedAt  DateTime        @updatedAt @map("updated_at")
+
+  @@index([category])
+  @@index([status])
+  @@map("services")
+}
+
