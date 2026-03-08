@@ -64,12 +64,16 @@ export interface Appointment {
     age: string
     gender: Gender
     doctor: string
+    doctorId: string
     department: string
+    appointmentDate: string
     time: string
     duration: number // minutes
     status: ApptStatus
     type: string
     token: number
+    notes?: string
+    chiefComplaint?: string
 }
 
 /** Single invoice / bill */

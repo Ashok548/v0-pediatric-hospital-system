@@ -1,8 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { useVitalsStore } from "@/lib/store/vitals-store"
-import { useAdmissionStore } from "@/lib/store/admission-store"
+import { useAdmission } from "@/lib/api/admissions"
+import { useAdmissionVitals, useRecordVitals } from "@/lib/api/nicu"
+import { useIoRecords, useCreateIoRecord, useDeleteIoRecord, useUpdateIoRecord, useDeleteVitalRecord } from "@/lib/api/nursing"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -18,68 +19,148 @@ import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from "recharts"
 import { format } from "date-fns"
-import { Activity, Droplet, Heart, Plus, Thermometer, Wind, ArrowLeft } from "lucide-react"
+import { Activity, Droplet, Heart, Plus, Thermometer, Wind, ArrowLeft, Loader2, FileText, Trash2, Edit2, Check, X as XIcon } from "lucide-react"
+import {
+    AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+    AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import Link from "next/link"
-import type { IORoute } from "@/lib/data/vitals"
 import { toast } from "sonner"
+import { NotesPanel } from "./nursing/notes-panel"
 
-const IO_ROUTES: IORoute[] = ["Oral", "IV Fluid", "NG Tube", "Urine", "NG Aspirate", "Drain", "Other"]
+const IO_ROUTES = ["Oral", "IV Fluid", "NG Tube", "Urine", "NG Aspirate", "Drain", "Other"]
 
 interface Props { admissionId: string }
 
 export function VitalsChartContent({ admissionId }: Props) {
-    const { vitals, io, totalIntake, totalOutput, ioBalance, addVitalReading, addIOEntry } = useVitalsStore(admissionId)
-    const { getAdmissionById } = useAdmissionStore()
-    const adm = getAdmissionById(admissionId)
+    const { admission: adm, isLoading: loadingAdm } = useAdmission(admissionId)
+    const { vitals, isLoading: loadingVitals } = useAdmissionVitals(admissionId)
+    const { records: io, isLoading: loadingIo } = useIoRecords(admissionId)
+    const recordVitals = useRecordVitals()
+    const recordIo = useCreateIoRecord()
+    const deleteIo = useDeleteIoRecord()
+    const updateIo = useUpdateIoRecord()
+    const deleteVital = useDeleteVitalRecord()
 
     const [vitalOpen, setVitalOpen] = useState(false)
     const [ioOpen, setIoOpen] = useState(false)
+    const [ioToDelete, setIoToDelete] = useState<string | null>(null)
+    const [isDeletingIo, setIsDeletingIo] = useState(false)
+    const [vitalToDelete, setVitalToDelete] = useState<string | null>(null)
+    const [isDeletingVital, setIsDeletingVital] = useState(false)
+
+    // I/O inline edit state
+    const [editingIoId, setEditingIoId] = useState<string | null>(null)
+    const [editingIoVals, setEditingIoVals] = useState({ ioType: "INTAKE" as "INTAKE" | "OUTPUT", route: "", volumeMl: "", notes: "" })
+    const [isSavingIo, setIsSavingIo] = useState(false)
 
     // ── Vital form state ──────────────────────────────────────────────────────
-    const [vf, setVf] = useState({ heartRate: "", spo2: "", temperature: "", respRate: "", bpSystolic: "", bpDiastolic: "", recordedBy: "", notes: "" })
+    const [vf, setVf] = useState({ heartRate: "", spo2: "", temperature: "", respiratoryRate: "", bloodPressureSystolic: "", bloodPressureDiastolic: "", notes: "" })
 
     // ── I/O form state ─────────────────────────────────────────────────────────
-    const [iof, setIof] = useState({ ioType: "intake", route: "IV Fluid", volumeMl: "", recordedBy: "", notes: "" })
+    const [iof, setIof] = useState({ ioType: "INTAKE" as "INTAKE" | "OUTPUT", route: "IV Fluid", volumeMl: "", notes: "" })
 
-    const chartData = vitals.map(v => ({
-        time: format(new Date(v.timestamp), "HH:mm"),
+    // Reverse vitals for chart (oldest to newest left to right)
+    const chartData = [...vitals].reverse().map(v => ({
+        time: format(new Date(v.recordedAt), "HH:mm"),
         "HR (bpm)": v.heartRate,
         "SpO2 (%)": v.spo2,
         "Temp (°C)": v.temperature,
-        "RR": v.respRate,
+        "RR": v.respiratoryRate,
     }))
 
-    function submitVital() {
-        const r = {
-            heartRate: Number(vf.heartRate), spo2: Number(vf.spo2),
-            temperature: Number(vf.temperature), respRate: Number(vf.respRate),
-            bpSystolic: Number(vf.bpSystolic), bpDiastolic: Number(vf.bpDiastolic),
-            recordedBy: vf.recordedBy || "Nurse",
-            notes: vf.notes || undefined,
-            timestamp: new Date().toISOString(),
+    // Calculate I/O Balance
+    const totalIntake = io.filter(e => e.ioType === "INTAKE").reduce((acc, curr) => acc + curr.volumeMl, 0)
+    const totalOutput = io.filter(e => e.ioType === "OUTPUT").reduce((acc, curr) => acc + curr.volumeMl, 0)
+    const ioBalance = totalIntake - totalOutput
+
+    async function submitVital() {
+        if (!adm) return
+        try {
+            await recordVitals(admissionId, {
+                heartRate: Number(vf.heartRate), spo2: Number(vf.spo2),
+                temperature: Number(vf.temperature), respiratoryRate: Number(vf.respiratoryRate),
+                bloodPressureSystolic: Number(vf.bloodPressureSystolic), bloodPressureDiastolic: Number(vf.bloodPressureDiastolic),
+                notes: vf.notes || undefined,
+            })
+            setVf({ heartRate: "", spo2: "", temperature: "", respiratoryRate: "", bloodPressureSystolic: "", bloodPressureDiastolic: "", notes: "" })
+            setVitalOpen(false)
+            toast.success("Vital reading recorded")
+        } catch {
+            toast.error("Failed to record vitals")
         }
-        addVitalReading(adm?.patientId ?? "", r)
-        setVf({ heartRate: "", spo2: "", temperature: "", respRate: "", bpSystolic: "", bpDiastolic: "", recordedBy: "", notes: "" })
-        setVitalOpen(false)
-        toast.success("Vital reading recorded")
     }
 
-    function submitIO() {
-        const e = {
-            ioType: iof.ioType as "intake" | "output",
-            route: iof.route as IORoute,
-            volumeMl: Number(iof.volumeMl),
-            recordedBy: iof.recordedBy || "Nurse",
-            notes: iof.notes || undefined,
-            timestamp: new Date().toISOString(),
+    async function submitIO() {
+        if (!adm) return
+        try {
+            await recordIo(admissionId, {
+                ioType: iof.ioType,
+                route: iof.route,
+                volumeMl: Number(iof.volumeMl),
+                notes: iof.notes || undefined,
+            })
+            setIof({ ioType: "INTAKE", route: "IV Fluid", volumeMl: "", notes: "" })
+            setIoOpen(false)
+            toast.success("I/O entry recorded")
+        } catch {
+            toast.error("Failed to record I/O entry")
         }
-        addIOEntry(adm?.patientId ?? "", e)
-        setIof({ ioType: "intake", route: "IV Fluid", volumeMl: "", recordedBy: "", notes: "" })
-        setIoOpen(false)
-        toast.success("I/O entry recorded")
     }
 
-    const latest = vitals[vitals.length - 1]
+    async function handleDeleteIo() {
+        if (!ioToDelete) return
+        setIsDeletingIo(true)
+        try {
+            await deleteIo(ioToDelete, admissionId)
+            toast.success("I/O entry deleted")
+        } catch {
+            toast.error("Failed to delete I/O entry")
+        } finally {
+            setIsDeletingIo(false)
+            setIoToDelete(null)
+        }
+    }
+
+    async function handleDeleteVital() {
+        if (!vitalToDelete) return
+        setIsDeletingVital(true)
+        try {
+            await deleteVital(vitalToDelete, admissionId)
+            toast.success("Vital reading deleted")
+        } catch {
+            toast.error("Failed to delete vital reading")
+        } finally {
+            setIsDeletingVital(false)
+            setVitalToDelete(null)
+        }
+    }
+
+    function openIoEdit(e: typeof io[0]) {
+        setEditingIoId(e.id)
+        setEditingIoVals({ ioType: e.ioType, route: e.route, volumeMl: String(e.volumeMl), notes: e.notes ?? "" })
+    }
+
+    async function saveIoEdit() {
+        if (!editingIoId) return
+        setIsSavingIo(true)
+        try {
+            await updateIo(editingIoId, admissionId, {
+                ioType: editingIoVals.ioType,
+                route: editingIoVals.route,
+                volumeMl: Number(editingIoVals.volumeMl),
+                notes: editingIoVals.notes || undefined,
+            })
+            toast.success("I/O entry updated")
+            setEditingIoId(null)
+        } catch {
+            toast.error("Failed to update I/O entry")
+        } finally {
+            setIsSavingIo(false)
+        }
+    }
+
+    const latest = vitals[0] // API returns descending by default
 
     return (
         <div className="flex-1 space-y-6 p-6 pt-4">
@@ -94,10 +175,10 @@ export function VitalsChartContent({ admissionId }: Props) {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tight">
-                        Vitals & I/O — {adm?.patientName ?? admissionId}
+                        Vitals & I/O — {adm ? `${adm.patient.firstName} ${adm.patient.lastName}` : "Loading..."}
                     </h1>
                     <p className="text-muted-foreground text-sm">
-                        {adm?.patientId} · {adm?.currentLocation?.wardName} / <strong>{adm?.currentLocation?.bedNumber}</strong>
+                        {adm?.patient.uhid} · {adm?.currentBed?.ward.name} / <strong>{adm?.currentBed?.bedNumber}</strong>
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -111,11 +192,11 @@ export function VitalsChartContent({ admissionId }: Props) {
                                 <div className="grid grid-cols-2 gap-3">
                                     <div className="space-y-1">
                                         <Label>Type</Label>
-                                        <Select value={iof.ioType} onValueChange={v => setIof(p => ({ ...p, ioType: v }))}>
+                                        <Select value={iof.ioType} onValueChange={v => setIof(p => ({ ...p, ioType: v as any }))}>
                                             <SelectTrigger><SelectValue /></SelectTrigger>
                                             <SelectContent>
-                                                <SelectItem value="intake">Intake</SelectItem>
-                                                <SelectItem value="output">Output</SelectItem>
+                                                <SelectItem value="INTAKE">Intake</SelectItem>
+                                                <SelectItem value="OUTPUT">Output</SelectItem>
                                             </SelectContent>
                                         </Select>
                                     </div>
@@ -132,10 +213,6 @@ export function VitalsChartContent({ admissionId }: Props) {
                                 <div className="space-y-1">
                                     <Label>Volume (mL)</Label>
                                     <Input type="number" value={iof.volumeMl} onChange={e => setIof(p => ({ ...p, volumeMl: e.target.value }))} placeholder="e.g. 200" />
-                                </div>
-                                <div className="space-y-1">
-                                    <Label>Recorded By</Label>
-                                    <Input value={iof.recordedBy} onChange={e => setIof(p => ({ ...p, recordedBy: e.target.value }))} placeholder="Nurse name" />
                                 </div>
                             </div>
                             <DialogFooter>
@@ -156,9 +233,9 @@ export function VitalsChartContent({ admissionId }: Props) {
                                     { label: "Heart Rate (bpm)", key: "heartRate", placeholder: "120" },
                                     { label: "SpO2 (%)", key: "spo2", placeholder: "97" },
                                     { label: "Temperature (°C)", key: "temperature", placeholder: "37.2" },
-                                    { label: "Resp. Rate (/min)", key: "respRate", placeholder: "24" },
-                                    { label: "BP Systolic", key: "bpSystolic", placeholder: "100" },
-                                    { label: "BP Diastolic", key: "bpDiastolic", placeholder: "65" },
+                                    { label: "Resp. Rate (/min)", key: "respiratoryRate", placeholder: "24" },
+                                    { label: "BP Systolic", key: "bloodPressureSystolic", placeholder: "100" },
+                                    { label: "BP Diastolic", key: "bloodPressureDiastolic", placeholder: "65" },
                                 ].map(({ label, key, placeholder }) => (
                                     <div key={key} className="space-y-1">
                                         <Label>{label}</Label>
@@ -170,10 +247,6 @@ export function VitalsChartContent({ admissionId }: Props) {
                                         />
                                     </div>
                                 ))}
-                                <div className="col-span-2 space-y-1">
-                                    <Label>Recorded By</Label>
-                                    <Input value={vf.recordedBy} onChange={e => setVf(p => ({ ...p, recordedBy: e.target.value }))} placeholder="Nurse name" />
-                                </div>
                                 <div className="col-span-2 space-y-1">
                                     <Label>Notes (optional)</Label>
                                     <Textarea value={vf.notes} onChange={e => setVf(p => ({ ...p, notes: e.target.value }))} rows={2} />
@@ -195,9 +268,9 @@ export function VitalsChartContent({ admissionId }: Props) {
                         { label: "HR", value: `${latest.heartRate}`, unit: "bpm", icon: <Heart className="h-4 w-4 text-red-500" />, color: "text-red-600" },
                         { label: "SpO2", value: `${latest.spo2}`, unit: "%", icon: <Wind className="h-4 w-4 text-blue-500" />, color: "text-blue-600" },
                         { label: "Temp", value: `${latest.temperature}`, unit: "°C", icon: <Thermometer className="h-4 w-4 text-orange-400" />, color: "text-orange-600" },
-                        { label: "RR", value: `${latest.respRate}`, unit: "/min", icon: <Activity className="h-4 w-4 text-purple-500" />, color: "text-purple-600" },
-                        { label: "SBP", value: `${latest.bpSystolic}`, unit: "mmHg", icon: <Activity className="h-4 w-4 text-emerald-500" />, color: "text-emerald-600" },
-                        { label: "DBP", value: `${latest.bpDiastolic}`, unit: "mmHg", icon: <Activity className="h-4 w-4 text-teal-500" />, color: "text-teal-600" },
+                        { label: "RR", value: `${latest.respiratoryRate}`, unit: "/min", icon: <Activity className="h-4 w-4 text-purple-500" />, color: "text-purple-600" },
+                        { label: "SBP", value: `${latest.bloodPressureSystolic}`, unit: "mmHg", icon: <Activity className="h-4 w-4 text-emerald-500" />, color: "text-emerald-600" },
+                        { label: "DBP", value: `${latest.bloodPressureDiastolic}`, unit: "mmHg", icon: <Activity className="h-4 w-4 text-teal-500" />, color: "text-teal-600" },
                     ].map(({ label, value, unit, icon, color }) => (
                         <Card key={label}>
                             <CardContent className="pt-4 pb-3 px-3 flex flex-col items-center gap-1">
@@ -213,8 +286,9 @@ export function VitalsChartContent({ admissionId }: Props) {
             <Tabs defaultValue="chart">
                 <TabsList>
                     <TabsTrigger value="chart"><Activity className="h-3.5 w-3.5 mr-1.5" />Trend Chart</TabsTrigger>
-                    <TabsTrigger value="log">Vitals Log</TabsTrigger>
+                    <TabsTrigger value="log"><Heart className="h-3.5 w-3.5 mr-1.5" />Vitals Log</TabsTrigger>
                     <TabsTrigger value="io"><Droplet className="h-3.5 w-3.5 mr-1.5" />I/O Balance</TabsTrigger>
+                    <TabsTrigger value="notes"><FileText className="h-3.5 w-3.5 mr-1.5" />Nursing Notes</TabsTrigger>
                 </TabsList>
 
                 {/* Trend Chart */}
@@ -253,26 +327,31 @@ export function VitalsChartContent({ admissionId }: Props) {
                                 <table className="w-full text-sm">
                                     <thead className="bg-muted/40">
                                         <tr>
-                                            {["Time", "HR", "SpO2", "Temp", "RR", "BP", "By", "Notes"].map(h => (
+                                            {["Time", "HR", "SpO2", "Temp", "RR", "BP", "By", "Notes", ""].map(h => (
                                                 <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground text-xs">{h}</th>
                                             ))}
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {[...vitals].reverse().map(v => (
-                                            <tr key={v.id} className="border-t border-border hover:bg-muted/20">
-                                                <td className="px-4 py-2 text-xs font-mono">{format(new Date(v.timestamp), "dd MMM HH:mm")}</td>
+                                        {vitals.map(v => (
+                                            <tr key={v.id} className="border-t border-border hover:bg-muted/20 group">
+                                                <td className="px-4 py-2 text-xs font-mono">{format(new Date(v.recordedAt), "dd MMM HH:mm")}</td>
                                                 <td className="px-4 py-2 font-semibold text-red-600">{v.heartRate}</td>
                                                 <td className="px-4 py-2 font-semibold text-blue-600">{v.spo2}%</td>
                                                 <td className="px-4 py-2 text-orange-600">{v.temperature}°C</td>
-                                                <td className="px-4 py-2">{v.respRate}</td>
-                                                <td className="px-4 py-2">{v.bpSystolic}/{v.bpDiastolic}</td>
+                                                <td className="px-4 py-2">{v.respiratoryRate}</td>
+                                                <td className="px-4 py-2">{v.bloodPressureSystolic}/{v.bloodPressureDiastolic}</td>
                                                 <td className="px-4 py-2 text-muted-foreground text-xs">{v.recordedBy}</td>
-                                                <td className="px-4 py-2 text-muted-foreground text-xs max-w-[180px] truncate">{v.notes ?? "—"}</td>
+                                                <td className="px-4 py-2 text-muted-foreground text-xs max-w-[150px] truncate">{v.notes ?? "—"}</td>
+                                                <td className="px-4 py-2 text-right">
+                                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50/50 opacity-0 group-hover:opacity-100 transition-opacity" onClick={() => setVitalToDelete(v.id)}>
+                                                        <Trash2 className="h-3 w-3" />
+                                                    </Button>
+                                                </td>
                                             </tr>
                                         ))}
                                         {vitals.length === 0 && (
-                                            <tr><td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">No vitals recorded yet.</td></tr>
+                                            <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">No vitals recorded yet.</td></tr>
                                         )}
                                     </tbody>
                                 </table>
@@ -314,28 +393,73 @@ export function VitalsChartContent({ admissionId }: Props) {
                                     <table className="w-full text-sm">
                                         <thead className="bg-muted/40">
                                             <tr>
-                                                {["Time", "Type", "Route", "Volume (mL)", "By", "Notes"].map(h => (
+                                                {["Time", "Type", "Route", "Volume (mL)", "By", "Notes", ""].map(h => (
                                                     <th key={h} className="px-4 py-3 text-left font-medium text-muted-foreground text-xs">{h}</th>
                                                 ))}
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {[...io].reverse().map(e => (
-                                                <tr key={e.id} className="border-t border-border hover:bg-muted/20">
-                                                    <td className="px-4 py-2 text-xs font-mono">{format(new Date(e.timestamp), "dd MMM HH:mm")}</td>
-                                                    <td className="px-4 py-2">
-                                                        <Badge variant={e.ioType === "intake" ? "default" : "outline"} className="text-xs">
-                                                            {e.ioType === "intake" ? "↑ Intake" : "↓ Output"}
-                                                        </Badge>
-                                                    </td>
-                                                    <td className="px-4 py-2 text-muted-foreground">{e.route}</td>
-                                                    <td className="px-4 py-2 font-semibold">{e.volumeMl}</td>
-                                                    <td className="px-4 py-2 text-muted-foreground text-xs">{e.recordedBy}</td>
-                                                    <td className="px-4 py-2 text-muted-foreground text-xs">{e.notes ?? "—"}</td>
-                                                </tr>
-                                            ))}
+                                            {io.map(e => {
+                                                const isEditing = editingIoId === e.id
+                                                return (
+                                                    <tr key={e.id} className="border-t border-border hover:bg-muted/20 group">
+                                                        <td className="px-4 py-2 text-xs font-mono">{format(new Date(e.recordedAt), "dd MMM HH:mm")}</td>
+                                                        <td className="px-3 py-1.5">
+                                                            {isEditing ? (
+                                                                <select className="text-xs border rounded px-1 py-0.5 bg-background" value={editingIoVals.ioType} onChange={ev => setEditingIoVals(p => ({ ...p, ioType: ev.target.value as any }))}>
+                                                                    <option value="INTAKE">↑ Intake</option>
+                                                                    <option value="OUTPUT">↓ Output</option>
+                                                                </select>
+                                                            ) : (
+                                                                <Badge variant={e.ioType === "INTAKE" ? "default" : "outline"} className="text-xs">
+                                                                    {e.ioType === "INTAKE" ? "↑ Intake" : "↓ Output"}
+                                                                </Badge>
+                                                            )}
+                                                        </td>
+                                                        <td className="px-3 py-1.5">
+                                                            {isEditing ? (
+                                                                <select className="text-xs border rounded px-1 py-0.5 bg-background" value={editingIoVals.route} onChange={ev => setEditingIoVals(p => ({ ...p, route: ev.target.value }))}>
+                                                                    {IO_ROUTES.map(r => <option key={r} value={r}>{r}</option>)}
+                                                                </select>
+                                                            ) : <span className="text-muted-foreground">{e.route}</span>}
+                                                        </td>
+                                                        <td className="px-3 py-1.5">
+                                                            {isEditing ? (
+                                                                <input type="number" className="text-xs border rounded px-1.5 py-0.5 w-20 bg-background" value={editingIoVals.volumeMl} onChange={ev => setEditingIoVals(p => ({ ...p, volumeMl: ev.target.value }))} />
+                                                            ) : <span className="font-semibold">{e.volumeMl}</span>}
+                                                        </td>
+                                                        <td className="px-4 py-2 text-muted-foreground text-xs">{e.recordedBy}</td>
+                                                        <td className="px-3 py-1.5">
+                                                            {isEditing ? (
+                                                                <input className="text-xs border rounded px-1.5 py-0.5 w-28 bg-background" value={editingIoVals.notes} onChange={ev => setEditingIoVals(p => ({ ...p, notes: ev.target.value }))} placeholder="Notes..." />
+                                                            ) : <span className="text-muted-foreground text-xs max-w-[120px] truncate block">{e.notes ?? "—"}</span>}
+                                                        </td>
+                                                        <td className="px-3 py-1.5 text-right">
+                                                            {isEditing ? (
+                                                                <span className="flex items-center justify-end gap-1">
+                                                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-emerald-600 hover:bg-emerald-50" onClick={saveIoEdit} disabled={isSavingIo}>
+                                                                        {isSavingIo ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+                                                                    </Button>
+                                                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setEditingIoId(null)}>
+                                                                        <XIcon className="h-3 w-3" />
+                                                                    </Button>
+                                                                </span>
+                                                            ) : (
+                                                                <span className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openIoEdit(e)}>
+                                                                        <Edit2 className="h-3 w-3" />
+                                                                    </Button>
+                                                                    <Button variant="ghost" size="icon" className="h-6 w-6 text-red-500 hover:text-red-600 hover:bg-red-50/50" onClick={() => setIoToDelete(e.id)}>
+                                                                        <Trash2 className="h-3 w-3" />
+                                                                    </Button>
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                    </tr>
+                                                )
+                                            })}
                                             {io.length === 0 && (
-                                                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No I/O entries yet.</td></tr>
+                                                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No I/O entries yet.</td></tr>
                                             )}
                                         </tbody>
                                     </table>
@@ -344,7 +468,54 @@ export function VitalsChartContent({ admissionId }: Props) {
                         </Card>
                     </div>
                 </TabsContent>
+
+                {/* Nursing Notes */}
+                <TabsContent value="notes">
+                    <NotesPanel admissionId={admissionId} />
+                </TabsContent>
             </Tabs>
+
+            <AlertDialog open={!!ioToDelete} onOpenChange={(open) => !open && setIoToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete I/O Entry?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete this I/O entry? This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                            onClick={(e) => { e.preventDefault(); handleDeleteIo(); }}
+                        >
+                            {isDeletingIo ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Delete Entry
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={!!vitalToDelete} onOpenChange={(open) => !open && setVitalToDelete(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Delete Vital Reading?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This will permanently remove the charted reading from the patient record. This action cannot be undone.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                            className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                            onClick={(e) => { e.preventDefault(); handleDeleteVital(); }}
+                        >
+                            {isDeletingVital ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                            Delete Reading
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </div>
     )
 }

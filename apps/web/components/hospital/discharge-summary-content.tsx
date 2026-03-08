@@ -10,170 +10,76 @@ import {
   Bed,
   Clock,
   FileText,
-  Sparkles,
-  RefreshCw,
   CheckCircle2,
   Pen,
   Download,
   Printer,
-  AlertTriangle,
-  Pill,
-  Activity,
-  ClipboardList,
   Loader2,
   Lock,
   ShieldCheck,
+  AlertCircle,
+  ClipboardList,
 } from "lucide-react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { getPatientDetail, updatePatientStatus } from "@/lib/store/patients"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
+import { usePatientAdmissions } from "@/lib/api/admissions"
+import { differenceInDays, format } from "date-fns"
+import type { ApiAdmission } from "@/lib/types/admission"
 
-// ─── Static clinical stay template (replace with API when available) ────────
-// The patient demographics are loaded dynamically from the store.
-const hospitalStay = {
-  keyFindings: [
-    "Bilateral crackles on auscultation; chest X-ray showing right lower lobe consolidation",
-    "SpO2 at admission: 89% on room air; required O2 supplementation for 48 hours",
-    "Elevated CRP (68 mg/L) and WBC count (18,200/uL) confirming bacterial infection",
-    "Blood culture: No growth at 72 hours",
-  ],
-  treatmentGiven: [
-    "IV Ceftriaxone 50mg/kg/day for 5 days, then switched to oral Amoxicillin-Clavulanate",
-    "Nebulization with Salbutamol + Ipratropium Bromide QID for 4 days, then PRN",
-    "O2 supplementation via nasal prongs (2L/min) for first 48 hours",
-    "Antipyretic (Paracetamol 15mg/kg) as needed",
-    "IV fluids (DNS) for first 24 hours due to poor oral intake",
-  ],
-  investigations: [
-    { name: "CBC", result: "WBC 18.2K -> 9.8K (normalized)", date: "Feb 14 & 20" },
-    { name: "CRP", result: "68 mg/L -> 8 mg/L", date: "Feb 14 & 20" },
-    { name: "Chest X-ray", result: "RLL consolidation (clearing on repeat)", date: "Feb 14 & 19" },
-    { name: "Blood Culture", result: "No growth at 72 hours", date: "Feb 14" },
-    { name: "SpO2 Monitoring", result: "89% -> 97% on room air", date: "Continuous" },
-  ],
-  dischargeMedications: [
-    { name: "Amoxicillin-Clavulanate", dosage: "228.5mg/5ml, 5ml TID", duration: "5 days" },
-    { name: "Montelukast", dosage: "4mg OD (chewable)", duration: "14 days" },
-    { name: "Salbutamol Inhaler", dosage: "2 puffs via spacer PRN", duration: "As needed" },
-    { name: "Paracetamol Syrup", dosage: "5ml PRN for fever", duration: "As needed" },
-  ],
-  followUpInstructions: [
-    "Follow-up visit with Dr. Priya Reddy in 7 days (Mar 1, 2026)",
-    "Repeat chest X-ray if cough persists beyond 2 weeks",
-    "Continue nebulization at home if wheeze recurs",
-    "Ensure completion of full antibiotic course",
-    "Return to ER if fever > 102F, breathing difficulty, or poor feeding",
-  ],
+// ─── Discharge type badge colour helper ──────────────────────────────────────
+const DISCHARGE_TYPE_COLORS: Record<string, string> = {
+  NORMAL: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  LAMA: "bg-amber-100 text-amber-700 border-amber-200",
+  REFERRED: "bg-blue-100 text-blue-700 border-blue-200",
+  EXPIRED: "bg-red-100 text-red-700 border-red-200",
 }
 
-const defaultAiSummary = `DISCHARGE SUMMARY
+// ─── Clearance Row ──────────────────────────────────────────────────────────
+function ClearanceRow({
+  label,
+  cleared,
+  clearedAt,
+  clearedBy,
+}: {
+  label: string
+  cleared: boolean
+  clearedAt: string | null
+  clearedBy: string | null
+}) {
+  return (
+    <div className={cn("flex items-center justify-between px-3 py-2 rounded-lg border text-sm", cleared ? "bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800" : "bg-muted/40 border-transparent")}>
+      <div className="flex items-center gap-2">
+        {cleared ? <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" /> : <Clock className="h-4 w-4 text-muted-foreground shrink-0" />}
+        <span className={cn("font-medium", cleared ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}>{label}</span>
+      </div>
+      {cleared && (
+        <div className="text-right text-xs text-muted-foreground">
+          {clearedBy && <p>{clearedBy}</p>}
+          {clearedAt && <p>{format(new Date(clearedAt), "dd MMM, HH:mm")}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
 
-Patient: Rohan Verma (PED-20260114), 3-year-8-month-old male child, was admitted on 14 Feb 2026 via the emergency department with a 3-day history of high-grade fever, persistent cough, and progressive respiratory distress.
-
-CLINICAL PRESENTATION:
-On examination, the child was febrile (102.4F), tachypneic (RR 48/min), with bilateral crackles and reduced air entry in the right lower zone. SpO2 was 89% on room air, indicating moderate hypoxemia. Chest X-ray confirmed right lower lobe consolidation consistent with bronchopneumonia.
-
-HOSPITAL COURSE:
-The patient was started on IV Ceftriaxone and nebulization therapy. Oxygen supplementation was provided via nasal prongs for the first 48 hours. Inflammatory markers (CRP 68 mg/L, WBC 18,200) supported the diagnosis of bacterial pneumonia. Blood cultures showed no growth at 72 hours. The child showed significant clinical improvement by Day 3, with defervescence and improving respiratory parameters. IV antibiotics were transitioned to oral Amoxicillin-Clavulanate on Day 5. Repeat labs on Day 6 showed normalizing CRP (8 mg/L) and WBC (9,800). Repeat chest X-ray on Day 5 showed clearing consolidation.
-
-CONDITION AT DISCHARGE:
-The child is afebrile for 72+ hours, maintaining SpO2 of 97% on room air, feeding well, and is playful and active. Condition: Stable / Improved.
-
-DISCHARGE MEDICATIONS:
-1. Amoxicillin-Clavulanate 228.5mg/5ml - 5ml three times daily for 5 days
-2. Montelukast 4mg chewable - once daily for 14 days
-3. Salbutamol Inhaler - 2 puffs via spacer as needed for wheeze
-4. Paracetamol Syrup - 5ml as needed for fever
-
-FOLLOW-UP:
-Review with Dr. Priya Reddy on 01 Mar 2026. Repeat chest X-ray if cough persists beyond 2 weeks. Parents counseled on danger signs requiring emergency visit.
-
-This summary has been generated using CareNest AI Clinical Documentation Assistant and reviewed by the attending physician.`
-
-// ─── Component ─────────────────────────────────────────────────
-export function DischargeSummaryContent({ patientId }: { patientId?: string } = {}) {
-  const router = useRouter()
-
-  // Load real patient from store
-  const pt = patientId ? getPatientDetail(patientId) : undefined
-
-  // Build dynamic AI summary from real patient data
-  const dynamicSummary = pt ? `DISCHARGE SUMMARY
-
-Patient: ${pt.name} (${pt.uhid}), ${pt.age} ${pt.gender === "F" ? "female" : "male"} child, was admitted on ${pt.admissionDate ?? "Feb 14, 2026"} with ${pt.diagnosis}.
-
-CLINICAL PRESENTATION:
-On examination, the child presented with features consistent with the admitting diagnosis. Full clinical workup was performed as documented in the clinical notes.
-
-HOSPITAL COURSE:
-${hospitalStay.keyFindings.join("\n")}
-
-Treatment administered: ${hospitalStay.treatmentGiven.join("; ")}.
-
-CONDITION AT DISCHARGE:
-The child is clinically stable, afebrile, feeding well, and is safe for discharge. Condition: Stable / Improved.
-
-DISCHARGE MEDICATIONS:
-${hospitalStay.dischargeMedications.map((m, i) => `${i + 1}. ${m.name} ${m.dosage} for ${m.duration}`).join("\n")}
-
-FOLLOW-UP:
-${hospitalStay.followUpInstructions.join("\n")}
-
-This summary has been generated using CareNest AI Clinical Documentation Assistant and reviewed by the attending physician.`
-    : defaultAiSummary
-
-  const [summary, setSummary] = useState(dynamicSummary)
-  const [isRegenerating, setIsRegenerating] = useState(false)
+// ─── Summary content for a discharged admission ──────────────────────────────
+function DischargedView({ adm, patientId }: { adm: ApiAdmission; patientId: string }) {
   const [isSigned, setIsSigned] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
+  const [summaryText, setSummaryText] = useState(adm.dischargeSummary ?? "")
   const [signatureDrawn, setSignatureDrawn] = useState(false)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const isDrawingRef = useRef(false)
   const lastPointRef = useRef<{ x: number; y: number } | null>(null)
 
-  // Dynamic admission data derived from real patient
-  const patient = pt
-    ? { name: pt.name, id: pt.uhid, dob: pt.dob, age: pt.age, gender: pt.gender === "F" ? "Female" : "Male", bloodGroup: pt.bloodGroup, weight: pt.weight, guardian: pt.guardian, phone: pt.phone }
-    : { name: "Rohan Verma", id: "PED-20260114", dob: "Jun 12, 2022", age: "3 years 8 months", gender: "Male", bloodGroup: "O+", weight: "14.2 kg", guardian: "Sanjay Verma (Father)", phone: "+91 88765 12340" }
+  const los = adm.dischargeDate
+    ? differenceInDays(new Date(adm.dischargeDate), new Date(adm.admissionDate))
+    : null
 
-  const admission = {
-    admissionDate: pt?.admissionDate ?? "Feb 14, 2026",
-    admissionTime: "10:32 AM",
-    dischargeDate: "Feb 22, 2026",
-    dischargeTime: "11:00 AM",
-    los: 8,
-    ward: pt?.wardBed ?? "Pediatric General - Bed 42B",
-    admittingDoctor: pt?.doctor ?? "Dr. Priya Reddy",
-    consultants: [pt?.doctor ?? "Dr. Priya Reddy"],
-    diagnosis: pt?.diagnosis ?? "Acute Bronchopneumonia with Moderate Respiratory Distress",
-    icdCode: "J18.0",
-    admissionType: "Emergency",
-    conditionAtAdmission: "Moderate",
-    conditionAtDischarge: "Stable / Improved",
-  }
-
-  function handleRegenerate() {
-    setIsRegenerating(true)
-    // Rebuild from current patient data
-    if (pt) setSummary(dynamicSummary)
-    setTimeout(() => setIsRegenerating(false), 1800)
-  }
-
-  function handleSign() {
-    if (!signatureDrawn) return
-    setIsSigned(true)
-    setIsEditing(false)
-    // ── Update patient status to Discharged in the store ────────
-    if (patientId) {
-      updatePatientStatus(patientId, "Discharged")
-    }
-  }
-
-  // Canvas signature drawing
   const getCanvasCoords = useCallback((e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current
     if (!canvas) return { x: 0, y: 0 }
@@ -217,9 +123,7 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
   function clearSignature() {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext("2d")
-    if (canvas && ctx) {
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-    }
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height)
     setSignatureDrawn(false)
     setIsSigned(false)
   }
@@ -228,18 +132,14 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
     <div className="p-4 lg:p-6 flex flex-col gap-6 max-w-[1100px] mx-auto print:p-0 print:gap-4">
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm print:hidden">
-        <Link
-          href={patientId ? `/patients/${patientId}` : "/patients"}
-          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="size-3.5" />
-          {patientId ? "Patient" : "Patients"}
+        <Link href={`/patients/${patientId}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="size-3.5" /> Patient
         </Link>
         <span className="text-muted-foreground">/</span>
         <span className="text-foreground font-medium">Discharge Summary</span>
       </div>
 
-      {/* ─── Patient Details Header ───────────────────────────── */}
+      {/* Patient Header */}
       <Card className="gap-0 py-0">
         <CardContent className="px-5 py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -249,302 +149,139 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
               </div>
               <div className="flex flex-col gap-1.5 min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-lg font-bold text-foreground tracking-tight text-balance">
-                    {patient.name}
+                  <h1 className="text-lg font-bold text-foreground tracking-tight">
+                    {adm.patient.firstName} {adm.patient.lastName}
                   </h1>
-                  <Badge variant="secondary" className="text-[11px] font-medium">
-                    {patient.id}
-                  </Badge>
-                  <Badge className="text-[11px] font-medium bg-[#22a06b] text-[#ffffff] hover:bg-[#1a7f5a]">
-                    Ready for Discharge
+                  <Badge variant="secondary" className="text-[11px] font-medium">{adm.patient.uhid}</Badge>
+                  <Badge className="text-[11px] font-medium bg-emerald-600 hover:bg-emerald-700 text-white">
+                    Discharged
                   </Badge>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
                     <CalendarDays className="size-3" />
-                    DOB: {patient.dob}
+                    DOB: {adm.patient.dateOfBirth ? format(new Date(adm.patient.dateOfBirth), "dd MMM yyyy") : "—"}
                   </span>
                   <span className="flex items-center gap-1">
                     <User2 className="size-3" />
-                    {patient.age} &middot; {patient.gender}
+                    {adm.patient.gender}
                   </span>
-                  <span className="flex items-center gap-1">
-                    <Stethoscope className="size-3" />
-                    {admission.admittingDoctor}
-                  </span>
+                  {adm.admittingDoctor && (
+                    <span className="flex items-center gap-1">
+                      <Stethoscope className="size-3" />
+                      {adm.admittingDoctor.name}
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                  <span>Guardian: {patient.guardian}</span>
-                  <span>Blood Group: {patient.bloodGroup}</span>
-                  <span>Weight: {patient.weight}</span>
+                  <span>Guardian: {adm.patient.guardianName}</span>
+                  <span>Phone: {adm.patient.phone}</span>
                 </div>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                <Printer className="size-3.5" />
-                <span className="hidden sm:inline">Print</span>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap print:hidden">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => window.print()}>
+                <Printer className="size-3.5" /><span className="hidden sm:inline">Print</span>
               </Button>
               <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                <Download className="size-3.5" />
-                <span className="hidden sm:inline">Export PDF</span>
+                <Download className="size-3.5" /><span className="hidden sm:inline">Export PDF</span>
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* ─── Hospital Stay Summary ────────────────────────────── */}
+      {/* Hospital Stay Summary */}
       <Card className="gap-0 py-0">
         <CardHeader className="px-5 py-4 border-b border-border">
           <CardTitle className="flex items-center gap-2 text-sm">
-            <Bed className="size-4 text-primary" />
-            Hospital Stay Summary
+            <Bed className="size-4 text-primary" /> Hospital Stay Summary
           </CardTitle>
-          <CardDescription className="text-xs">
-            Admission and clinical course overview
-          </CardDescription>
+          <CardDescription className="text-xs">Admission and discharge overview</CardDescription>
         </CardHeader>
         <CardContent className="px-5 py-5">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Admission</span>
-              <span className="text-sm font-semibold text-foreground">{admission.admissionDate}</span>
-              <span className="text-xs text-muted-foreground">{admission.admissionTime}</span>
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Admission No.</span>
+              <span className="text-sm font-semibold font-mono">{adm.admissionNumber}</span>
+              <span className="text-xs text-muted-foreground">{format(new Date(adm.admissionDate), "dd MMM yyyy")}</span>
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Discharge</span>
-              <span className="text-sm font-semibold text-foreground">{admission.dischargeDate}</span>
-              <span className="text-xs text-muted-foreground">{admission.dischargeTime}</span>
+              <span className="text-sm font-semibold">{adm.dischargeDate ? format(new Date(adm.dischargeDate), "dd MMM yyyy") : "—"}</span>
+              {adm.dischargeDate && <span className="text-xs text-muted-foreground">{format(new Date(adm.dischargeDate), "hh:mm a")}</span>}
             </div>
             <div className="flex flex-col gap-1">
               <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Length of Stay</span>
-              <span className="text-sm font-semibold text-foreground">{admission.los} days</span>
-              <span className="text-xs text-muted-foreground">Ward: {admission.ward.split(" - ")[0]}</span>
+              <span className="text-sm font-semibold">{los != null ? `${los} day${los !== 1 ? "s" : ""}` : "—"}</span>
+              <span className="text-xs text-muted-foreground">{adm.department}</span>
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Type</span>
-              <span className="text-sm font-semibold text-foreground">{admission.admissionType}</span>
-              <span className="text-xs text-muted-foreground">{admission.ward.split(" - ")[1]}</span>
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Discharge Type</span>
+              {adm.dischargeType ? (
+                <Badge variant="outline" className={cn("w-fit text-xs font-medium", DISCHARGE_TYPE_COLORS[adm.dischargeType] ?? "")}>{adm.dischargeType}</Badge>
+              ) : <span className="text-sm text-muted-foreground">—</span>}
             </div>
           </div>
 
-          <div className="mt-5 pt-5 border-t border-border flex flex-col gap-4">
-            {/* Diagnosis */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Primary Diagnosis</span>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-foreground">{admission.diagnosis}</span>
-                <Badge variant="outline" className="text-[10px] font-mono">{admission.icdCode}</Badge>
-              </div>
+          {adm.initialDiagnosis && (
+            <div className="mt-5 pt-5 border-t border-border">
+              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Initial Diagnosis</span>
+              <p className="text-sm font-semibold text-foreground mt-1">{adm.initialDiagnosis}</p>
             </div>
-
-            {/* Consultants */}
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Consulting Physicians</span>
-              <div className="flex items-center gap-2 flex-wrap">
-                {admission.consultants.map((c) => (
-                  <Badge key={c} variant="secondary" className="text-[11px] font-normal">{c}</Badge>
-                ))}
-              </div>
-            </div>
-
-            {/* Condition at Admission/Discharge */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Condition at Admission</span>
-                <Badge variant="outline" className="w-fit text-xs font-medium border-warning/40 text-warning-foreground bg-warning/5">
-                  {admission.conditionAtAdmission}
-                </Badge>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Condition at Discharge</span>
-                <Badge variant="outline" className="w-fit text-xs font-medium border-[#22a06b]/40 text-[#1a7f5a] bg-[#22a06b]/5">
-                  {admission.conditionAtDischarge}
-                </Badge>
-              </div>
-            </div>
-          </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* ─── Clinical Details Grid ────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Key Findings */}
-        <Card className="gap-0 py-0">
-          <CardHeader className="px-5 py-4 border-b border-border">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <Activity className="size-4 text-primary" />
-              Key Clinical Findings
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 py-4">
-            <ul className="flex flex-col gap-2.5" role="list">
-              {hospitalStay.keyFindings.map((finding, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-sm text-foreground leading-relaxed">
-                  <span className="flex items-center justify-center size-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold shrink-0 mt-0.5">
-                    {i + 1}
-                  </span>
-                  {finding}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-
-        {/* Treatment Given */}
-        <Card className="gap-0 py-0">
-          <CardHeader className="px-5 py-4 border-b border-border">
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <Pill className="size-4 text-primary" />
-              Treatment Administered
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-5 py-4">
-            <ul className="flex flex-col gap-2.5" role="list">
-              {hospitalStay.treatmentGiven.map((tx, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-sm text-foreground leading-relaxed">
-                  <span className="flex items-center justify-center size-5 rounded-full bg-[#22a06b]/10 text-[#1a7f5a] text-[10px] font-bold shrink-0 mt-0.5">
-                    {i + 1}
-                  </span>
-                  {tx}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* ─── Investigations Table ─────────────────────────────── */}
+      {/* Clearance Audit */}
       <Card className="gap-0 py-0">
         <CardHeader className="px-5 py-4 border-b border-border">
           <CardTitle className="flex items-center gap-2 text-sm">
-            <ClipboardList className="size-4 text-primary" />
-            Investigations Summary
+            <ClipboardList className="size-4 text-primary" /> Discharge Clearances
           </CardTitle>
+          <CardDescription className="text-xs">Multi-department sign-off audit trail</CardDescription>
         </CardHeader>
-        <CardContent className="px-0 py-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" role="table">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Investigation</th>
-                  <th className="text-left px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Result</th>
-                  <th className="text-left px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-medium hidden sm:table-cell">Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {hospitalStay.investigations.map((inv, i) => (
-                  <tr key={i} className={cn("border-b border-border last:border-b-0", i % 2 === 0 && "bg-muted/30")}>
-                    <td className="px-5 py-3 font-medium text-foreground">{inv.name}</td>
-                    <td className="px-5 py-3 text-foreground font-mono text-xs">{inv.result}</td>
-                    <td className="px-5 py-3 text-muted-foreground hidden sm:table-cell">{inv.date}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <CardContent className="px-5 py-4 space-y-2">
+          <ClearanceRow label="Clinical Clearance" cleared={adm.clinicalCleared} clearedAt={adm.clinicalClearedAt} clearedBy={adm.clinicalClearedBy} />
+          <ClearanceRow label="Pharmacy Clearance" cleared={adm.pharmacyCleared} clearedAt={adm.pharmacyClearedAt} clearedBy={adm.pharmacyClearedBy} />
+          <ClearanceRow label="Billing Clearance" cleared={adm.billingCleared} clearedAt={adm.billingClearedAt} clearedBy={adm.billingClearedBy} />
         </CardContent>
       </Card>
 
-      {/* ─── Discharge Medications ────────────────────────────── */}
-      <Card className="gap-0 py-0">
-        <CardHeader className="px-5 py-4 border-b border-border">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <Pill className="size-4 text-primary" />
-            Discharge Medications
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-0 py-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm" role="table">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Medication</th>
-                  <th className="text-left px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Dosage</th>
-                  <th className="text-left px-5 py-3 text-[11px] uppercase tracking-wider text-muted-foreground font-medium hidden sm:table-cell">Duration</th>
-                </tr>
-              </thead>
-              <tbody>
-                {hospitalStay.dischargeMedications.map((med, i) => (
-                  <tr key={i} className={cn("border-b border-border last:border-b-0", i % 2 === 0 && "bg-muted/30")}>
-                    <td className="px-5 py-3 font-medium text-foreground">{med.name}</td>
-                    <td className="px-5 py-3 text-foreground">{med.dosage}</td>
-                    <td className="px-5 py-3 text-muted-foreground hidden sm:table-cell">{med.duration}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Clinical Note */}
+      {adm.clinicalNote && (
+        <Card className="gap-0 py-0">
+          <CardHeader className="px-5 py-4 border-b border-border">
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Stethoscope className="size-4 text-primary" /> Clinical Discharge Note
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-5 py-4">
+            <p className="text-sm text-foreground whitespace-pre-wrap leading-relaxed">{adm.clinicalNote}</p>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* ─── Follow-up Instructions ───────────────────────────── */}
-      <Card className="gap-0 py-0 border-primary/20 bg-primary/[0.02]">
-        <CardHeader className="px-5 py-4 border-b border-primary/10">
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <AlertTriangle className="size-4 text-primary" />
-            Follow-up Instructions & Danger Signs
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="px-5 py-4">
-          <ul className="flex flex-col gap-2" role="list">
-            {hospitalStay.followUpInstructions.map((inst, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-sm text-foreground leading-relaxed">
-                <CheckCircle2 className="size-4 text-primary shrink-0 mt-0.5" />
-                {inst}
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
-
-      {/* ─── AI Generated Summary ─────────────────────────────── */}
+      {/* Discharge Summary */}
       <Card className="gap-0 py-0">
         <CardHeader className="px-5 py-4 border-b border-border">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div className="flex flex-col gap-1">
               <CardTitle className="flex items-center gap-2 text-sm">
-                <Sparkles className="size-4 text-primary" />
-                AI-Generated Discharge Summary
+                <FileText className="size-4 text-primary" /> Discharge Summary
               </CardTitle>
-              <CardDescription className="text-xs">
-                Auto-generated by CareNest AI Clinical Documentation Assistant. Review and edit before signing.
-              </CardDescription>
+              <CardDescription className="text-xs">Clinical summary provided at discharge. Review and sign to finalize.</CardDescription>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 print:hidden">
               {!isSigned && (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 text-xs"
-                    onClick={() => setIsEditing(!isEditing)}
-                  >
-                    <Pen className="size-3.5" />
-                    {isEditing ? "Preview" : "Edit"}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 text-xs"
-                    onClick={handleRegenerate}
-                    disabled={isRegenerating}
-                  >
-                    {isRegenerating ? (
-                      <Loader2 className="size-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="size-3.5" />
-                    )}
-                    {isRegenerating ? "Regenerating..." : "Regenerate"}
-                  </Button>
-                </>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => setIsEditing(!isEditing)}>
+                  <Pen className="size-3.5" />{isEditing ? "Preview" : "Edit"}
+                </Button>
               )}
               {isSigned && (
-                <Badge className="gap-1 text-[11px] bg-[#22a06b] text-[#ffffff] hover:bg-[#1a7f5a]">
-                  <Lock className="size-3" />
-                  Signed & Locked
+                <Badge className="gap-1 text-[11px] bg-emerald-600 text-white hover:bg-emerald-700">
+                  <Lock className="size-3" /> Signed & Locked
                 </Badge>
               )}
             </div>
@@ -553,82 +290,42 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
         <CardContent className="px-5 py-5">
           {isEditing && !isSigned ? (
             <textarea
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              className="w-full min-h-[500px] p-4 border border-input rounded-lg bg-card text-sm text-foreground font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
+              value={summaryText}
+              onChange={(e) => setSummaryText(e.target.value)}
+              className="w-full min-h-[300px] p-4 border border-input rounded-lg bg-card text-sm text-foreground font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
               aria-label="Editable discharge summary"
             />
-          ) : (
-            <div className={cn(
-              "rounded-lg border p-5",
-              isSigned
-                ? "bg-muted/20 border-[#22a06b]/20"
-                : "bg-card border-border"
-            )}>
-              <pre className="whitespace-pre-wrap text-sm text-foreground font-sans leading-relaxed">
-                {summary}
-              </pre>
+          ) : summaryText ? (
+            <div className={cn("rounded-lg border p-5", isSigned ? "bg-muted/20 border-emerald-200 dark:border-emerald-800" : "bg-card border-border")}>
+              <pre className="whitespace-pre-wrap text-sm text-foreground font-sans leading-relaxed">{summaryText}</pre>
             </div>
-          )}
-
-          {isRegenerating && (
-            <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 className="size-3.5 animate-spin text-primary" />
-              AI is regenerating the discharge summary based on updated clinical data...
+          ) : (
+            <div className="text-center py-8 text-muted-foreground text-sm bg-muted/20 rounded-lg border border-dashed">
+              No discharge summary was written for this admission.
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* ─── Doctor Digital Signature ─────────────────────────── */}
+      {/* Doctor Digital Signature */}
       <Card className="gap-0 py-0 print:border-0 print:shadow-none">
         <CardHeader className="px-5 py-4 border-b border-border print:hidden">
           <CardTitle className="flex items-center gap-2 text-sm">
-            <FileText className="size-4 text-primary" />
-            Doctor&apos;s Digital Signature
+            <FileText className="size-4 text-primary" /> Doctor&apos;s Digital Signature
           </CardTitle>
-          <CardDescription className="text-xs">
-            Sign below to authorize and finalize the discharge summary
-          </CardDescription>
+          <CardDescription className="text-xs">Sign to authorize and lock the discharge summary</CardDescription>
         </CardHeader>
         <CardContent className="px-5 py-5 print:p-0">
           <div className="flex flex-col gap-5">
-            {/* Signing Doctor Info */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Signing Physician</span>
-                <span className="text-sm font-semibold text-foreground">Dr. Priya Reddy</span>
-                <span className="text-xs text-muted-foreground">MD Pediatrics, IAP Fellow</span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Registration No.</span>
-                <span className="text-sm font-semibold text-foreground font-mono">MCI-2018-TS-48291</span>
-              </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Date & Time</span>
-                <span className="text-sm font-semibold text-foreground">
-                  {isSigned ? "Feb 22, 2026, 10:48 AM" : "Pending"}
-                </span>
-              </div>
-            </div>
-
             {/* Signature Pad */}
             <div className="flex flex-col gap-2">
               <span className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">Signature</span>
-              <div className={cn(
-                "relative rounded-lg border-2 border-dashed overflow-hidden",
-                isSigned
-                  ? "border-[#22a06b]/30 bg-[#22a06b]/[0.02]"
-                  : "border-border bg-card"
-              )}>
+              <div className={cn("relative rounded-lg border-2 border-dashed overflow-hidden", isSigned ? "border-emerald-500/30 bg-emerald-50/30" : "border-border bg-card")}>
                 <canvas
                   ref={canvasRef}
                   width={600}
                   height={120}
-                  className={cn(
-                    "w-full h-[120px] touch-none",
-                    isSigned ? "cursor-default" : "cursor-crosshair"
-                  )}
+                  className={cn("w-full h-[120px] touch-none", isSigned ? "cursor-default" : "cursor-crosshair")}
                   onMouseDown={startDrawing}
                   onMouseMove={draw}
                   onMouseUp={stopDrawing}
@@ -645,27 +342,16 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
                 )}
                 {isSigned && (
                   <div className="absolute top-2 right-2">
-                    <Badge className="gap-1 text-[10px] bg-[#22a06b] text-[#ffffff] hover:bg-[#1a7f5a]">
-                      <ShieldCheck className="size-3" />
-                      Verified
+                    <Badge className="gap-1 text-[10px] bg-emerald-600 text-white hover:bg-emerald-700">
+                      <ShieldCheck className="size-3" /> Verified
                     </Badge>
                   </div>
                 )}
               </div>
               {!isSigned && (
                 <div className="flex items-center justify-between">
-                  <span className="text-[11px] text-muted-foreground">
-                    Use your mouse or touch to sign above
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-xs text-muted-foreground h-7"
-                    onClick={clearSignature}
-                    disabled={!signatureDrawn}
-                  >
-                    Clear Signature
-                  </Button>
+                  <span className="text-[11px] text-muted-foreground">Use your mouse or touch to sign above</span>
+                  <Button variant="ghost" size="sm" className="text-xs text-muted-foreground h-7" onClick={clearSignature} disabled={!signatureDrawn}>Clear Signature</Button>
                 </div>
               )}
             </div>
@@ -675,12 +361,11 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
               <div className="flex items-center gap-3 pt-2 border-t border-border print:hidden">
                 <Button
                   size="lg"
-                  className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
-                  onClick={handleSign}
+                  className="gap-2"
+                  onClick={() => { setIsSigned(true); setIsEditing(false) }}
                   disabled={!signatureDrawn}
                 >
-                  <CheckCircle2 className="size-4" />
-                  Finalize & Sign Discharge Summary
+                  <CheckCircle2 className="size-4" /> Finalize & Sign Discharge Summary
                 </Button>
                 <span className="text-xs text-muted-foreground leading-relaxed">
                   By signing, you confirm that you have reviewed the discharge summary and all clinical information is accurate.
@@ -688,18 +373,15 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
               </div>
             ) : (
               <div className="flex items-center gap-3 pt-4 border-t border-border print:hidden">
-                <div className="flex items-center gap-2 bg-[#22a06b]/8 rounded-lg px-4 py-3 flex-1">
-                  <ShieldCheck className="size-5 text-[#22a06b] shrink-0" />
+                <div className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg px-4 py-3 flex-1">
+                  <ShieldCheck className="size-5 text-emerald-600 shrink-0" />
                   <div className="flex flex-col gap-0.5">
-                    <span className="text-sm font-semibold text-foreground">Discharge Summary Finalized</span>
-                    <span className="text-xs text-muted-foreground">
-                      Signed by Dr. Priya Reddy on Feb 22, 2026 at 10:48 AM. Document is now locked and ready for printing.
-                    </span>
+                    <span className="text-sm font-semibold">Discharge Summary Signed</span>
+                    <span className="text-xs text-muted-foreground">Document is locked and ready for printing.</span>
                   </div>
                 </div>
                 <Button onClick={() => window.print()} className="gap-2 shrink-0">
-                  <Printer className="size-4" />
-                  Print / Save PDF
+                  <Printer className="size-4" /> Print / Save PDF
                 </Button>
               </div>
             )}
@@ -709,13 +391,117 @@ This summary has been generated using CareNest AI Clinical Documentation Assista
 
       {/* Footer */}
       <div className="flex flex-col gap-1 text-[11px] text-muted-foreground border-t border-border pt-4">
-        <span>
-          CareNest Children&apos;s Hospital &middot; 200-Bed Multi-Speciality Pediatric Facility &middot; NABH Accredited
-        </span>
-        <span>
-          Document generated on {admission.dischargeDate} &middot; AI Summary powered by CareNest Clinical AI v2.4
-        </span>
+        <span>CareNest Children&apos;s Hospital · 200-Bed Multi-Speciality Pediatric Facility · NABH Accredited</span>
+        {adm.dischargeDate && (
+          <span>Document generated on {format(new Date(adm.dischargeDate), "dd MMM yyyy")}</span>
+        )}
       </div>
     </div>
   )
+}
+
+// ─── Page for a patient whose discharge is still IN PROGRESS ────────────────
+function InProgressView({ adm, patientId }: { adm: ApiAdmission; patientId: string }) {
+  return (
+    <div className="p-6 max-w-2xl mx-auto space-y-4">
+      <div className="flex items-center gap-2 text-sm">
+        <Link href={`/patients/${patientId}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft className="size-3.5" /> Patient
+        </Link>
+        <span className="text-muted-foreground">/</span>
+        <span className="text-foreground font-medium">Discharge Clearance</span>
+      </div>
+
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Discharge Clearance</h1>
+        <p className="text-muted-foreground text-sm mt-0.5">
+          {adm.patient.firstName} {adm.patient.lastName} · {adm.admissionNumber}
+        </p>
+      </div>
+
+      <Card className="border-amber-200 bg-amber-50 dark:bg-amber-900/20">
+        <CardContent className="pt-4 pb-4">
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            Discharge clearance is in progress. Please complete all department sign-offs on the discharge page.
+          </p>
+          <Link href={`/admissions/${adm.id}/discharge`} className="mt-3 inline-block">
+            <Button size="sm" className="gap-2">
+              Go to Discharge Stepper
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-2">
+        <ClearanceRow label="Clinical Clearance" cleared={adm.clinicalCleared} clearedAt={adm.clinicalClearedAt} clearedBy={adm.clinicalClearedBy} />
+        <ClearanceRow label="Pharmacy Clearance" cleared={adm.pharmacyCleared} clearedAt={adm.pharmacyClearedAt} clearedBy={adm.pharmacyClearedBy} />
+        <ClearanceRow label="Billing Clearance" cleared={adm.billingCleared} clearedAt={adm.billingClearedAt} clearedBy={adm.billingClearedBy} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Root exported component ─────────────────────────────────────────────────
+export function DischargeSummaryContent({ patientId }: { patientId?: string }) {
+  const { admissions, isLoading, error } = usePatientAdmissions(patientId ?? null)
+
+  if (!patientId) {
+    return (
+      <div className="p-6 text-center text-muted-foreground">
+        No patient specified.
+      </div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="p-6 max-w-[1100px] mx-auto space-y-4">
+        <Skeleton className="h-6 w-48" />
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center gap-3 text-destructive">
+        <AlertCircle className="h-10 w-10" />
+        <p className="font-medium">Failed to load patient admissions</p>
+        <p className="text-sm text-muted-foreground">{error?.message}</p>
+        <Link href={`/patients/${patientId}`}><Button variant="outline">Back to Patient</Button></Link>
+      </div>
+    )
+  }
+
+  // Find the most recent discharged or in-progress discharge admission
+  const discharged = admissions.find(a => a.status === "DISCHARGED")
+  const inProgress = admissions.find(a => a.dischargeStatus === "IN_PROGRESS")
+  const target = discharged ?? inProgress
+
+  if (!target) {
+    return (
+      <div className="p-6 max-w-xl mx-auto space-y-4">
+        <div className="flex items-center gap-2 text-sm">
+          <Link href={`/patients/${patientId}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="size-3.5" /> Patient
+          </Link>
+          <span className="text-muted-foreground">/</span>
+          <span className="text-foreground font-medium">Discharge Summary</span>
+        </div>
+        <div className="text-center py-16 text-muted-foreground space-y-2">
+          <ClipboardList className="h-12 w-12 mx-auto opacity-40" />
+          <p className="font-medium">No discharge record found</p>
+          <p className="text-sm">This patient has not been discharged yet.</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (target.status === "DISCHARGED") {
+    return <DischargedView adm={target} patientId={patientId} />
+  }
+
+  return <InProgressView adm={target} patientId={patientId} />
 }

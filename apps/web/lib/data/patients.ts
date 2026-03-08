@@ -4,9 +4,38 @@
 //
 // TO MIGRATE TO API: replace each async function body with a fetch() call.
 // ─────────────────────────────────────────────────────────────────────────────
+export type PatientStatus = "OP" | "IP" | "NICU" | "Discharged"
+export interface Patient {
+    uhid: string
+    firstName: string
+    lastName: string
+    ageYears: number
+    ageMonths: number
+    gender: "M" | "F"
+    guardianName: string
+    status: PatientStatus
+    doctor: string
+    lastModified: Date
+    phone: string
+    wardBed?: string
+}
 
-import type { Patient, PatientDetail, PatientStatus } from "./types"
-
+export interface PatientDetail {
+    uhid: string
+    name: string
+    dob: string
+    age: string
+    gender: "M" | "F"
+    bloodGroup: string
+    weight: string
+    guardian: string
+    phone: string
+    doctor: string
+    status: PatientStatus
+    wardBed?: string
+    diagnosis: string
+    admissionDate?: string
+}
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const now = new Date()
 function minsAgo(m: number) { return new Date(now.getTime() - m * 60000) }

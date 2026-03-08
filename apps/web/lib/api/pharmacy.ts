@@ -1,0 +1,139 @@
+import useSWR from 'swr';
+import { apiClient } from "@/lib/api-client";
+
+const fetcher = (url: string) => apiClient(url) as Promise<any>;
+
+export interface ApiMedication {
+    id: string;
+    drugName: string;
+    genericName: string;
+    form: string;
+    strength: string;
+    unit: string;
+    unitPrice: number;
+    stockAvailable: number;
+}
+
+export interface ApiPrescriptionItem {
+    id: string;
+    prescriptionId: string;
+    medication: ApiMedication;
+    prescribedQty: number;
+    dispensedQty: number;
+}
+
+export interface ApiPrescription {
+    id: string;
+    prescriptionNumber: string;
+    patient: {
+        id: string;
+        firstName: string;
+        lastName: string;
+        uhid: string;
+    };
+    admission?: {
+        id: string;
+        currentBed?: {
+            id: string;
+            ward: {
+                id: string;
+                type: string;
+                name: string;
+            };
+            bedNumber: string;
+        };
+    };
+    doctor: {
+        id: string;
+        name: string;
+    };
+    status: 'PENDING' | 'PARTIAL' | 'DISPENSED' | 'RETURNED' | 'CANCELLED';
+    notes?: string;
+    orderedAt: string;
+    dispensedAt?: string;
+    dispensedBy?: string;
+    items: ApiPrescriptionItem[];
+}
+
+export interface PharmacyStats {
+    totalActive: number;
+    pending: number;
+    partial: number;
+    dispensedToday: number;
+    lowStockCount: number;
+    urgentCount: number;
+}
+
+export function usePharmacyInventory() {
+    const { data, error, mutate, isLoading } = useSWR<{ data: ApiMedication[] }>(
+        '/pharmacy/inventory',
+        fetcher
+    );
+    return {
+        inventory: data?.data ?? [],
+        isLoading,
+        error,
+        mutate,
+    };
+}
+
+export function usePrescriptions(params?: { status?: string; search?: string; admissionId?: string }) {
+    const searchParams = new URLSearchParams();
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.search) searchParams.set('search', params.search);
+    if (params?.admissionId) searchParams.set('admissionId', params.admissionId);
+
+    const qs = searchParams.toString();
+    const url = qs ? `/pharmacy/prescriptions?${qs}` : '/pharmacy/prescriptions';
+
+    const { data, error, mutate, isLoading } = useSWR<{ data: ApiPrescription[] }>(
+        url,
+        fetcher,
+        { refreshInterval: 15000 } // Auto-refresh every 15s to get new prescriptions
+    );
+
+    return {
+        prescriptions: data?.data ?? [],
+        isLoading,
+        error,
+        mutate,
+    };
+}
+
+export function usePharmacyStats() {
+    const { data, error, mutate, isLoading } = useSWR<{ data: PharmacyStats }>(
+        '/pharmacy/stats',
+        fetcher,
+        { refreshInterval: 30000 }
+    );
+    return {
+        stats: data?.data ?? { totalActive: 0, pending: 0, partial: 0, dispensedToday: 0, lowStockCount: 0, urgentCount: 0 },
+        isLoading,
+        error,
+        mutate,
+    };
+}
+
+export async function dispensePrescription(id: string, items: { prescriptionItemId: string, dispensedQty: number }[]) {
+    return apiClient<{ success: boolean; newStatus: string }>(`/pharmacy/prescriptions/${id}/dispense`, { method: "POST", body: JSON.stringify({ items }) });
+}
+
+export async function returnPrescription(id: string, reason: string) {
+    return apiClient<{ success: boolean }>(`/pharmacy/prescriptions/${id}/return`, { method: "POST", body: JSON.stringify({ reason }) });
+}
+
+export async function createPrescription(payload: any) {
+    return apiClient(`/pharmacy/prescriptions`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function usePharmacyClearance(admissionId: string) {
+    const { data, error, isLoading } = useSWR<{ data: { cleared: boolean; pendingPrescriptions: any[] } }>(
+        admissionId ? `/pharmacy/admission/${admissionId}/clearance` : null,
+        fetcher
+    );
+    return {
+        clearance: data?.data,
+        isLoading,
+        error
+    };
+}

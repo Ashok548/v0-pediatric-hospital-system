@@ -13,8 +13,15 @@ import { PatientsModule } from './patients/patients.module';
 import { AdmissionsModule } from './admissions/admissions.module';
 import { NicuModule } from './nicu/nicu.module';
 import { GrowthModule } from './growth/growth.module';
+import { NursingModule } from './nursing/nursing.module';
+import { BillingModule } from './billing/billing.module';
+import { ReportsModule } from './reports/reports.module';
+import { AppointmentsModule } from './appointments/appointments.module';
+import { PharmacyModule } from './pharmacy/pharmacy.module';
+
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule],
+
   controllers: [AppController],
   providers: [
     AppService,

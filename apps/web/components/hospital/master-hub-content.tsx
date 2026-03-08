@@ -1,13 +1,15 @@
 "use client"
 
 import { useState } from "react"
-import { Layers, LayoutList, BedDouble, Building2, IndianRupee } from "lucide-react"
+import { Layers, LayoutList, BedDouble, Building2, IndianRupee, ShieldCheck, FileText } from "lucide-react"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { MasterFloorsContent } from "@/components/hospital/master-floors-content"
 import { MasterWardsContent } from "@/components/hospital/master-wards-content"
 import { MasterBedsContent } from "@/components/hospital/master-beds-content"
 import { MasterDepartmentsContent } from "@/components/hospital/master-departments-content"
 import { MasterServicesContent } from "@/components/hospital/master-services-content"
+import { MasterInsuranceContent } from "@/components/hospital/master-insurance-content"
+import { MasterTariffsContent } from "@/components/hospital/master-tariffs-content"
 
 const TABS = [
     {
@@ -44,6 +46,20 @@ const TABS = [
         icon: IndianRupee,
         description: "Billable services and charge items",
         content: MasterServicesContent,
+    },
+    {
+        value: "insurance",
+        label: "Insurance",
+        icon: ShieldCheck,
+        description: "Insurance providers, TPAs, and claim settings",
+        content: MasterInsuranceContent,
+    },
+    {
+        value: "tariffs",
+        label: "Tariffs",
+        icon: FileText,
+        description: "Pricing plans by ward type and effective date",
+        content: MasterTariffsContent,
     },
 ] as const
 

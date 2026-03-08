@@ -8,27 +8,28 @@ import type { ApiAdmission } from "@/lib/types/admission"
 export interface ApiNicuVitals {
     id: string
     admissionId: string
-    recordedAt: string
-    recordedBy: string | null
-    heartRate: number | null
-    spo2: number | null
-    temperature: number | null
-    respiratoryRate: number | null
-    bloodPressureSystolic: number | null
-    bloodPressureDiastolic: number | null
-    weight: number | null
-    notes: string | null
+    heartRate: number      // bpm
+    spo2: number           // %
+    temperature: number    // Celsius
+    respiratoryRate?: number      // breaths/min
+    bloodPressureSystolic?: number
+    bloodPressureDiastolic?: number
+    weight?: number        // kg
+    notes?: string
+    recordedAt: string     // ISO string
+    recordedBy?: string    // user who recorded
 }
 
 export interface CreateVitalsPayload {
-    heartRate?: number
-    spo2?: number
-    temperature?: number
+    heartRate: number
+    spo2: number
+    temperature: number
     respiratoryRate?: number
     bloodPressureSystolic?: number
     bloodPressureDiastolic?: number
     weight?: number
     notes?: string
+    recordedBy?: string
 }
 
 // ─── NICU Admission (Admission + latest vitals snapshot) ─────────────────────

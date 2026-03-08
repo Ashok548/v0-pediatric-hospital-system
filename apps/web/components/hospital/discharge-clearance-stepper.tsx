@@ -8,10 +8,11 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
-import { CheckCircle, Circle, Clock, Stethoscope, Pill, CreditCard, LogOut, Loader2 } from "lucide-react"
+import { CheckCircle, Circle, Clock, Stethoscope, Pill, CreditCard, LogOut, Loader2, AlertCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { updateDischargeClearance, finalizeDischarge, useAdmission } from "@/lib/api/admissions"
+import { usePharmacyClearance } from "@/lib/api/pharmacy"
 import type { ApiAdmission, DischargeType } from "@/lib/types/admission"
 
 interface StepConfig {
@@ -45,6 +46,7 @@ export function DischargeClearanceStepper({ admission: initialAdmission, onDone 
     // Always fetch fresh data so the stepper reflects realtime state
     const { admission, mutate } = useAdmission(initialAdmission.id)
     const adm = admission ?? initialAdmission
+    const { clearance, isLoading: clearanceLoading } = usePharmacyClearance(adm.id)
 
     const [clinicalNote, setClinicalNote] = useState("")
     const [dischargeType, setDischargeType] = useState<DischargeType>("NORMAL")
@@ -176,11 +178,25 @@ export function DischargeClearanceStepper({ admission: initialAdmission, onDone 
                             <p className="font-medium">Pharmacy Clearance</p>
                             <p className="text-sm text-muted-foreground">Confirm no pending medications or returns for this patient.</p>
                         </div>
-                        <div className="text-sm bg-blue-50 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300 rounded-md px-3 py-2.5">
-                            ✓ All prescriptions have been verified as dispensed or cancelled.
-                        </div>
+                        {clearanceLoading ? (
+                            <div className="flex justify-center p-4"><Loader2 className="animate-spin text-muted-foreground size-5" /></div>
+                        ) : clearance?.cleared ? (
+                            <div className="text-sm bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 rounded-md px-3 py-2.5 flex items-center gap-2">
+                                <CheckCircle className="size-4" /> All prescriptions have been verified as dispensed or returned.
+                            </div>
+                        ) : (
+                            <div className="text-sm border border-red-200 bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-300 rounded-md px-3 py-2.5">
+                                <p className="font-medium flex items-center gap-2 mb-2"><AlertCircle className="size-4" /> Pending Pharmacy Orders</p>
+                                <ul className="list-disc pl-5 space-y-1">
+                                    {clearance?.pendingPrescriptions?.map(p => (
+                                        <li key={p.id}>Rx #{p.prescriptionNumber} ({p.status})</li>
+                                    ))}
+                                </ul>
+                                <p className="mt-2 text-xs">Please contact pharmacy to process these before continuing.</p>
+                            </div>
+                        )}
                         <Button
-                            disabled={submitting}
+                            disabled={submitting || clearanceLoading || !clearance?.cleared}
                             onClick={() => runStep(async () => {
                                 await updateDischargeClearance(adm.id, { step: "pharmacy" })
                                 toast.success("Pharmacy clearance granted")

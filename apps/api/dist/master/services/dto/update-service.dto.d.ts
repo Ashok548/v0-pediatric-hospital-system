@@ -1,4 +1,5 @@
 export declare class UpdateServiceDto {
+    code?: string;
     name?: string;
     category?: "CONSULTATION" | "LAB" | "PROCEDURE" | "ROOM" | "MISC";
     basePrice?: number;

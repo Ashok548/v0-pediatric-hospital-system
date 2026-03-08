@@ -27,6 +27,7 @@ type ServiceCategory = "CONSULTATION" | "LAB" | "PROCEDURE" | "ROOM" | "MISC"
 
 interface MasterService {
     id: string
+    code: string
     name: string
     category: ServiceCategory
     basePrice: number | string
@@ -40,6 +41,7 @@ interface ApiListResponse<T> {
     total: number
     page: number
     limit: number
+    categoryCounts?: Record<string, number>
 }
 
 const CATEGORIES: ServiceCategory[] = ["CONSULTATION", "LAB", "PROCEDURE", "ROOM", "MISC"]
@@ -55,6 +57,7 @@ const CATEGORY_COLORS: Record<ServiceCategory, string> = {
 }
 
 type FormState = {
+    code: string
     name: string
     category: ServiceCategory
     basePrice: string
@@ -62,7 +65,7 @@ type FormState = {
     status: "ACTIVE" | "INACTIVE"
 }
 
-const EMPTY_FORM: FormState = { name: "", category: "CONSULTATION", basePrice: "", taxPercent: "0", status: "ACTIVE" }
+const EMPTY_FORM: FormState = { code: "", name: "", category: "CONSULTATION", basePrice: "", taxPercent: "0", status: "ACTIVE" }
 const PAGE_SIZE = 10
 
 function formatCurrency(amount: number | string) {
@@ -93,6 +96,7 @@ export function MasterServicesContent() {
     const services = data?.data ?? []
     const total = data?.total ?? 0
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+    const categoryCounts = data?.categoryCounts ?? {}
 
     // ─── Mutations ──────────────────────────────────────────────────────────
     const { trigger: createService, isMutating: isCreating } = useMutation<MasterService, any>(
@@ -107,8 +111,8 @@ export function MasterServicesContent() {
         onSuccess: () => { mutate(); setDialogOpen(false) },
     })
 
-    const { trigger: toggleStatus } = useMutation<MasterService, any>(
-        (id) => `/master/services/${id}`, "DELETE", {
+    const { trigger: toggleStatus } = useMutation<MasterService, string>(
+        (id: string) => `/master/services/${id}`, "DELETE", {
         successMessage: "Service status updated",
         onSuccess: () => mutate(),
     })
@@ -120,7 +124,7 @@ export function MasterServicesContent() {
 
     function openEdit(svc: MasterService) {
         setEditTarget(svc)
-        setForm({ name: svc.name, category: svc.category, basePrice: String(svc.basePrice), taxPercent: String(svc.taxPercent), status: svc.status })
+        setForm({ code: svc.code, name: svc.name, category: svc.category, basePrice: String(svc.basePrice), taxPercent: String(svc.taxPercent), status: svc.status })
         setErrors({}); setDialogOpen(true)
     }
 
@@ -135,13 +139,14 @@ export function MasterServicesContent() {
 
     async function handleSave() {
         if (!validate()) return
-        const payload = { name: form.name.trim(), category: form.category, basePrice: Number(form.basePrice), taxPercent: Number(form.taxPercent), status: form.status }
+        const payload: any = { name: form.name.trim(), category: form.category, basePrice: Number(form.basePrice), taxPercent: Number(form.taxPercent), status: form.status }
+        if (form.code.trim()) payload.code = form.code.trim();
         if (editTarget) await updateService(payload)
         else await createService(payload)
     }
 
     async function handleToggle(svc: MasterService) {
-        await (toggleStatus as any)(svc.id)
+        await toggleStatus(svc.id)
     }
 
     const isSaving = isCreating || isUpdating
@@ -149,6 +154,20 @@ export function MasterServicesContent() {
     // ─── Render ───────────────────────────────────────────────────────────────
     return (
         <div className="space-y-4">
+            {/* Category Badges (Overview) */}
+            <div className="flex flex-wrap gap-2 text-sm text-muted-foreground pb-2">
+                <Badge variant="outline" className="font-normal border-border/50 text-foreground bg-muted/20">
+                    Total: {total}
+                </Badge>
+                {CATEGORIES.map(cat => (
+                    categoryCounts[cat] > 0 && (
+                        <Badge key={cat} variant="outline" className={`font-normal border-border/50 ${CATEGORY_COLORS[cat]}`}>
+                            {CATEGORY_LABELS[cat]}: {categoryCounts[cat]}
+                        </Badge>
+                    )
+                ))}
+            </div>
+
             {/* Toolbar */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex flex-col sm:flex-row gap-2 flex-wrap w-full sm:w-auto">
@@ -156,7 +175,7 @@ export function MasterServicesContent() {
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input
                             id="services-search"
-                            placeholder="Search services…"
+                            placeholder="Search by name or code…"
                             className="pl-9"
                             value={search}
                             onChange={(e) => { setSearch(e.target.value); setPage(1) }}
@@ -193,7 +212,7 @@ export function MasterServicesContent() {
                 <table className="w-full text-sm">
                     <thead className="bg-muted/50 border-b border-border">
                         <tr>
-                            {["Name", "Category", "Base Price", "Tax %", "Status", ""].map((h) => (
+                            {["Code", "Name", "Category", "Base Price", "Tax %", "Status", ""].map((h) => (
                                 <th key={h} className="text-left px-4 py-3 font-medium text-muted-foreground text-xs uppercase tracking-wide">{h}</th>
                             ))}
                         </tr>
@@ -216,6 +235,7 @@ export function MasterServicesContent() {
                         ) : (
                             services.map((svc) => (
                                 <tr key={svc.id} className="border-b border-border last:border-0 hover:bg-muted/30 transition-colors">
+                                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{svc.code}</td>
                                     <td className="px-4 py-3 font-medium text-foreground">{svc.name}</td>
                                     <td className="px-4 py-3">
                                         <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${CATEGORY_COLORS[svc.category]}`}>
@@ -271,11 +291,19 @@ export function MasterServicesContent() {
                         <DialogTitle>{editTarget ? "Edit Service" : "Add Service"}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4 py-2">
-                        <div className="space-y-1.5">
-                            <Label htmlFor="svc-name">Service Name <span className="text-destructive">*</span></Label>
-                            <Input id="svc-name" placeholder="e.g. Complete Blood Count (CBC)" value={form.name}
-                                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
-                            {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+                        <div className="grid grid-cols-3 gap-3">
+                            <div className="col-span-1 space-y-1.5">
+                                <Label htmlFor="svc-code">Code</Label>
+                                <Input id="svc-code" placeholder="Auto-generated" value={form.code}
+                                    onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} />
+                                {errors.code && <p className="text-xs text-destructive">{errors.code}</p>}
+                            </div>
+                            <div className="col-span-2 space-y-1.5">
+                                <Label htmlFor="svc-name">Service Name <span className="text-destructive">*</span></Label>
+                                <Input id="svc-name" placeholder="e.g. Complete Blood Count (CBC)" value={form.name}
+                                    onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                                {errors.name && <p className="text-xs text-destructive">{errors.name}</p>}
+                            </div>
                         </div>
                         <div className="space-y-1.5">
                             <Label htmlFor="svc-category">Category</Label>

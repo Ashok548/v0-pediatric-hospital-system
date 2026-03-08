@@ -3,9 +3,14 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { ApiBill } from "@/lib/types/billing"
 
-export function PatientBillInfo({ bill, isReadOnly }: { bill: any, isReadOnly?: boolean }) {
+export function PatientBillInfo({ bill, isReadOnly }: { bill: ApiBill, isReadOnly?: boolean }) {
+    const pName = bill.patient ? `${bill.patient.firstName} ${bill.patient.lastName}` : "Unknown Patient"
+    const uhid = bill.patient?.uhid || "Unknown UHID"
+    const dept = bill.admission?.department || "Outpatient"
+    const doctor = (bill as any).doctorName || "—"
+
     return (
         <Card>
             <CardHeader className="py-4 border-b">
@@ -14,42 +19,25 @@ export function PatientBillInfo({ bill, isReadOnly }: { bill: any, isReadOnly?: 
             <CardContent className="p-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="space-y-2">
                     <Label>Patient Name</Label>
-                    <Input value={bill.patientName || ""} readOnly={isReadOnly} />
+                    <Input value={pName} readOnly className="bg-muted" />
                 </div>
                 <div className="space-y-2">
                     <Label>UHID</Label>
-                    <Input value={bill.patientId || ""} readOnly={isReadOnly} />
+                    <Input value={uhid} readOnly className="bg-muted" />
                 </div>
                 <div className="space-y-2">
-                    <Label>Visit ID & Date</Label>
-                    <Input value={`${bill.visitId || "Auto-generated"} - ${new Date(bill.date).toLocaleDateString()}`} readOnly />
+                    <Label>Bill Date</Label>
+                    <Input value={new Date(bill.createdAt).toLocaleDateString()} readOnly className="bg-muted" />
                 </div>
 
                 <div className="space-y-2">
                     <Label>Department</Label>
-                    <Select disabled={isReadOnly} defaultValue="pediatrics">
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select Department" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="pediatrics">Pediatrics</SelectItem>
-                            <SelectItem value="neonatology">Neonatology</SelectItem>
-                            <SelectItem value="surgery">Surgery</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <Input value={dept} readOnly className="bg-muted" />
                 </div>
 
                 <div className="space-y-2">
-                    <Label>Doctor</Label>
-                    <Select disabled={isReadOnly} defaultValue="dr-sharma">
-                        <SelectTrigger>
-                            <SelectValue placeholder="Select Doctor" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="dr-sharma">Dr. Sharma</SelectItem>
-                            <SelectItem value="dr-patel">Dr. Patel</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <Label>Doctor / Consultant</Label>
+                    <Input value={doctor} readOnly className="bg-muted" />
                 </div>
             </CardContent>
         </Card>

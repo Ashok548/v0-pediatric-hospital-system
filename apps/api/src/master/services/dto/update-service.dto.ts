@@ -5,6 +5,11 @@ export class UpdateServiceDto {
     @IsOptional()
     @IsString()
     @MinLength(2)
+    code?: string;
+
+    @IsOptional()
+    @IsString()
+    @MinLength(2)
     name?: string;
 
     @IsOptional()

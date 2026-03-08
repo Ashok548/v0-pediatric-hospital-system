@@ -8,8 +8,6 @@ import { useSyncExternalStore } from "react"
 import { mockAdmissions, AdmissionStatus, DischargeType, type Admission } from "../data/admissions"
 import { updatePatientStatus } from "./patients"
 import { logActivity } from "./activity-store"
-import { billingActions } from "./billing-store"
-import { BillWorkflowStatus } from "../types/billing"
 
 // ─── Extended Discharge Clearance Type ───────────────────────────────────────
 // Augments the existing 'any' discharge field in admissions.ts
@@ -133,8 +131,16 @@ export function setBillingClearance(admissionId: string, clearedBy: string): voi
     const adm = getAdmissionById(admissionId)
     if (!adm?.discharge) return
 
-    // Check billing — initiate settlement if bill still running
-    billingActions.initiateSettlement(admissionId)
+    // Check billing — finalize the draft bill
+    import('../api/billing').then(api => {
+        const query = new URLSearchParams({ admissionId, status: 'DRAFT' });
+        fetch(`/api/billing?${query}`).then(r => r.json()).then(res => {
+            const bill = res?.data?.[0];
+            if (bill) {
+                api.finalizeBill(bill.id).catch(console.error);
+            }
+        }).catch(console.error);
+    });
 
     const clearance: DischargeClearance = {
         ...(adm.discharge as DischargeClearance),

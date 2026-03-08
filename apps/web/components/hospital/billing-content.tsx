@@ -1,14 +1,12 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import {
     Search,
-    CreditCard,
     IndianRupee,
     CheckCircle2,
     Clock,
     AlertCircle,
-    Download,
     X,
     Receipt,
     TrendingUp,
@@ -17,6 +15,9 @@ import {
     ArrowRight,
     Ban,
     FileText,
+    Loader2,
+    Wallet,
+    Timer
 } from "lucide-react"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -24,20 +25,28 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
-import { useBillingStore } from "@/lib/store/billing-store"
-import { appointments } from "@/lib/data/appointments"
-import { BillWorkflowStatus, PatientBill } from "@/lib/types/billing"
+import { useBills, useBillingStats } from "@/lib/api/billing"
+import { BillStatus, MappedBillStatusColors } from "@/lib/types/billing"
 
 // ─── Status Configuration ───────────────────────────────────────────────────
-const statusConfig: Record<BillWorkflowStatus, { label: string; className: string; icon: React.ElementType }> = {
-    [BillWorkflowStatus.Draft]: { label: "Draft", className: "bg-amber-50 text-amber-700 border-amber-200", icon: Clock },
-    [BillWorkflowStatus.Running]: { label: "Running", className: "bg-blue-50 text-blue-700 border-blue-200", icon: Clock },
-    [BillWorkflowStatus.PendingSettlement]: { label: "Pending Settle", className: "bg-orange-50 text-orange-700 border-orange-200", icon: AlertCircle },
-    [BillWorkflowStatus.Closed]: { label: "Closed", className: "bg-green-50 text-green-700 border-green-200", icon: CheckCircle2 },
-    [BillWorkflowStatus.Voided]: { label: "Voided", className: "bg-red-50 text-red-700 border-red-200", icon: Ban },
+const statusConfig: Record<BillStatus, { label: string; className: string; icon: React.ElementType }> = {
+    'DRAFT': { ...MappedBillStatusColors['DRAFT'], icon: Clock },
+    'FINAL': { ...MappedBillStatusColors['FINAL'], icon: Clock },
+    'PARTIALLY_PAID': { ...MappedBillStatusColors['PARTIALLY_PAID'], icon: AlertCircle },
+    'CANCELLED': { ...MappedBillStatusColors['CANCELLED'], icon: Ban },
+    'PAID': { ...MappedBillStatusColors['PAID'], icon: CheckCircle2 },
 }
 
-function getInitials(name: string) {
+const paymentModeColors: Record<string, string> = {
+    CASH: "bg-emerald-500",
+    CARD: "bg-blue-500",
+    UPI: "bg-purple-500",
+    ONLINE: "bg-sky-500",
+    INSURANCE: "bg-amber-500",
+    CHEQUE: "bg-slate-500"
+}
+
+function getInitials(name?: string) {
     if (!name) return "?"
     const parts = name.split(" ")
     return parts.length >= 2 ? `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase() : name[0].toUpperCase()
@@ -48,47 +57,21 @@ function formatINR(amount: number) {
 }
 
 export function BillingContent() {
-    const { bills } = useBillingStore()
-    const [statusFilter, setStatusFilter] = useState<BillWorkflowStatus | "all">("all")
+    const [statusFilter, setStatusFilter] = useState<BillStatus | "all">("all")
     const [search, setSearch] = useState("")
+    const [period, setPeriod] = useState<'today' | 'week' | 'month'>('today')
 
-    // Quick-card data
-    const unbilledVisits = appointments.filter(a =>
-        ["Completed", "In Progress", "Scheduled"].includes(a.status) &&
-        !bills.some(b => b.visitId === a.id) // Guard #1: only show those without a bill
-    )
+    // Fetch Stats using new API
+    const { stats, isLoading: isStatsLoading } = useBillingStats(period)
 
-    const pendingSettlements = bills.filter(b =>
-        b.status === BillWorkflowStatus.PendingSettlement
-    )
+    // Fetch Table Data
+    const { bills, isLoading } = useBills({
+        limit: 50,
+        status: statusFilter === "all" ? undefined : statusFilter,
+        search: search || undefined
+    })
 
-    const filtered = useMemo(() => {
-        const q = search.toLowerCase()
-        return bills.filter(b => {
-            if (statusFilter !== "all" && b.status !== statusFilter) return false
-            const matchesQuery = !q ||
-                b.patientName.toLowerCase().includes(q) ||
-                b.invoiceNumber.toLowerCase().includes(q) ||
-                b.patientId.toLowerCase().includes(q)
-            return matchesQuery
-        }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    }, [bills, statusFilter, search])
-
-    const totals = useMemo(() => ({
-        revenue: bills.reduce((s, b) => s + b.summary.totalPaid, 0),
-        pending: bills.reduce((s, b) => s + b.summary.balanceDue, 0),
-        closed: bills.filter(b => b.status === BillWorkflowStatus.Closed).length,
-        active: bills.filter(b => b.status === BillWorkflowStatus.Running || b.status === BillWorkflowStatus.Draft).length,
-    }), [bills])
-
-    const counts = useMemo(() => ({
-        all: bills.length,
-        [BillWorkflowStatus.Draft]: bills.filter(b => b.status === BillWorkflowStatus.Draft).length,
-        [BillWorkflowStatus.Running]: bills.filter(b => b.status === BillWorkflowStatus.Running).length,
-        [BillWorkflowStatus.PendingSettlement]: bills.filter(b => b.status === BillWorkflowStatus.PendingSettlement).length,
-        [BillWorkflowStatus.Closed]: bills.filter(b => b.status === BillWorkflowStatus.Closed).length,
-        [BillWorkflowStatus.Voided]: bills.filter(b => b.status === BillWorkflowStatus.Voided).length,
-    }), [bills])
+    const periodLabel = period === 'today' ? 'Today' : period === 'week' ? 'This Week' : 'This Month';
 
     return (
         <div className="p-4 lg:p-6 flex flex-col gap-5 max-w-[1600px] mx-auto">
@@ -100,7 +83,21 @@ export function BillingContent() {
                         Real-time billing performance and settlement tracking.
                     </p>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="flex bg-muted p-1 rounded-lg border mr-2">
+                        {(['today', 'week', 'month'] as const).map(p => (
+                            <button
+                                key={p}
+                                onClick={() => setPeriod(p)}
+                                className={cn(
+                                    "px-3 py-1.5 text-xs font-medium rounded-md capitalize transition-all",
+                                    period === p ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                {p}
+                            </button>
+                        ))}
+                    </div>
                     <Button variant="outline" className="gap-2" asChild>
                         <Link href="/billing/ip">
                             <Bed className="size-4" />
@@ -116,110 +113,117 @@ export function BillingContent() {
                 </div>
             </div>
 
-            {/* Quick-Action Cards (#6) */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Today's OP Visits */}
-                <Card className="border-blue-100 bg-blue-50/30">
+            {/* Quick-Action & Alert Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Card className="border-blue-100 bg-blue-50/30 md:col-span-1">
                     <CardHeader className="pb-2 pt-4 px-4">
                         <div className="flex items-center justify-between">
                             <CardTitle className="text-sm font-semibold text-blue-800 flex items-center gap-2">
-                                <Users className="size-4" /> Today&apos;s OP Queue
+                                <Users className="size-4" /> Patient Billing Split
                             </CardTitle>
-                            <Badge variant="outline" className="bg-blue-100 text-blue-700 border-blue-200">
-                                {unbilledVisits.length} visits
-                            </Badge>
                         </div>
                     </CardHeader>
-                    <CardContent className="px-4 pb-4 space-y-2">
-                        {unbilledVisits.length === 0 ? (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground py-3">
-                                <Ban className="size-4" />
-                                No pending visits today
-                            </div>
+                    <CardContent className="px-4 pb-4">
+                        {isStatsLoading ? (
+                            <div className="animate-pulse h-10 bg-blue-100 rounded-md" />
                         ) : (
-                            <>
-                                {unbilledVisits.slice(0, 4).map(a => (
-                                    <div key={a.id} className="flex items-center justify-between text-sm gap-2">
-                                        <span className="font-medium truncate text-foreground">{a.patientName}</span>
-                                        <span className="text-muted-foreground shrink-0 text-xs">{a.doctor.replace('Dr. ', '')} &middot; {a.time}</span>
-                                    </div>
-                                ))}
-                                {unbilledVisits.length > 4 && (
-                                    <p className="text-xs text-muted-foreground">+{unbilledVisits.length - 4} more visits</p>
-                                )}
-                            </>
+                            <div className="flex items-center justify-between mt-2">
+                                <div>
+                                    <p className="text-[10px] text-muted-foreground font-semibold uppercase">OP Revenue</p>
+                                    <p className="text-lg font-bold text-foreground">{formatINR(stats?.billTypeSplit.op.revenue || 0)}</p>
+                                    <p className="text-[10px] text-muted-foreground">{stats?.billTypeSplit.op.count || 0} bills</p>
+                                </div>
+                                <div className="h-8 w-px bg-border mx-2"></div>
+                                <div className="text-right">
+                                    <p className="text-[10px] text-muted-foreground font-semibold uppercase">IP Revenue</p>
+                                    <p className="text-lg font-bold text-foreground">{formatINR(stats?.billTypeSplit.ip.revenue || 0)}</p>
+                                    <p className="text-[10px] text-muted-foreground">{stats?.billTypeSplit.ip.count || 0} bills</p>
+                                </div>
+                            </div>
                         )}
-                        <div className="pt-2">
-                            <Button size="sm" variant="outline" className="w-full gap-2 border-blue-200 text-blue-700 hover:bg-blue-100" asChild>
-                                <Link href="/billing/op/new">
-                                    <Receipt className="size-3.5" /> Open OP Billing <ArrowRight className="size-3.5" />
-                                </Link>
-                            </Button>
-                        </div>
                     </CardContent>
                 </Card>
 
-                {/* Pending IP Settlements */}
-                <Card className="border-amber-100 bg-amber-50/30">
+                <Card className="border-amber-100 bg-amber-50/30 md:col-span-2">
                     <CardHeader className="pb-2 pt-4 px-4">
                         <div className="flex items-center justify-between">
                             <CardTitle className="text-sm font-semibold text-amber-800 flex items-center gap-2">
-                                <Bed className="size-4" /> Pending Settlements
+                                <Bed className="size-4" /> Needs Attention
                             </CardTitle>
-                            <Badge variant="outline" className="bg-amber-100 text-amber-700 border-amber-200">
-                                {pendingSettlements.length} patients
-                            </Badge>
+                            {stats?.alerts && stats.alerts.overdueBills > 0 && (
+                                <Badge variant="destructive" className="animate-pulse">
+                                    <Timer className="size-3 mr-1" /> {stats.alerts.overdueBills} Overdue
+                                </Badge>
+                            )}
                         </div>
                     </CardHeader>
-                    <CardContent className="px-4 pb-4 space-y-2">
-                        {pendingSettlements.length === 0 ? (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
-                                <Ban className="size-4 text-muted-foreground" />
-                                No pending settlements
+                    <CardContent className="px-4 pb-4 flex items-center justify-between">
+                        <div className="flex gap-6">
+                            <div>
+                                <p className="text-[10px] text-amber-700 font-semibold uppercase">Pending IP Settlements</p>
+                                <p className="text-xl font-bold text-amber-900">{stats?.alerts?.pendingSettlements || 0}</p>
                             </div>
-                        ) : pendingSettlements.slice(0, 4).map(b => (
-                            <div key={b.id} className="flex items-center justify-between text-sm gap-2">
-                                <span className="font-medium truncate text-foreground">{b.patientName}</span>
-                                <Link
-                                    href={`/billing/ip/${b.admissionId}/settlement`}
-                                    className="text-amber-700 text-xs hover:underline shrink-0"
-                                >
-                                    Settle →
-                                </Link>
+                            <div>
+                                <p className="text-[10px] text-amber-700 font-semibold uppercase">Open Drafts</p>
+                                <p className="text-xl font-bold text-amber-900">{stats?.alerts?.draftBills || 0}</p>
                             </div>
-                        ))}
-                        <div className="pt-2">
-                            <Button size="sm" variant="outline" className="w-full gap-2 border-amber-200 text-amber-700 hover:bg-amber-100" asChild>
-                                <Link href="/billing/ip">
-                                    <Bed className="size-3.5" /> View IP Ledger <ArrowRight className="size-3.5" />
-                                </Link>
-                            </Button>
                         </div>
+                        <Button size="sm" variant="outline" className="gap-2 border-amber-200 text-amber-700 hover:bg-amber-100" asChild>
+                            <Link href="/billing/ip">
+                                View IP Queue <ArrowRight className="size-3.5" />
+                            </Link>
+                        </Button>
                     </CardContent>
                 </Card>
             </div>
 
             {/* KPI Row */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <Card className="py-0">
-                    <CardContent className="flex items-center gap-3 px-4 py-3">
+                <Card className="py-0 relative overflow-hidden">
+                    <CardContent className="flex items-center gap-3 px-4 py-3 relative z-10">
                         <div className="flex items-center justify-center size-10 rounded-lg bg-primary/10 shrink-0">
                             <IndianRupee className="size-5 text-primary" />
                         </div>
                         <div>
-                            <p className="text-lg font-bold text-foreground tabular-nums">{formatINR(totals.revenue)}</p>
-                            <p className="text-[11px] text-muted-foreground">Revenue Collected</p>
+                            <p className="text-lg font-bold text-foreground tabular-nums">
+                                {isStatsLoading ? "..." : formatINR(stats?.totals.revenue || 0)}
+                            </p>
+                            <div className="flex items-center gap-1.5 opacity-80 mt-0.5">
+                                <p className="text-[11px] text-muted-foreground whitespace-nowrap">Revenue Collected</p>
+                                <span className="text-[9px] font-medium border border-border/50 text-muted-foreground bg-muted/30 px-1 py-0 rounded">{periodLabel}</span>
+                            </div>
                         </div>
                     </CardContent>
+                    {!isStatsLoading && stats?.paymentModes && (
+                        <div className="absolute bottom-0 left-0 right-0 flex h-1.5 opacity-80">
+                            {Object.entries(stats.paymentModes).map(([mode, amt]) => {
+                                if (amt === 0) return null;
+                                const total = stats.totals.revenue || 1;
+                                return (
+                                    <div
+                                        key={mode}
+                                        className={paymentModeColors[mode] || "bg-border"}
+                                        style={{ width: `${(amt / total) * 100}%` }}
+                                        title={`${mode}: ${formatINR(amt)}`}
+                                    />
+                                );
+                            })}
+                        </div>
+                    )}
                 </Card>
                 <Card className="py-0">
                     <CardContent className="flex items-center gap-3 px-4 py-3">
                         <div className="flex items-center justify-center size-10 rounded-lg bg-[#e8f4fd] shrink-0">
-                            <Clock className="size-5 text-[#1a6fb5]" />
+                            <Wallet className="size-5 text-[#1a6fb5]" />
                         </div>
                         <div>
-                            <p className="text-lg font-bold text-foreground tabular-nums">{formatINR(totals.pending)}</p>
-                            <p className="text-[11px] text-muted-foreground">Outstanding Due</p>
+                            <p className="text-lg font-bold text-foreground tabular-nums">
+                                {isStatsLoading ? "..." : formatINR(stats?.totals.outstanding || 0)}
+                            </p>
+                            <div className="flex items-center gap-1.5 opacity-80 mt-0.5">
+                                <p className="text-[11px] text-muted-foreground whitespace-nowrap">Outstanding Due</p>
+                                <span className="text-[9px] font-medium border border-border/50 text-muted-foreground bg-muted/30 px-1 py-0 rounded">{periodLabel}</span>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
@@ -229,8 +233,13 @@ export function BillingContent() {
                             <CheckCircle2 className="size-5 text-[#1a7a4c]" />
                         </div>
                         <div>
-                            <p className="text-lg font-bold text-foreground tabular-nums">{totals.closed}</p>
-                            <p className="text-[11px] text-muted-foreground">Closed Invoices</p>
+                            <p className="text-lg font-bold text-foreground tabular-nums">
+                                {isStatsLoading ? "..." : (stats?.counts.PAID || 0)}
+                            </p>
+                            <div className="flex items-center gap-1.5 opacity-80 mt-0.5">
+                                <p className="text-[11px] text-muted-foreground whitespace-nowrap">Fully Paid Invoices</p>
+                                <span className="text-[9px] font-medium border border-border/50 text-muted-foreground bg-muted/30 px-1 py-0 rounded">{periodLabel}</span>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
@@ -240,8 +249,13 @@ export function BillingContent() {
                             <TrendingUp className="size-5 text-[#c53030]" />
                         </div>
                         <div>
-                            <p className="text-lg font-bold text-foreground tabular-nums">{totals.active}</p>
-                            <p className="text-[11px] text-muted-foreground">Active Drafts/Running</p>
+                            <p className="text-lg font-bold text-foreground tabular-nums">
+                                {isStatsLoading ? "..." : ((stats?.counts.DRAFT || 0) + (stats?.counts.FINAL || 0))}
+                            </p>
+                            <div className="flex items-center gap-1.5 opacity-80 mt-0.5">
+                                <p className="text-[11px] text-muted-foreground whitespace-nowrap">Active Drafts/Final</p>
+                                <span className="text-[9px] font-medium border border-border/50 text-muted-foreground bg-muted/30 px-1 py-0 rounded">{periodLabel}</span>
+                            </div>
                         </div>
                     </CardContent>
                 </Card>
@@ -250,17 +264,18 @@ export function BillingContent() {
             {/* Status Filter Chips + Search */}
             <div className="flex flex-col sm:flex-row gap-3">
                 <div className="flex flex-wrap gap-2">
-                    {(["all", ...Object.values(BillWorkflowStatus)] as const).map(s => {
+                    {(["all", ...Object.keys(statusConfig)] as const).map((s) => {
+                        const count = isStatsLoading ? 0 : (s === "all" ? stats?.counts.all : stats?.counts[s as BillStatus]);
+                        const label = s === "all" ? "All" : statusConfig[s as BillStatus].label
                         const isActive = statusFilter === s
-                        const count = s === "all" ? counts.all : counts[s]
-                        const label = s === "all" ? "All" : statusConfig[s].label
                         return (
                             <button
                                 key={s}
-                                onClick={() => setStatusFilter(isActive && s !== "all" ? "all" : s)}
+                                onClick={() => setStatusFilter(isActive && s !== "all" ? "all" : s as BillStatus | "all")}
                                 className={cn(
-                                    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
-                                    isActive ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+                                    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all cursor-pointer",
+                                    isActive ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground",
+                                    isStatsLoading && "opacity-50 pointer-events-none"
                                 )}
                             >
                                 {label}
@@ -268,7 +283,7 @@ export function BillingContent() {
                                     "flex items-center justify-center size-5 rounded-full text-[10px] font-bold",
                                     isActive ? "bg-primary-foreground/20 text-primary-foreground" : "bg-muted text-muted-foreground"
                                 )}>
-                                    {count}
+                                    {count || 0}
                                 </span>
                             </button>
                         )
@@ -280,7 +295,7 @@ export function BillingContent() {
                         type="search"
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        placeholder="Search invoice or patient..."
+                        placeholder="Search invoices..."
                         className="w-full h-9 pl-9 pr-8 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all"
                     />
                     {search && (
@@ -293,11 +308,16 @@ export function BillingContent() {
 
             {/* Billing Table */}
             <Card className="py-0 overflow-hidden border-none shadow-none bg-transparent">
-                <div className="overflow-x-auto border rounded-xl bg-card">
+                <div className="overflow-x-auto border rounded-xl bg-card relative min-h-[300px]">
+                    {isLoading && (
+                        <div className="absolute inset-0 bg-background/50 backdrop-blur-sm z-10 flex items-center justify-center">
+                            <Loader2 className="animate-spin text-primary size-8" />
+                        </div>
+                    )}
                     <table className="w-full min-w-[800px]">
                         <thead>
                             <tr className="border-b border-border bg-muted/40">
-                                {["Invoice", "Patient", "Dept/Doctor", "Items", "Total", "Due", "Status", ""].map(h => (
+                                {["Invoice / Date", "Patient Details", "Dept / Doctor", "Total Value", "Outstanding", "Status", ""].map(h => (
                                     <th key={h} className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                                         {h}
                                     </th>
@@ -305,9 +325,9 @@ export function BillingContent() {
                             </tr>
                         </thead>
                         <tbody>
-                            {filtered.length === 0 ? (
+                            {!isLoading && bills.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} className="text-center py-20">
+                                    <td colSpan={7} className="text-center py-20">
                                         <div className="flex flex-col items-center gap-3">
                                             <div className="p-4 bg-muted/50 rounded-full">
                                                 <FileText className="size-8 text-muted-foreground/40" />
@@ -320,47 +340,49 @@ export function BillingContent() {
                                     </td>
                                 </tr>
                             ) : (
-                                filtered.map(b => {
-                                    const sc = statusConfig[b.status]
+                                bills.map(b => {
+                                    const sc = statusConfig[b.status] || { label: b.status, className: "bg-muted text-foreground", icon: AlertCircle }
                                     const Icon = sc.icon
+                                    const pName = b.patient ? `${b.patient.firstName} ${b.patient.lastName}` : "Unknown"
+                                    const pUhID = b.patient?.uhid || "N/A"
+                                    const dept = b.admission?.department || "Outpatient"
+                                    const isIp = !!b.admissionId
+
                                     return (
                                         <tr key={b.id} className="border-b border-border last:border-0 hover:bg-muted/10 transition-colors group">
                                             <td className="px-4 py-4">
-                                                <p className="text-xs font-mono font-medium text-foreground">{b.invoiceNumber}</p>
-                                                <p className="text-[10px] text-muted-foreground mt-0.5">{new Date(b.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
+                                                <p className="text-xs font-mono font-medium text-foreground">{b.billNumber}</p>
+                                                <p className="text-[10px] text-muted-foreground mt-0.5">{new Date(b.createdAt).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}</p>
                                             </td>
                                             <td className="px-4 py-4">
                                                 <div className="flex items-center gap-3">
                                                     <Avatar className="size-8 shrink-0 border border-border">
                                                         <AvatarFallback className="text-[10px] font-bold bg-muted text-muted-foreground">
-                                                            {getInitials(b.patientName)}
+                                                            {getInitials(pName)}
                                                         </AvatarFallback>
                                                     </Avatar>
                                                     <div>
-                                                        <p className="text-sm font-semibold text-foreground truncate max-w-[150px]">{b.patientName}</p>
-                                                        <p className="text-[10px] text-muted-foreground">{b.patientId}</p>
+                                                        <p className="text-sm font-semibold text-foreground truncate max-w-[150px]">{pName}</p>
+                                                        <div className="flex gap-2">
+                                                            <span className="text-[10px] text-muted-foreground">{pUhID}</span>
+                                                            <Badge variant="secondary" className="text-[8px] px-1 py-0 h-4">{isIp ? 'IP' : 'OP'}</Badge>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td className="px-4 py-4">
-                                                <p className="text-xs text-foreground font-medium">{b.department || "—"}</p>
-                                                <p className="text-[10px] text-muted-foreground">{b.doctorName || "—"}</p>
+                                                <p className="text-xs text-foreground font-medium">{dept}</p>
+                                                <p className="text-[10px] text-muted-foreground">{(b as any).doctorName || "—"}</p>
                                             </td>
                                             <td className="px-4 py-4">
-                                                <div className="flex flex-wrap gap-1 max-w-[120px]">
-                                                    <Badge variant="secondary" className="text-[9px] px-1 py-0 bg-muted hover:bg-muted/80">{b.items.length} Items</Badge>
-                                                    <span className="text-[9px] text-muted-foreground italic">{b.type} Bill</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-4 py-4">
-                                                <p className="text-sm font-bold text-foreground tabular-nums">{formatINR(b.summary.netTotal)}</p>
+                                                <p className="text-sm font-bold text-foreground tabular-nums">{formatINR(Number(b.netAmount))}</p>
                                             </td>
                                             <td className="px-4 py-4">
                                                 <p className={cn(
                                                     "text-sm font-bold tabular-nums",
-                                                    b.summary.balanceDue > 0 ? "text-orange-600" : "text-green-600"
+                                                    Number(b.dueAmount) > 0 ? "text-orange-600" : "text-green-600"
                                                 )}>
-                                                    {formatINR(b.summary.balanceDue)}
+                                                    {formatINR(Number(b.dueAmount))}
                                                 </p>
                                             </td>
                                             <td className="px-4 py-4">
@@ -373,22 +395,22 @@ export function BillingContent() {
                                                 </Badge>
                                             </td>
                                             <td className="px-4 py-4 text-right">
-                                                <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    {b.status === BillWorkflowStatus.Closed ? (
+                                                <div className="flex justify-end gap-1 opacity-100 transition-opacity">
+                                                    {b.status === "PAID" || b.status === "PARTIALLY_PAID" ? (
                                                         <Button variant="ghost" size="icon" className="size-8 rounded-full" asChild>
                                                             <Link href={`/billing/invoice/${b.id}`}>
                                                                 <FileText className="size-4 text-primary" />
                                                             </Link>
                                                         </Button>
-                                                    ) : b.type === 'IP' ? (
+                                                    ) : isIp ? (
                                                         <Button variant="ghost" size="icon" className="size-8 rounded-full" asChild>
-                                                            <Link href={`/billing/ip/${b.admissionId}`}>
+                                                            <Link href={`/billing/ip/${b.admissionId}/settlement`}>
                                                                 <ArrowRight className="size-4 text-muted-foreground" />
                                                             </Link>
                                                         </Button>
                                                     ) : (
                                                         <Button variant="ghost" size="icon" className="size-8 rounded-full" asChild>
-                                                            <Link href="/billing/op/new">
+                                                            <Link href={`/billing/op/${b.id}`}>
                                                                 <ArrowRight className="size-4 text-muted-foreground" />
                                                             </Link>
                                                         </Button>

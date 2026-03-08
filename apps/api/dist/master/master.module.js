@@ -13,12 +13,14 @@ const wards_module_1 = require("./wards/wards.module");
 const beds_module_1 = require("./beds/beds.module");
 const departments_module_1 = require("./departments/departments.module");
 const services_module_1 = require("./services/services.module");
+const insurance_module_1 = require("./insurance/insurance.module");
+const tariffs_module_1 = require("./tariffs/tariffs.module");
 let MasterModule = class MasterModule {
 };
 exports.MasterModule = MasterModule;
 exports.MasterModule = MasterModule = __decorate([
     (0, common_1.Module)({
-        imports: [floors_module_1.FloorsModule, wards_module_1.WardsModule, beds_module_1.BedsModule, departments_module_1.DepartmentsModule, services_module_1.ServicesModule],
+        imports: [floors_module_1.FloorsModule, wards_module_1.WardsModule, beds_module_1.BedsModule, departments_module_1.DepartmentsModule, services_module_1.ServicesModule, insurance_module_1.InsuranceModule, tariffs_module_1.TariffsModule],
     })
 ], MasterModule);
 //# sourceMappingURL=master.module.js.map

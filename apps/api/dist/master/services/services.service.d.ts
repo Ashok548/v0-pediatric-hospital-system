@@ -9,6 +9,7 @@ export declare class ServicesService {
         page: number;
         limit: number;
         totalPages: number;
+        categoryCounts: any;
     }>;
     findOne(id: string): Promise<any>;
     update(id: string, dto: UpdateServiceDto): Promise<any>;

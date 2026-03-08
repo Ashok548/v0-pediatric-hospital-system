@@ -35,6 +35,10 @@ const ADMISSION_INCLUDE = {
             toBed: { select: { id: true, bedNumber: true } },
         },
     },
+    vitalsRecords: {
+        take: 1,
+        orderBy: { recordedAt: "desc" as const },
+    },
 } as const;
 
 import {

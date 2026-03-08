@@ -17,7 +17,7 @@ import type {
 } from "@/lib/types/admission"
 
 // ─── SWR Fetcher ─────────────────────────────────────────────────────────────
-const fetcher = (url: string) => apiClient(url)
+const fetcher = (url: string) => apiClient(url) as Promise<any>
 
 // ─── Query String Builder ─────────────────────────────────────────────────────
 function buildQuery(params: Record<string, any>): string {

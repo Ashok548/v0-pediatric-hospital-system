@@ -18,9 +18,9 @@ import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { appointments as initialAppointments } from "@/lib/data/appointments"
-import { patients } from "@/lib/data/patients"
 import type { Appointment, ApptStatus } from "@carenest/shared-types"
+import { usePatients } from "@/lib/api/patients"
+import { useAppointments, useDoctors, createAppointment, updateAppointmentStatus, useAppointmentStats } from "@/lib/api/appointments"
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const statusConfig: Record<ApptStatus, { label: string; className: string; icon: React.ElementType }> = {
@@ -43,7 +43,7 @@ const nextStatus: Partial<Record<ApptStatus, { label: string; next: ApptStatus; 
     ],
 }
 
-const DOCTORS = ["Dr. Anil Kumar", "Dr. Priya Reddy", "Dr. Meera Iyer"]
+
 const DEPARTMENTS = ["General Paediatrics", "Neonatology", "Paediatric Cardiology", "Paediatric Neurology", "PICU"]
 const APPT_TYPES = ["Consultation", "Follow-up", "Review", "Vaccination", "Procedure"]
 const TIME_SLOTS = [
@@ -76,7 +76,7 @@ interface BookingFormProps {
 
 function BookingForm({ onSubmit, onClose }: BookingFormProps) {
     const [uhidQuery, setUhidQuery] = useState("")
-    const [selectedPatient, setSelectedPatient] = useState<typeof patients[0] | null>(null)
+    const [selectedPatient, setSelectedPatient] = useState<any | null>(null)
     const [doctor, setDoctor] = useState("")
     const [department, setDepartment] = useState("")
     const [time, setTime] = useState("")
@@ -84,18 +84,19 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
     const [notes, setNotes] = useState("")
     const [errors, setErrors] = useState<Record<string, string>>({})
 
+    const { patients, isLoading: isLoadingPatients } = usePatients({ search: uhidQuery, limit: 5 })
+
     const patientMatches = useMemo(() => {
         if (uhidQuery.length < 2) return []
-        const q = uhidQuery.toLowerCase()
-        return patients.filter(p =>
-            p.uhid.toLowerCase().includes(q) ||
-            `${p.firstName} ${p.lastName}`.toLowerCase().includes(q)
-        ).slice(0, 5)
-    }, [uhidQuery])
+        return patients
+    }, [uhidQuery, patients])
+
+    const { doctors: apiDoctors } = useDoctors()
+    const { appointments: todaysAppts } = useAppointments({ date: new Date().toISOString() })
 
     const takenSlots = useMemo(() =>
-        initialAppointments.filter(a => a.doctor === doctor).map(a => a.time),
-        [doctor]
+        todaysAppts.filter(a => a.doctorId === doctor).map(a => a.time),
+        [todaysAppts, doctor]
     )
 
     function validate() {
@@ -112,18 +113,18 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault()
         if (!validate() || !selectedPatient) return
+
+        const now = new Date()
+        const selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(time.split(":")[0]), parseInt(time.split(":")[1])).toISOString()
+
         onSubmit({
-            patientName: `${selectedPatient.firstName} ${selectedPatient.lastName}`,
-            uhid: selectedPatient.uhid,
-            age: `${selectedPatient.ageYears}y ${selectedPatient.ageMonths}mo`,
-            gender: selectedPatient.gender,
-            doctor,
+            patientId: selectedPatient.id,
+            doctorId: doctor,
             department,
-            time,
-            duration: 20,
-            status: "Scheduled",
+            appointmentDate: selectedDate,
+            timeSlot: time,
             type,
-        })
+        } as any)
     }
 
     const inputCls = (field: string) => cn(
@@ -142,7 +143,7 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
                     <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-3 py-2.5">
                         <div>
                             <p className="text-sm font-medium">{selectedPatient.firstName} {selectedPatient.lastName}</p>
-                            <p className="text-[11px] text-muted-foreground">{selectedPatient.uhid} · {selectedPatient.ageYears}y {selectedPatient.ageMonths}mo · {selectedPatient.gender === "F" ? "Female" : "Male"}</p>
+                            <p className="text-[11px] text-muted-foreground">{selectedPatient.uhid} · DOB: {new Date(selectedPatient.dateOfBirth).toLocaleDateString()} · {selectedPatient.gender === "F" ? "Female" : "Male"}</p>
                         </div>
                         <button type="button" onClick={() => { setSelectedPatient(null); setUhidQuery("") }}
                             className="text-muted-foreground hover:text-foreground">
@@ -170,7 +171,7 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
                                         </Avatar>
                                         <div>
                                             <p className="text-sm font-medium">{p.firstName} {p.lastName}</p>
-                                            <p className="text-[11px] text-muted-foreground">{p.uhid} · {p.status}</p>
+                                            <p className="text-[11px] text-muted-foreground">{p.uhid}</p>
                                         </div>
                                     </button>
                                 ))}
@@ -187,7 +188,7 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
                     <label className="text-xs font-semibold uppercase tracking-wider">Doctor</label>
                     <select value={doctor} onChange={e => setDoctor(e.target.value)} className={inputCls("doctor")}>
                         <option value="">Select doctor</option>
-                        {DOCTORS.map(d => <option key={d}>{d}</option>)}
+                        {apiDoctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
                     {errors.doctor && <p className="text-[11px] text-destructive">{errors.doctor}</p>}
                 </div>
@@ -272,7 +273,8 @@ function AppointmentDetail({ appt, onClose, onStatusChange }: {
     const sc = statusConfig[appt.status]
     const Icon = sc.icon
     const actions = nextStatus[appt.status] ?? []
-    const patientDetail = patients.find(p => p.uhid === appt.uhid)
+    // Patient details are directly populated or fetched separately in full app
+    const patientDetail = { phone: "" }
 
     return (
         <div className="flex flex-col gap-5 p-1">
@@ -363,7 +365,6 @@ function AppointmentDetail({ appt, onClose, onStatusChange }: {
 export function AppointmentsContent() {
     const TODAY = new Date(2026, 1, 22) // Feb 22, 2026
 
-    const [appts, setAppts] = useState<Appointment[]>(initialAppointments)
     const [selectedDate, setSelectedDate] = useState(TODAY)
     const [weekStart, setWeekStart] = useState(() => {
         const d = new Date(TODAY)
@@ -375,8 +376,11 @@ export function AppointmentsContent() {
     const [search, setSearch] = useState("")
     const [bookingOpen, setBookingOpen] = useState(false)
     const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
+    const [isMutating, setIsMutating] = useState(false)
 
-    const doctors = useMemo(() => [...new Set(appts.map(a => a.doctor))].sort(), [appts])
+    const { doctors: apiDoctors } = useDoctors()
+    const { appointments: appts, mutate, isLoading } = useAppointments({ date: selectedDate.toISOString() })
+    const { stats, mutate: mutateStats } = useAppointmentStats(selectedDate.toISOString())
 
     const weekDates = useMemo(() =>
         Array.from({ length: 7 }, (_, i) => {
@@ -406,7 +410,7 @@ export function AppointmentsContent() {
         const q = search.toLowerCase()
         return appts.filter(a => {
             if (statusFilter !== "all" && a.status !== statusFilter) return false
-            if (doctorFilter !== "all" && a.doctor !== doctorFilter) return false
+            if (doctorFilter !== "all" && a.doctorId !== doctorFilter) return false
             if (q && !a.patientName.toLowerCase().includes(q) &&
                 !a.uhid.toLowerCase().includes(q) &&
                 !a.doctor.toLowerCase().includes(q)) return false
@@ -415,26 +419,40 @@ export function AppointmentsContent() {
     }, [appts, statusFilter, doctorFilter, search])
 
     const counts = useMemo(() => ({
-        all: appts.length,
-        Scheduled: appts.filter(a => a.status === "Scheduled").length,
-        "In Progress": appts.filter(a => a.status === "In Progress").length,
-        Completed: appts.filter(a => a.status === "Completed").length,
-        Cancelled: appts.filter(a => a.status === "Cancelled").length,
-        "No Show": appts.filter(a => a.status === "No Show").length,
-    }), [appts])
+        all: stats?.total ?? 0,
+        Scheduled: stats?.scheduled ?? 0,
+        "In Progress": stats?.inProgress ?? 0,
+        Completed: stats?.completed ?? 0,
+        Cancelled: stats?.cancelled ?? 0,
+        "No Show": stats?.noShow ?? 0,
+    }), [stats])
 
-    const handleBook = useCallback((appt: Omit<Appointment, "id" | "token">) => {
-        setAppts(prev => {
-            const id = `A-${String(prev.length + 1).padStart(3, "0")}`
-            const token = prev.length + 1
-            return [...prev, { ...appt, id, token }]
-        })
-        setBookingOpen(false)
-    }, [])
+    const handleBook = useCallback(async (appt: any) => {
+        setIsMutating(true)
+        try {
+            await createAppointment(appt)
+            await mutate()
+            await mutateStats()
+            setBookingOpen(false)
+        } catch (e: any) {
+            alert(e.message || "Failed to book appointment")
+        } finally {
+            setIsMutating(false)
+        }
+    }, [mutate, mutateStats])
 
-    const handleStatusChange = useCallback((id: string, status: ApptStatus) => {
-        setAppts(prev => prev.map(a => a.id === id ? { ...a, status } : a))
-    }, [])
+    const handleStatusChange = useCallback(async (id: string, newStatus: ApptStatus) => {
+        setIsMutating(true)
+        try {
+            await updateAppointmentStatus(id, newStatus)
+            await mutate()
+            await mutateStats()
+        } catch (e: any) {
+            alert("Failed to update status")
+        } finally {
+            setIsMutating(false)
+        }
+    }, [mutate, mutateStats])
 
     const monthLabel = (() => {
         const first = weekDates[0], last = weekDates[6]
@@ -579,16 +597,16 @@ export function AppointmentsContent() {
                                 )}
                             </div>
                             <div className="flex gap-2">
-                                {doctors.map(d => (
-                                    <button key={d}
-                                        onClick={() => setDoctorFilter(doctorFilter === d ? "all" : d)}
+                                {apiDoctors.map(d => (
+                                    <button key={d.id}
+                                        onClick={() => setDoctorFilter(doctorFilter === d.id ? "all" : d.id)}
                                         className={cn(
                                             "hidden md:flex items-center gap-1.5 rounded-lg border px-3 h-9 text-xs font-medium transition-all shrink-0",
-                                            doctorFilter === d
+                                            doctorFilter === d.id
                                                 ? "bg-primary text-primary-foreground border-primary"
                                                 : "bg-card text-muted-foreground border-border hover:border-primary/40"
                                         )}>
-                                        {d.replace("Dr. ", "")}
+                                        {d.name.replace("Dr. ", "")}
                                     </button>
                                 ))}
                             </div>

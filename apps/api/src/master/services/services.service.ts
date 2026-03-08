@@ -12,7 +12,19 @@ export class ServicesService {
 
     // ─── Create ────────────────────────────────────────────────────────────────
     async create(dto: CreateServiceDto) {
-        return prisma.service.create({ data: dto });
+        // Auto-generate code if missing (e.g., LAB-CBC)
+        const code = dto.code || `${dto.category.substring(0, 3)}-${dto.name.substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
+
+        const existing = await prisma.service.findUnique({
+            where: { name_category: { name: dto.name, category: dto.category } }
+        });
+        if (existing) {
+            import('@nestjs/common').then(m => { throw new m.ConflictException(`Service with name '${dto.name}' already exists in category '${dto.category}'`) });
+        }
+
+        return prisma.service.create({
+            data: { ...dto, code }
+        });
     }
 
     // ─── List (paginated) ──────────────────────────────────────────────────────
@@ -23,13 +35,16 @@ export class ServicesService {
 
         const where = {
             ...(query.search && {
-                name: { contains: query.search, mode: "insensitive" as const },
+                OR: [
+                    { name: { contains: query.search, mode: "insensitive" as const } },
+                    { code: { contains: query.search, mode: "insensitive" as const } }
+                ]
             }),
             ...(query.category && { category: query.category }),
             ...(query.status && { status: query.status }),
         };
 
-        const [data, total] = await prisma.$transaction([
+        const [data, total, categoryGroup] = await prisma.$transaction([
             prisma.service.findMany({
                 where,
                 skip,
@@ -37,9 +52,18 @@ export class ServicesService {
                 orderBy: { name: "asc" },
             }),
             prisma.service.count({ where }),
+            prisma.service.groupBy({
+                by: ['category'],
+                _count: { id: true }
+            })
         ]);
 
-        return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+        const categoryCounts = categoryGroup.reduce((acc: Record<string, number>, curr: any) => {
+            acc[curr.category] = curr._count.id;
+            return acc;
+        }, {});
+
+        return { data, total, page, limit, totalPages: Math.ceil(total / limit), categoryCounts };
     }
 
     // ─── Get One ───────────────────────────────────────────────────────────────
@@ -51,21 +75,34 @@ export class ServicesService {
 
     // ─── Update ────────────────────────────────────────────────────────────────
     async update(id: string, dto: UpdateServiceDto) {
-        await this.findOne(id);
+        const service = await this.findOne(id);
+
+        if (dto.name || dto.category) {
+            const newName = dto.name || service.name;
+            const newCategory = dto.category || service.category;
+            const existing = await prisma.service.findUnique({
+                where: { name_category: { name: newName, category: newCategory } }
+            });
+            if (existing && existing.id !== id) {
+                import('@nestjs/common').then(m => { throw new m.ConflictException(`Service with name '${newName}' already exists in category '${newCategory}'`) });
+            }
+        }
+
         return prisma.service.update({ where: { id }, data: dto });
     }
 
-    // ─── Soft Delete ───────────────────────────────────────────────────────────
+    // ─── Toggle Status ───────────────────────────────────────────────────────────
     async softDelete(id: string) {
-        await this.findOne(id);
+        const service = await this.findOne(id);
         // Future-safe: check if referenced in bill_items before deactivating
         // const billedCount = await prisma.billItem.count({ where: { serviceId: id } });
         // if (billedCount > 0) throw new ConflictException(
         //     "Cannot deactivate: service has existing bill records"
         // );
+        const newStatus = service.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
         return prisma.service.update({
             where: { id },
-            data: { status: "INACTIVE" },
+            data: { status: newStatus },
         });
     }
 }

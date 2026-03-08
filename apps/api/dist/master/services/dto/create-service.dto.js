@@ -13,6 +13,7 @@ exports.CreateServiceDto = void 0;
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
 class CreateServiceDto {
+    code;
     name;
     category;
     basePrice;
@@ -20,6 +21,12 @@ class CreateServiceDto {
     status = "ACTIVE";
 }
 exports.CreateServiceDto = CreateServiceDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MinLength)(2, { message: "Code must be at least 2 characters" }),
+    __metadata("design:type", String)
+], CreateServiceDto.prototype, "code", void 0);
 __decorate([
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.MinLength)(2, { message: "Name must be at least 2 characters" }),

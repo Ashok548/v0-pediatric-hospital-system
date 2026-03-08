@@ -4,9 +4,23 @@
 //
 // TO MIGRATE TO API: replace each async function body with fetch().
 // ─────────────────────────────────────────────────────────────────────────────
-
-import type { NicuBaby, BabyStatus } from "./types"
-
+export type BabyStatus = "stable" | "warning" | "critical"
+export interface NicuBaby {
+    id: string
+    name: string
+    bed: string
+    gestationalAge: string
+    weight: string
+    status: BabyStatus
+    vitals: {
+        heartRate: number
+        spo2: number
+        temperature: number
+    }
+    alerts: string[]
+    admittedDate: string
+    doctor: string
+}
 // ─── Mock Data ───────────────────────────────────────────────────────────────
 export const nicuBabies: NicuBaby[] = [
     { id: "N-001", name: "Baby Arjun Gupta", bed: "N-01", gestationalAge: "32 weeks + 4 days", weight: "1.8 kg", status: "critical", vitals: { heartRate: 188, spo2: 86, temperature: 36.1 }, alerts: ["SpO2 Low", "Tachycardia"], admittedDate: "Feb 18, 2026", doctor: "Meena Iyer" },

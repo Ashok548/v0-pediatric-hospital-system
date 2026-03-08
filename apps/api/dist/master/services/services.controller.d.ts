@@ -12,6 +12,7 @@ export declare class ServicesController {
         page: number;
         limit: number;
         totalPages: number;
+        categoryCounts: any;
     }>;
     findOne(id: string): Promise<any>;
     update(id: string, dto: UpdateServiceDto): Promise<any>;

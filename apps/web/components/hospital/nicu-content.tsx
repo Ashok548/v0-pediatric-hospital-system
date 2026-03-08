@@ -55,7 +55,7 @@ function VitalsForm({ admissionId, onSuccess }: { admissionId: string; onSuccess
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const payload: CreateVitalsPayload = {}
+    const payload: Partial<CreateVitalsPayload> = {}
     if (form.heartRate != null) payload.heartRate = form.heartRate
     if (form.spo2 != null) payload.spo2 = form.spo2
     if (form.temperature != null) payload.temperature = form.temperature
@@ -70,7 +70,7 @@ function VitalsForm({ admissionId, onSuccess }: { admissionId: string; onSuccess
     }
     setLoading(true)
     try {
-      await recordVitals(admissionId, payload)
+      await recordVitals(admissionId, payload as CreateVitalsPayload)
       toast.success("Vitals recorded successfully")
       setForm({})
       onSuccess()

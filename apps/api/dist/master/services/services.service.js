@@ -11,7 +11,16 @@ const common_1 = require("@nestjs/common");
 const database_1 = require("@carenest/database");
 let ServicesService = class ServicesService {
     async create(dto) {
-        return database_1.prisma.service.create({ data: dto });
+        const code = dto.code || `${dto.category.substring(0, 3)}-${dto.name.substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
+        const existing = await database_1.prisma.service.findUnique({
+            where: { name_category: { name: dto.name, category: dto.category } }
+        });
+        if (existing) {
+            import('@nestjs/common').then(m => { throw new m.ConflictException(`Service with name '${dto.name}' already exists in category '${dto.category}'`); });
+        }
+        return database_1.prisma.service.create({
+            data: { ...dto, code }
+        });
     }
     async findAll(query) {
         const page = query.page ?? 1;
@@ -19,12 +28,15 @@ let ServicesService = class ServicesService {
         const skip = (page - 1) * limit;
         const where = {
             ...(query.search && {
-                name: { contains: query.search, mode: "insensitive" },
+                OR: [
+                    { name: { contains: query.search, mode: "insensitive" } },
+                    { code: { contains: query.search, mode: "insensitive" } }
+                ]
             }),
             ...(query.category && { category: query.category }),
             ...(query.status && { status: query.status }),
         };
-        const [data, total] = await database_1.prisma.$transaction([
+        const [data, total, categoryGroup] = await database_1.prisma.$transaction([
             database_1.prisma.service.findMany({
                 where,
                 skip,
@@ -32,8 +44,16 @@ let ServicesService = class ServicesService {
                 orderBy: { name: "asc" },
             }),
             database_1.prisma.service.count({ where }),
+            database_1.prisma.service.groupBy({
+                by: ['category'],
+                _count: { id: true }
+            })
         ]);
-        return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+        const categoryCounts = categoryGroup.reduce((acc, curr) => {
+            acc[curr.category] = curr._count.id;
+            return acc;
+        }, {});
+        return { data, total, page, limit, totalPages: Math.ceil(total / limit), categoryCounts };
     }
     async findOne(id) {
         const service = await database_1.prisma.service.findUnique({ where: { id } });
@@ -42,14 +62,25 @@ let ServicesService = class ServicesService {
         return service;
     }
     async update(id, dto) {
-        await this.findOne(id);
+        const service = await this.findOne(id);
+        if (dto.name || dto.category) {
+            const newName = dto.name || service.name;
+            const newCategory = dto.category || service.category;
+            const existing = await database_1.prisma.service.findUnique({
+                where: { name_category: { name: newName, category: newCategory } }
+            });
+            if (existing && existing.id !== id) {
+                import('@nestjs/common').then(m => { throw new m.ConflictException(`Service with name '${newName}' already exists in category '${newCategory}'`); });
+            }
+        }
         return database_1.prisma.service.update({ where: { id }, data: dto });
     }
     async softDelete(id) {
-        await this.findOne(id);
+        const service = await this.findOne(id);
+        const newStatus = service.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
         return database_1.prisma.service.update({
             where: { id },
-            data: { status: "INACTIVE" },
+            data: { status: newStatus },
         });
     }
 };

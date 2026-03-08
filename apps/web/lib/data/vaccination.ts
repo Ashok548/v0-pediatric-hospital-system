@@ -5,7 +5,20 @@
 // TO MIGRATE TO API: replace each async function body with fetch().
 // ─────────────────────────────────────────────────────────────────────────────
 
-import type { VaccinationPatient } from "./types"
+export interface VaccinationPatient {
+    id: string
+    name: string
+    age: string
+    gender: "M" | "F"
+    dob: string
+    doctor: string
+    lastVisit: string
+    nextDue: string
+    nextVaccine: string
+    vaccinesGiven: number
+    totalVaccines: number
+    status: "due-today" | "overdue" | "upcoming" | "up-to-date"
+}
 
 // ─── Mock Data ───────────────────────────────────────────────────────────────
 export const vaccinationPatients: VaccinationPatient[] = [

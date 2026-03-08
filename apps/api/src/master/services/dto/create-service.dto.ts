@@ -2,6 +2,11 @@ import { IsString, IsEnum, IsOptional, MinLength, IsNumber, Min, Max } from "cla
 import { Type } from "class-transformer";
 
 export class CreateServiceDto {
+    @IsOptional()
+    @IsString()
+    @MinLength(2, { message: "Code must be at least 2 characters" })
+    code?: string;
+
     @IsString()
     @MinLength(2, { message: "Name must be at least 2 characters" })
     name: string;

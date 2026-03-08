@@ -1,13 +1,11 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // lib/store/pharmacy-store.ts
 // Pharmacy dispensing workflow store.
-// On dispense, auto-pushes charges to the IP billing store.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { useSyncExternalStore } from "react"
 import type { PharmacyOrder } from "../data/pharmacy"
 import { mockPharmacyOrders } from "../data/pharmacy"
-import { billingActions } from "./billing-store"
 import { logActivity } from "./activity-store"
 
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -57,16 +55,23 @@ export function dispenseOrder(
 
     // ── Auto-push charges to IP Billing ──────────────────────────────────────
     updatedItems.forEach(item => {
-        if (item.dispensedQty > 0) {
-            billingActions.addChargeToIpBill(order.admissionId, {
-                id: `PHARM-CHARGE-${item.id}-${Date.now()}`,
-                category: "Pharmacy",
-                description: `${item.drugName} (${item.strength}) × ${item.dispensedQty} ${item.unit}`,
-                quantity: item.dispensedQty,
-                unitPrice: item.unitPrice,
-                discountPercent: 0,
-                taxPercent: 0,
-            })
+        if (item.dispensedQty > 0 && order.admissionId) {
+            // Find the running bill for this admission and add the item.
+            // We'll call the API directly instead of the old billingActions.
+            import('../api/billing').then(api => {
+                // First we need to find the bill id for this admission
+                const query = new URLSearchParams({ admissionId: order.admissionId, status: 'DRAFT' });
+                fetch(`/api/billing?${query}`).then(r => r.json()).then(res => {
+                    const bill = res?.data?.[0];
+                    if (bill) {
+                        api.addBillItem(bill.id, {
+                            serviceId: item.id, // Use item.id as serviceId for now
+                            quantity: item.dispensedQty, // Use dispensedQty from the item
+                            discountPercent: 0
+                        }).catch(console.error);
+                    }
+                }).catch(console.error);
+            });
         }
     })
 

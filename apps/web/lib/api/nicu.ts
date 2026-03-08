@@ -12,7 +12,7 @@ import type {
     CreateGrowthRecordPayload,
 } from "@/lib/types/nicu"
 
-const fetcher = (url: string) => apiClient(url)
+const fetcher = (url: string) => apiClient(url) as Promise<any>
 
 // ─── NICU Admissions ──────────────────────────────────────────────────────────
 

@@ -1,3 +1,5 @@
+"use client"
+
 import {
   Users,
   Baby,
@@ -11,8 +13,17 @@ import { BedOccupancy } from "./bed-occupancy"
 import { RecentPatients } from "./recent-patients"
 import { UpcomingAppointments } from "./upcoming-appointments"
 import { QuickActions } from "./quick-actions"
+import { useReportKpis } from "@/lib/api/reports"
 
 export function DashboardContent() {
+  const { kpis, isLoading } = useReportKpis()
+
+  // Safely format currency
+  const formatCurrency = (amt: number | undefined) => {
+    if (amt === undefined) return "0"
+    return new Intl.NumberFormat("en-IN").format(amt)
+  }
+
   return (
     <div className="p-4 lg:p-6 flex flex-col gap-6 max-w-[1600px] mx-auto">
       {/* Page Header */}
@@ -21,7 +32,7 @@ export function DashboardContent() {
           Admin Dashboard
         </h1>
         <p className="text-sm text-muted-foreground">
-          CareNest 200-Bed Multi-Speciality Childcare Hospital &middot; Real-time operational overview for Feb 22, 2026
+          CareNest 200-Bed Multi-Speciality Childcare Hospital &middot; Real-time operational overview
         </p>
       </div>
 
@@ -29,24 +40,24 @@ export function DashboardContent() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
         <StatCard
           title="Total Patients"
-          value="139"
-          subtitle="In-patients today"
-          change="+12 from yesterday"
-          changeType="positive"
+          value={isLoading ? "..." : String(kpis?.totalPatients ?? 0)}
+          subtitle="Active in-patients"
+          change={isLoading ? "" : "Live census data"}
+          changeType="neutral"
           icon={Users}
           iconColor="text-primary"
           iconBg="bg-primary/10"
         />
         <StatCard
           title="NICU Occupancy"
-          value="18 / 20"
+          value={isLoading ? "..." : `${kpis?.nicuOccupancy.occupied ?? 0} / ${kpis?.nicuOccupancy.total ?? 0}`}
           subtitle="Beds occupied"
-          change="2 ventilator-assisted"
-          changeType="negative"
+          change={isLoading ? "" : `${kpis?.nicuOccupancy.percentage ?? 0}% utilization`}
+          changeType="neutral"
           icon={Baby}
           iconColor="text-destructive"
           iconBg="bg-destructive/10"
-          percentage={90}
+          percentage={kpis?.nicuOccupancy.percentage ?? 0}
         />
         <StatCard
           title="Today's Appointments"
@@ -70,9 +81,9 @@ export function DashboardContent() {
         />
         <StatCard
           title="Revenue Today"
-          value="4,72,850"
+          value={isLoading ? "..." : formatCurrency(kpis?.revenueToday)}
           subtitle="Total collections"
-          change="+18.3% vs last week"
+          change={isLoading ? "" : "Live billing data"}
           changeType="positive"
           icon={IndianRupee}
           iconColor="text-chart-3"

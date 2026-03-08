@@ -34,6 +34,10 @@ const ADMISSION_INCLUDE = {
             toBed: { select: { id: true, bedNumber: true } },
         },
     },
+    vitalsRecords: {
+        take: 1,
+        orderBy: { recordedAt: "desc" },
+    },
 };
 let AdmissionsService = class AdmissionsService {
     async generateAdmissionNumber() {

@@ -16,9 +16,9 @@ class CreateVitalsDto {
     heartRate;
     spo2;
     temperature;
-    respiratoryRate;
-    bloodPressureSystolic;
-    bloodPressureDiastolic;
+    respRate;
+    bpSystolic;
+    bpDiastolic;
     weight;
     notes;
     recordedBy;
@@ -52,19 +52,19 @@ __decorate([
     (0, class_validator_1.Max)(100),
     (0, class_transformer_1.Type)(() => Number),
     __metadata("design:type", Number)
-], CreateVitalsDto.prototype, "respiratoryRate", void 0);
+], CreateVitalsDto.prototype, "respRate", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsInt)(),
     (0, class_transformer_1.Type)(() => Number),
     __metadata("design:type", Number)
-], CreateVitalsDto.prototype, "bloodPressureSystolic", void 0);
+], CreateVitalsDto.prototype, "bpSystolic", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsInt)(),
     (0, class_transformer_1.Type)(() => Number),
     __metadata("design:type", Number)
-], CreateVitalsDto.prototype, "bloodPressureDiastolic", void 0);
+], CreateVitalsDto.prototype, "bpDiastolic", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_transformer_1.Type)(() => Number),

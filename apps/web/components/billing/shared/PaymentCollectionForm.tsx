@@ -6,24 +6,30 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
-import { PaymentStatus, BillPayment } from "@/lib/types/billing"
-import { IndianRupee } from "lucide-react"
+import { PaymentMode, RecordPaymentDto, MappedPaymentModeLabels } from "@/lib/types/billing"
+import { IndianRupee, Loader2 } from "lucide-react"
 
-export function PaymentCollectionForm({ balanceDue, onPaymentAdd }: { balanceDue: number, onPaymentAdd: (p: BillPayment) => void }) {
+export function PaymentCollectionForm({
+    balanceDue,
+    onPaymentAdd,
+    isSubmitting = false
+}: {
+    balanceDue: number,
+    onPaymentAdd: (p: RecordPaymentDto) => void,
+    isSubmitting?: boolean
+}) {
     const [amount, setAmount] = useState<number>(balanceDue)
-    const [mode, setMode] = useState<string>("UPI")
+    const [mode, setMode] = useState<PaymentMode>("UPI")
+    const [transactionRef, setTransactionRef] = useState("")
 
     const handleAdd = () => {
-        if (amount <= 0 || amount > balanceDue) return;
+        if (amount <= 0 || amount > balanceDue || isSubmitting) return;
 
         onPaymentAdd({
-            id: `PAY-${Date.now()}`,
             amount,
-            mode,
-            status: PaymentStatus.Completed,
-            date: new Date().toISOString()
+            paymentMode: mode,
+            transactionRef: transactionRef || undefined
         })
-        setAmount(balanceDue - amount)
     }
 
     return (
@@ -36,18 +42,27 @@ export function PaymentCollectionForm({ balanceDue, onPaymentAdd }: { balanceDue
             <CardContent className="p-4 space-y-4">
                 <div className="space-y-2">
                     <Label>Payment Mode</Label>
-                    <Select value={mode} onValueChange={setMode}>
+                    <Select value={mode} onValueChange={v => setMode(v as PaymentMode)}>
                         <SelectTrigger>
                             <SelectValue placeholder="Select Mode" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="Cash">Cash</SelectItem>
-                            <SelectItem value="Card">Card</SelectItem>
-                            <SelectItem value="UPI">UPI</SelectItem>
-                            <SelectItem value="Online">Online / Transfer</SelectItem>
+                            {(Object.entries(MappedPaymentModeLabels)).map(([key, label]) => (
+                                <SelectItem key={key} value={key}>{label}</SelectItem>
+                            ))}
                         </SelectContent>
                     </Select>
                 </div>
+                {(mode === 'UPI' || mode === 'ONLINE' || mode === 'CARD' || mode === 'CHEQUE' || mode === 'INSURANCE') && (
+                    <div className="space-y-2">
+                        <Label>Transaction / Ref ID (Optional)</Label>
+                        <Input
+                            value={transactionRef}
+                            onChange={e => setTransactionRef(e.target.value)}
+                            placeholder="e.g. UTR or Check Number"
+                        />
+                    </div>
+                )}
                 <div className="space-y-2">
                     <Label>Amount to Collect</Label>
                     <div className="relative">
@@ -64,7 +79,8 @@ export function PaymentCollectionForm({ balanceDue, onPaymentAdd }: { balanceDue
             </CardContent>
             {balanceDue > 0 ? (
                 <CardFooter className="p-4 border-t bg-muted/30">
-                    <Button onClick={handleAdd} disabled={amount <= 0 || amount > balanceDue} className="w-full">
+                    <Button onClick={handleAdd} disabled={amount <= 0 || amount > balanceDue || isSubmitting} className="w-full">
+                        {isSubmitting ? <Loader2 className="animate-spin size-4 mr-2" /> : null}
                         Confirm Payment of ₹{amount || 0}
                     </Button>
                 </CardFooter>

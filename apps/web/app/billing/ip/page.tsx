@@ -1,21 +1,23 @@
 "use client"
 
-import { useBillingStore } from "@/lib/store/billing-store"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useRouter } from "next/navigation"
-import { BillWorkflowStatus, PatientBill } from "@/lib/types/billing"
-import { FileText, ArrowRight } from "lucide-react"
+import { MappedBillStatusColors } from "@/lib/types/billing"
+import { FileText, ArrowRight, Loader2 } from "lucide-react"
+import { useBills } from "@/lib/api/billing"
 
 export default function IPRunningBillsPage() {
     const router = useRouter()
-    const { bills } = useBillingStore()
 
-    // Filter only IP bills
-    const ipBills = bills.filter((b: PatientBill) => b.type === "IP")
+    // Fetch draft/active bills. For a real app we might paginate or filter by specific statuses through API.
+    // Here we fetch recent bills and filter client-side for "Inpatient" (has admissionId).
+    const { bills, isLoading } = useBills({ limit: 100 })
 
-    const formatAcc = (num: number) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(num)
+    const ipBills = bills.filter(b => b.admissionId && (b.status === 'DRAFT' || b.status === 'PARTIALLY_PAID' || b.status === 'FINAL'))
+
+    const formatAcc = (num: number | string) => new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(num))
 
     return (
         <div className="p-4 lg:p-6 max-w-7xl mx-auto space-y-6">
@@ -46,37 +48,47 @@ export default function IPRunningBillsPage() {
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
-                                {ipBills.length === 0 ? (
+                                {isLoading ? (
+                                    <tr>
+                                        <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                                            <div className="flex justify-center items-center gap-2">
+                                                <Loader2 className="animate-spin size-5" />
+                                                <span>Loading running bills...</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : ipBills.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                                             No active inpatient bills found.
                                         </td>
                                     </tr>
                                 ) : (
-                                    ipBills.map((bill: PatientBill) => {
-                                        const isClosed = bill.status === BillWorkflowStatus.Closed
+                                    ipBills.map((bill) => {
+                                        const isClosed = bill.status === 'PAID'
+                                        const statusObj = MappedBillStatusColors[bill.status] || { label: bill.status, className: "bg-muted" }
+
+                                        const pName = bill.patient ? `${bill.patient.firstName} ${bill.patient.lastName}` : "Unknown"
+                                        const pUhid = bill.patient?.uhid || "Unknown"
+
                                         return (
                                             <tr key={bill.id} className="hover:bg-muted/20 transition-colors">
                                                 <td className="px-4 py-4 font-mono text-sm">{bill.admissionId}</td>
                                                 <td className="px-4 py-4">
-                                                    <p className="font-semibold">{bill.patientName}</p>
-                                                    <p className="text-xs text-muted-foreground">UHID: {bill.patientId}</p>
+                                                    <p className="font-semibold">{pName}</p>
+                                                    <p className="text-xs text-muted-foreground">UHID: {pUhid}</p>
                                                 </td>
                                                 <td className="px-4 py-4">
-                                                    <Badge variant={isClosed ? "default" : "secondary"} className={
-                                                        isClosed ? "bg-green-600"
-                                                            : bill.status === BillWorkflowStatus.PendingSettlement ? "bg-amber-500 text-white"
-                                                                : "bg-blue-600 text-white"
-                                                    }>
-                                                        {bill.status}
+                                                    <Badge variant="outline" className={statusObj.className}>
+                                                        {statusObj.label}
                                                     </Badge>
                                                 </td>
-                                                <td className="px-4 py-4 text-right">{formatAcc(bill.summary.netTotal)}</td>
+                                                <td className="px-4 py-4 text-right">{formatAcc(bill.netAmount)}</td>
                                                 <td className="px-4 py-4 text-right text-green-600 font-medium">
-                                                    {formatAcc(bill.summary.totalPaid)}
+                                                    {formatAcc(bill.paidAmount)}
                                                 </td>
                                                 <td className="px-4 py-4 text-right font-bold text-red-600">
-                                                    {formatAcc(bill.summary.balanceDue)}
+                                                    {formatAcc(bill.dueAmount)}
                                                 </td>
                                                 <td className="px-4 py-4 text-right">
                                                     <Button

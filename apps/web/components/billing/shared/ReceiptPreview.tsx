@@ -1,34 +1,33 @@
 "use client"
 
-// ─── Improvement #8 ───────────────────────────────────────────────────────────
-// ReceiptPreview: issued AFTER payment — confirms payment and shows zero balance.
-// InvoicePreview: issued BEFORE/DURING payment — shows balance due.
-// Both share the same design but vary in label, badge, and footer.
-
-import { useBillingStore } from "@/lib/store/billing-store"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
-import { Printer, ArrowLeft } from "lucide-react"
+import { Printer, ArrowLeft, Loader2 } from "lucide-react"
 import { useRouter } from "next/navigation"
-import { PatientBill, BillItem, computeLineTotal } from "@/lib/types/billing"
+import { useBill } from "@/lib/api/billing"
 
 export function ReceiptPreview({ id }: { id: string }) {
     const router = useRouter()
-    const { bills } = useBillingStore()
+    const { bill, isLoading } = useBill(id)
 
-    const bill = bills.find((b: PatientBill) => b.id === id)
+    if (isLoading) {
+        return <div className="p-12 flex justify-center"><Loader2 className="animate-spin text-primary size-8" /></div>
+    }
 
     if (!bill) {
         return <div className="p-8 text-center text-muted-foreground">Receipt not found.</div>
     }
 
-    const fmt = (n: number) =>
-        new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Math.abs(n))
+    const fmt = (n: number | string) =>
+        new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Math.abs(Number(n)))
 
-    const isRefund = bill.summary.balanceDue < 0
-    const closedDate = bill.closedAt ? new Date(bill.closedAt).toLocaleDateString('en-IN') : new Date().toLocaleDateString('en-IN')
+    const isRefund = Number(bill.dueAmount) < 0
+    const closedDate = new Date().toLocaleDateString('en-IN')
+
+    const pName = bill.patient ? `${bill.patient.firstName} ${bill.patient.lastName}` : "Unknown"
+    const pUhid = bill.patient?.uhid || "Unknown UHID"
 
     return (
         <div className="max-w-3xl mx-auto space-y-6">
@@ -57,7 +56,7 @@ export function ReceiptPreview({ id }: { id: string }) {
                             <Badge className={isRefund ? "bg-orange-600" : "bg-green-600"} >
                                 {isRefund ? "REFUND RECEIPT" : "PAYMENT RECEIPT"}
                             </Badge>
-                            <p className="text-sm font-semibold mt-2">Ref: {bill.invoiceNumber}</p>
+                            <p className="text-sm font-semibold mt-2">Ref: {bill.billNumber || bill.id.slice(-6).toUpperCase()}</p>
                             <p className="text-sm text-zinc-600">Date: {closedDate}</p>
                         </div>
                     </div>
@@ -68,12 +67,12 @@ export function ReceiptPreview({ id }: { id: string }) {
                     <div className="flex justify-between text-sm gap-4">
                         <div>
                             <p className="text-zinc-500 font-medium">Received From:</p>
-                            <p className="font-semibold text-zinc-900 text-base">{bill.patientName}</p>
-                            <p className="text-zinc-600">UHID: {bill.patientId}</p>
+                            <p className="font-semibold text-zinc-900 text-base">{pName}</p>
+                            <p className="text-zinc-600">UHID: {pUhid}</p>
                         </div>
                         <div className="text-right">
                             <p className="text-zinc-500 font-medium">Billing Type:</p>
-                            <p className="font-semibold text-zinc-900">{bill.type === 'IP' ? 'Inpatient (IPD)' : 'Outpatient (OPD)'}</p>
+                            <p className="font-semibold text-zinc-900">{bill.admissionId ? 'Inpatient (IPD)' : 'Outpatient (OPD)'}</p>
                         </div>
                     </div>
 
@@ -87,16 +86,20 @@ export function ReceiptPreview({ id }: { id: string }) {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-zinc-100">
-                            {bill.items.map((item: BillItem) => (
-                                <tr key={item.id}>
-                                    <td className="py-2.5">
-                                        <p className="font-medium">{item.serviceName}</p>
-                                        <p className="text-xs text-zinc-400">{item.category}</p>
-                                    </td>
-                                    <td className="py-2.5 text-center text-zinc-600">{item.quantity}</td>
-                                    <td className="py-2.5 text-right font-medium">{fmt(computeLineTotal(item))}</td>
-                                </tr>
-                            ))}
+                            {bill.items && bill.items.length > 0 ? (
+                                bill.items.map((item) => (
+                                    <tr key={item.id}>
+                                        <td className="py-2.5">
+                                            <p className="font-medium">{item.serviceName}</p>
+                                            <p className="text-xs text-zinc-400">{item.serviceCode}</p>
+                                        </td>
+                                        <td className="py-2.5 text-center text-zinc-600">{item.quantity}</td>
+                                        <td className="py-2.5 text-right font-medium">{fmt(item.totalPrice)}</td>
+                                    </tr>
+                                ))
+                            ) : (
+                                <tr><td colSpan={3} className="py-6 text-center text-zinc-500 italic">No items found.</td></tr>
+                            )}
                         </tbody>
                     </table>
 
@@ -105,37 +108,31 @@ export function ReceiptPreview({ id }: { id: string }) {
                         <div className="w-full max-w-xs space-y-2 text-sm">
                             <div className="flex justify-between text-zinc-600">
                                 <span>Subtotal</span>
-                                <span>{fmt(bill.summary.subtotal)}</span>
+                                <span>{fmt(bill.totalAmount)}</span>
                             </div>
-                            {bill.summary.totalDiscount > 0 && (
+                            {Number(bill.discountAmount) > 0 && (
                                 <div className="flex justify-between text-green-600">
                                     <span>Discount</span>
-                                    <span>-{fmt(bill.summary.totalDiscount)}</span>
+                                    <span>-{fmt(bill.discountAmount)}</span>
                                 </div>
                             )}
-                            {bill.summary.totalTax > 0 && (
+                            {Number(bill.taxAmount) > 0 && (
                                 <div className="flex justify-between text-zinc-600">
                                     <span>Tax</span>
-                                    <span>+{fmt(bill.summary.totalTax)}</span>
+                                    <span>+{fmt(bill.taxAmount)}</span>
                                 </div>
                             )}
                             <div className="flex justify-between font-bold text-base pt-2 border-t border-zinc-900">
                                 <span>Grand Total</span>
-                                <span>{fmt(bill.summary.netTotal)}</span>
+                                <span>{fmt(bill.netAmount)}</span>
                             </div>
                             <div className="flex justify-between text-zinc-600 pt-1">
                                 <span>Total Paid</span>
-                                <span className="text-green-600 font-medium">{fmt(bill.summary.totalPaid)}</span>
+                                <span className="text-green-600 font-medium">{fmt(bill.paidAmount)}</span>
                             </div>
-                            {bill.summary.totalRefunded > 0 && (
-                                <div className="flex justify-between text-orange-600">
-                                    <span>Refunded</span>
-                                    <span>{fmt(bill.summary.totalRefunded)}</span>
-                                </div>
-                            )}
                             <div className={`flex justify-between font-bold text-base pt-2 border-t border-zinc-200 ${isRefund ? "text-orange-700" : "text-green-700"}`}>
                                 <span>{isRefund ? "Refund Issued" : "Balance Settled"}</span>
-                                <span>{isRefund ? fmt(bill.summary.totalRefunded) : "₹0.00"}</span>
+                                <span>{fmt(bill.dueAmount)}</span>
                             </div>
                         </div>
                     </div>
@@ -144,7 +141,7 @@ export function ReceiptPreview({ id }: { id: string }) {
                     <div className="pt-8 text-center space-y-1">
                         <p className="text-sm font-semibold text-zinc-700">
                             {isRefund
-                                ? `Refund of ${fmt(bill.summary.totalRefunded)} processed.`
+                                ? `Refund processed.`
                                 : "Payment received in full. Thank you!"
                             }
                         </p>

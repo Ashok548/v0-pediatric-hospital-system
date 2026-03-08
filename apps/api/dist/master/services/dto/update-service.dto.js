@@ -13,6 +13,7 @@ exports.UpdateServiceDto = void 0;
 const class_validator_1 = require("class-validator");
 const class_transformer_1 = require("class-transformer");
 class UpdateServiceDto {
+    code;
     name;
     category;
     basePrice;
@@ -20,6 +21,12 @@ class UpdateServiceDto {
     status;
 }
 exports.UpdateServiceDto = UpdateServiceDto;
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.MinLength)(2),
+    __metadata("design:type", String)
+], UpdateServiceDto.prototype, "code", void 0);
 __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),

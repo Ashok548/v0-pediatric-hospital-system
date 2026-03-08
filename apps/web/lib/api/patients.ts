@@ -15,7 +15,7 @@ export interface ApiPatient {
     phone?: string
 }
 
-const fetcher = (url: string) => apiClient(url)
+const fetcher = (url: string) => apiClient(url) as Promise<any>
 
 interface PatientsQuery {
     search?: string

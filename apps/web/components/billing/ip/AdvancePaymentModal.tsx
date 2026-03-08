@@ -6,32 +6,35 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger } from "@/components/ui/dialog"
-import { IndianRupee, Wallet } from "lucide-react"
-import { BillPayment, PaymentStatus } from "@/lib/types/billing"
+import { Wallet, Loader2 } from "lucide-react"
+import { RecordPaymentDto, PaymentMode, MappedPaymentModeLabels } from "@/lib/types/billing"
 
-export function AdvancePaymentModal({ onAddAdvance }: { onAddAdvance: (payment: BillPayment) => void }) {
+export function AdvancePaymentModal({
+    onAddAdvance,
+    isSubmitting = false
+}: {
+    onAddAdvance: (payment: RecordPaymentDto) => void,
+    isSubmitting?: boolean
+}) {
     const [open, setOpen] = useState(false)
     const [amount, setAmount] = useState<number>(0)
-    const [mode, setMode] = useState<string>("UPI")
-    const [remarks, setRemarks] = useState("")
+    const [mode, setMode] = useState<PaymentMode>("UPI")
+    const [transactionRef, setTransactionRef] = useState("")
 
     const handleAdd = () => {
-        if (amount <= 0) return;
+        if (amount <= 0 || isSubmitting) return;
 
         onAddAdvance({
-            id: `ADV-${Date.now()}`,
             amount,
-            mode,
-            status: PaymentStatus.Completed,
-            date: new Date().toISOString(),
-            isAdvance: true,
-            receiptNo: `REC-${Math.floor(Math.random() * 10000)}`
+            paymentMode: mode,
+            transactionRef: transactionRef || undefined
         })
 
+        // NOTE: We don't auto-close here if isSubmitting is true. It will be handled by the parent
         setOpen(false)
         setAmount(0)
         setMode("UPI")
-        setRemarks("")
+        setTransactionRef("")
     }
 
     return (
@@ -64,31 +67,33 @@ export function AdvancePaymentModal({ onAddAdvance }: { onAddAdvance: (payment: 
 
                     <div className="grid gap-2">
                         <Label>Payment Mode</Label>
-                        <Select value={mode} onValueChange={setMode}>
+                        <Select value={mode} onValueChange={(v) => setMode(v as PaymentMode)}>
                             <SelectTrigger>
                                 <SelectValue placeholder="Select Mode" />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="Cash">Cash</SelectItem>
-                                <SelectItem value="Card">Card</SelectItem>
-                                <SelectItem value="UPI">UPI</SelectItem>
-                                <SelectItem value="Online">Online / Transfer</SelectItem>
+                                {(Object.entries(MappedPaymentModeLabels)).map(([key, label]) => (
+                                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                                ))}
                             </SelectContent>
                         </Select>
                     </div>
 
                     <div className="grid gap-2">
-                        <Label>Remarks (Optional)</Label>
+                        <Label>Transaction / Ref ID (Optional)</Label>
                         <Input
-                            placeholder="E.g., Initial Deposit"
-                            value={remarks}
-                            onChange={e => setRemarks(e.target.value)}
+                            placeholder="E.g., UTR / Cheque No."
+                            value={transactionRef}
+                            onChange={e => setTransactionRef(e.target.value)}
                         />
                     </div>
                 </div>
                 <DialogFooter>
                     <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-                    <Button onClick={handleAdd} disabled={amount <= 0}>Confirm Payment</Button>
+                    <Button onClick={handleAdd} disabled={amount <= 0 || isSubmitting}>
+                        {isSubmitting ? <Loader2 className="animate-spin size-4 mr-2" /> : null}
+                        Confirm Payment
+                    </Button>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

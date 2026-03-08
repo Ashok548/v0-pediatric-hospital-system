@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+console.log(`[DEBUG] loginAction: Connecting to API at: ${API_URL}`);
 
 export type LoginState = {
     error?: string;

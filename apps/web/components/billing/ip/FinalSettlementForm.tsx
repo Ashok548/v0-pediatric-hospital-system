@@ -1,12 +1,7 @@
 "use client"
 
-// ─── Improvements #9, #11 ─────────────────────────────────────────────────────
-// #9: Refund is properly written to payment history via addRefund store action
-// #11: lineTotal removed from table — uses computeLineTotal at render time
-
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { useBillingStore } from "@/lib/store/billing-store"
 import { BillSummaryCard } from "../shared/BillSummaryCard"
 import { PaymentCollectionForm } from "../shared/PaymentCollectionForm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,55 +10,92 @@ import { Badge } from "@/components/ui/badge"
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-    BillWorkflowStatus, BillPayment, PatientBill,
-    PaymentStatus, PaymentMode, computeLineTotal
-} from "@/lib/types/billing"
-import { CheckCircle, AlertTriangle, FileText, ArrowLeft, RefreshCw } from "lucide-react"
+import { PaymentMode, RecordPaymentDto, MappedBillStatusColors } from "@/lib/types/billing"
+import { useBills, recordPayment, finalizeBill } from "@/lib/api/billing"
+import { CheckCircle, AlertTriangle, FileText, ArrowLeft, RefreshCw, Loader2 } from "lucide-react"
 
 export function FinalSettlementForm({ id }: { id: string }) {
     const router = useRouter()
-    const { bills, settleIpBill, addRefund } = useBillingStore()
+    const { bills, isLoading, mutate } = useBills({ admissionId: id })
+    const bill = bills?.[0]
 
-    const [refundMode, setRefundMode] = useState<PaymentMode>('Cash')
+    const [refundMode, setRefundMode] = useState<PaymentMode>('CASH')
     const [refundDialogOpen, setRefundDialogOpen] = useState(false)
+    const [isActionLoading, setIsActionLoading] = useState(false)
 
-    const bill = bills.find((b: PatientBill) => b.admissionId === id || b.id === id)
+    if (isLoading) {
+        return <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-primary size-8" /></div>
+    }
 
     if (!bill) {
-        return <div className="p-8 text-center text-muted-foreground">Bill not found.</div>
+        return <div className="p-8 text-center text-muted-foreground">Bill not found for this admission.</div>
     }
 
-    const isClosed = bill.status === BillWorkflowStatus.Closed
-    const balanceDue = bill.summary.balanceDue   // negative = refund owed
+    const isClosed = bill.status === 'PAID' || bill.status === 'FINAL'
+    const balanceDue = Number(bill.dueAmount)
     const refundAmount = Math.abs(balanceDue)
 
-    const handleFinalPaymentAndClose = (payment: BillPayment) => {
-        settleIpBill(bill.admissionId!, payment)
-        router.push(`/billing/invoice/${bill.id}`)
+    const handleFinalPaymentAndClose = async (payment: RecordPaymentDto) => {
+        setIsActionLoading(true)
+        try {
+            await recordPayment(bill.id, payment)
+            await finalizeBill(bill.id)
+            await mutate()
+            router.push(`/billing/invoice/${bill.id}`)
+        } catch (err) {
+            console.error(err)
+        } finally {
+            setIsActionLoading(false)
+        }
     }
 
-    const handleLockFullyPaid = () => {
-        settleIpBill(bill.admissionId!)
-        router.push(`/billing/invoice/${bill.id}`)
+    const handleLockFullyPaid = async () => {
+        setIsActionLoading(true)
+        try {
+            await finalizeBill(bill.id)
+            await mutate()
+            router.push(`/billing/invoice/${bill.id}`)
+        } catch (err) {
+            console.error(err)
+        } finally {
+            setIsActionLoading(false)
+        }
     }
 
-    // #9: Refund action — writes payment entry then closes
-    const handleRefund = () => {
-        addRefund(bill.id, refundAmount, refundMode, 'Excess advance refund')
-        settleIpBill(bill.admissionId!)
-        setRefundDialogOpen(false)
-        router.push(`/billing/invoice/${bill.id}`)
+    // Since Refund API support is deferred, we just finalize the bill here
+    const handleRefund = async () => {
+        setIsActionLoading(true)
+        try {
+            await finalizeBill(bill.id)
+            await mutate()
+            setRefundDialogOpen(false)
+            router.push(`/billing/invoice/${bill.id}`)
+        } catch (err) {
+            console.error(err)
+        } finally {
+            setIsActionLoading(false)
+        }
     }
 
-    const formatAcc = (n: number) =>
-        new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Math.abs(n))
+    const formatAcc = (n: number | string) =>
+        new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Math.abs(Number(n)))
+
+    const pName = bill.patient ? `${bill.patient.firstName} ${bill.patient.lastName}` : "Unknown Patient"
+    const statusObj = MappedBillStatusColors[bill.status] || { label: bill.status, className: "bg-muted" }
 
     return (
-        <div className="max-w-4xl mx-auto space-y-6">
+        <div className="max-w-4xl mx-auto space-y-6 relative">
+
+            {isActionLoading && (
+                <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-[1px] flex items-center justify-center rounded-xl">
+                    <div className="bg-card p-4 rounded-lg shadow-lg flex items-center gap-3 border">
+                        <Loader2 className="size-5 animate-spin text-primary" />
+                        <span className="font-medium">Processing...</span>
+                    </div>
+                </div>
+            )}
 
             <div className="flex items-center gap-4">
                 <Button variant="ghost" size="icon" onClick={() => router.back()}>
@@ -72,14 +104,14 @@ export function FinalSettlementForm({ id }: { id: string }) {
                 <div>
                     <h2 className="text-2xl font-bold tracking-tight">Final Settlement</h2>
                     <p className="text-sm text-muted-foreground">
-                        Admission: {bill.admissionId} &middot; Patient: {bill.patientName}
-                        {bill.invoiceNumber && (
-                            <> &middot; Invoice: <span className="font-mono">{bill.invoiceNumber}</span></>
+                        Admission: {bill.admissionId || "N/A"} &middot; Patient: {pName}
+                        {bill.billNumber && (
+                            <> &middot; Invoice: <span className="font-mono">{bill.billNumber}</span></>
                         )}
                     </p>
                 </div>
-                <Badge className="ml-auto" variant="outline">
-                    {bill.status}
+                <Badge className={statusObj.className + " ml-auto"} variant="outline">
+                    {statusObj.label}
                 </Badge>
             </div>
 
@@ -91,7 +123,7 @@ export function FinalSettlementForm({ id }: { id: string }) {
                         <CardTitle className="text-base font-semibold">Settlement Summary</CardTitle>
                     </CardHeader>
                     <CardContent className="p-0">
-                        <BillSummaryCard summary={bill.summary} />
+                        <BillSummaryCard bill={bill} />
                     </CardContent>
                 </Card>
 
@@ -102,6 +134,7 @@ export function FinalSettlementForm({ id }: { id: string }) {
                         <PaymentCollectionForm
                             balanceDue={balanceDue}
                             onPaymentAdd={handleFinalPaymentAndClose}
+                            isSubmitting={isActionLoading}
                         />
                     )}
 
@@ -141,6 +174,7 @@ export function FinalSettlementForm({ id }: { id: string }) {
                                     className="w-full bg-green-600 hover:bg-green-700"
                                     size="lg"
                                     onClick={handleLockFullyPaid}
+                                    disabled={isActionLoading}
                                 >
                                     Lock Bill & Generate Invoice
                                 </Button>
@@ -165,7 +199,7 @@ export function FinalSettlementForm({ id }: { id: string }) {
                 </div>
             </div>
 
-            {/* #9: Refund Dialog */}
+            {/* Refund Dialog */}
             <Dialog open={refundDialogOpen} onOpenChange={setRefundDialogOpen}>
                 <DialogContent className="sm:max-w-sm">
                     <DialogHeader>
@@ -183,20 +217,21 @@ export function FinalSettlementForm({ id }: { id: string }) {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="Cash">Cash</SelectItem>
+                                    <SelectItem value="CASH">Cash</SelectItem>
                                     <SelectItem value="UPI">UPI</SelectItem>
-                                    <SelectItem value="Online">Bank Transfer</SelectItem>
+                                    <SelectItem value="ONLINE">Bank Transfer</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                            A refund entry will be recorded in the payment history and the bill will be permanently locked.
+                            Note: Backend API support for refunds is deferred. This will lock the bill.
                         </p>
                     </div>
                     <DialogFooter>
                         <Button variant="outline" onClick={() => setRefundDialogOpen(false)}>Cancel</Button>
-                        <Button onClick={handleRefund} className="bg-orange-600 hover:bg-orange-700">
-                            Confirm Refund
+                        <Button onClick={handleRefund} disabled={isActionLoading} className="bg-orange-600 hover:bg-orange-700">
+                            {isActionLoading ? <Loader2 className="animate-spin size-4 mr-2" /> : null}
+                            Confirm Refund & Lock
                         </Button>
                     </DialogFooter>
                 </DialogContent>
