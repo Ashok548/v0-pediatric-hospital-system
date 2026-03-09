@@ -22,6 +22,13 @@ export class NicuController {
         return this.nicuService.findNicuAdmissions(query)
     }
 
+    /** Get NICU patients with critical vital threshold breaches */
+    @Get("alerts")
+    @Roles("ADMIN", "DOCTOR", "NURSE")
+    getCriticalAlerts() {
+        return this.nicuService.getCriticalAlerts()
+    }
+
     /** Get full vitals history for one admission */
     @Get("admissions/:id/vitals")
     @Roles("ADMIN", "DOCTOR", "NURSE")
@@ -48,5 +55,17 @@ export class NicuController {
     @HttpCode(HttpStatus.OK)
     deleteVitals(@Param("vid", ParseUUIDPipe) vid: string) {
         return this.nicuService.deleteVitals(vid)
+    }
+
+    /** Acknowledge a critical alert */
+    @Post("vitals/:vid/acknowledge") // Use POST for wider compatibility, behaves like a PATCH action
+    @Roles("ADMIN", "DOCTOR", "NURSE") // Or use PATCH if REST strictness matters, but POST is safer across clients without setup
+    @HttpCode(HttpStatus.OK)
+    acknowledgeAlert(
+        @Param("vid", ParseUUIDPipe) vid: string,
+        @Request() req: any,
+    ) {
+        const userId = req.user?.id as string | undefined
+        return this.nicuService.acknowledgeAlert(vid, userId)
     }
 }

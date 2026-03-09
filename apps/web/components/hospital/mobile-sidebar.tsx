@@ -22,6 +22,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useAuthStore } from "@/lib/store/auth-store"
+import { usePharmacyStats } from "@/lib/api/pharmacy"
 
 const ALL_NAV_ITEMS = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", feature: "dashboard" },
@@ -48,6 +49,7 @@ interface MobileSidebarProps {
 
 export function MobileSidebar({ open, onClose, activeItem = "Dashboard" }: MobileSidebarProps) {
   const { canAccess } = useAuthStore()
+  const { stats } = usePharmacyStats()
   const navItems = ALL_NAV_ITEMS.filter(item => canAccess(item.feature))
   return (
     <>
@@ -95,6 +97,7 @@ export function MobileSidebar({ open, onClose, activeItem = "Dashboard" }: Mobil
           <ul className="flex flex-col gap-1" role="list">
             {navItems.map((item) => {
               const isActive = item.label === activeItem
+              const hasAlert = item.feature === "pharmacy" && stats?.lowStockCount > 0
               return (
                 <li key={item.label}>
                   <Link
@@ -110,6 +113,12 @@ export function MobileSidebar({ open, onClose, activeItem = "Dashboard" }: Mobil
                   >
                     <item.icon className="size-[18px] shrink-0" />
                     <span>{item.label}</span>
+
+                    {hasAlert && (
+                      <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm tabular-nums">
+                        {stats.lowStockCount}
+                      </span>
+                    )}
                   </Link>
                 </li>
               )

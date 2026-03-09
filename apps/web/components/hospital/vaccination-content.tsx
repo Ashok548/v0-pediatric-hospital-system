@@ -22,6 +22,7 @@ import {
   Printer,
 } from "lucide-react"
 import Link from "next/link"
+import { usePatientVaccinations } from "@/lib/api/vaccinations"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -62,326 +63,9 @@ interface VaccineGroup {
   vaccines: Vaccine[]
 }
 
-const vaccineGroups: VaccineGroup[] = [
-  {
-    ageLabel: "At Birth",
-    vaccines: [
-      {
-        id: "v1",
-        name: "BCG",
-        dose: "Dose 1",
-        ageLabel: "Birth",
-        scheduledDate: "Mar 18, 2025",
-        administeredDate: "Mar 18, 2025",
-        status: "completed",
-        site: "Left upper arm (intradermal)",
-        batch: "BCG-2025-0421",
-      },
-      {
-        id: "v2",
-        name: "OPV",
-        dose: "Zero Dose",
-        ageLabel: "Birth",
-        scheduledDate: "Mar 18, 2025",
-        administeredDate: "Mar 18, 2025",
-        status: "completed",
-        site: "Oral",
-        batch: "OPV-2025-1130",
-      },
-      {
-        id: "v3",
-        name: "Hepatitis B",
-        dose: "Birth Dose",
-        ageLabel: "Birth",
-        scheduledDate: "Mar 18, 2025",
-        administeredDate: "Mar 18, 2025",
-        status: "completed",
-        site: "Right thigh (IM)",
-        batch: "HBV-2025-0892",
-      },
-    ],
-  },
-  {
-    ageLabel: "6 Weeks",
-    vaccines: [
-      {
-        id: "v4",
-        name: "Pentavalent (DTwP-HepB-Hib)",
-        dose: "Dose 1",
-        ageLabel: "6 weeks",
-        scheduledDate: "Apr 29, 2025",
-        administeredDate: "Apr 30, 2025",
-        status: "completed",
-        site: "Left thigh (IM)",
-        batch: "PENTA-2025-3310",
-      },
-      {
-        id: "v5",
-        name: "IPV",
-        dose: "Dose 1",
-        ageLabel: "6 weeks",
-        scheduledDate: "Apr 29, 2025",
-        administeredDate: "Apr 30, 2025",
-        status: "completed",
-        site: "Right thigh (IM)",
-        batch: "IPV-2025-0142",
-      },
-      {
-        id: "v6",
-        name: "Rotavirus",
-        dose: "Dose 1",
-        ageLabel: "6 weeks",
-        scheduledDate: "Apr 29, 2025",
-        administeredDate: "Apr 30, 2025",
-        status: "completed",
-        site: "Oral",
-        batch: "RV-2025-2200",
-      },
-      {
-        id: "v7",
-        name: "PCV (Pneumococcal)",
-        dose: "Dose 1",
-        ageLabel: "6 weeks",
-        scheduledDate: "Apr 29, 2025",
-        administeredDate: "May 01, 2025",
-        status: "completed",
-        site: "Left thigh (IM)",
-        batch: "PCV-2025-5540",
-      },
-    ],
-  },
-  {
-    ageLabel: "10 Weeks",
-    vaccines: [
-      {
-        id: "v8",
-        name: "Pentavalent (DTwP-HepB-Hib)",
-        dose: "Dose 2",
-        ageLabel: "10 weeks",
-        scheduledDate: "May 27, 2025",
-        administeredDate: "May 28, 2025",
-        status: "completed",
-        site: "Right thigh (IM)",
-        batch: "PENTA-2025-3311",
-      },
-      {
-        id: "v9",
-        name: "IPV",
-        dose: "Dose 2",
-        ageLabel: "10 weeks",
-        scheduledDate: "May 27, 2025",
-        administeredDate: "May 28, 2025",
-        status: "completed",
-        site: "Left thigh (IM)",
-        batch: "IPV-2025-0143",
-      },
-      {
-        id: "v10",
-        name: "Rotavirus",
-        dose: "Dose 2",
-        ageLabel: "10 weeks",
-        scheduledDate: "May 27, 2025",
-        administeredDate: "May 28, 2025",
-        status: "completed",
-        site: "Oral",
-        batch: "RV-2025-2201",
-      },
-    ],
-  },
-  {
-    ageLabel: "14 Weeks",
-    vaccines: [
-      {
-        id: "v11",
-        name: "Pentavalent (DTwP-HepB-Hib)",
-        dose: "Dose 3",
-        ageLabel: "14 weeks",
-        scheduledDate: "Jun 24, 2025",
-        administeredDate: "Jun 25, 2025",
-        status: "completed",
-        site: "Right thigh (IM)",
-        batch: "PENTA-2025-3312",
-      },
-      {
-        id: "v12",
-        name: "IPV",
-        dose: "Dose 3",
-        ageLabel: "14 weeks",
-        scheduledDate: "Jun 24, 2025",
-        administeredDate: "Jun 25, 2025",
-        status: "completed",
-        site: "Left thigh (IM)",
-        batch: "IPV-2025-0144",
-      },
-      {
-        id: "v13",
-        name: "Rotavirus",
-        dose: "Dose 3",
-        ageLabel: "14 weeks",
-        scheduledDate: "Jun 24, 2025",
-        administeredDate: "Jun 25, 2025",
-        status: "completed",
-        site: "Oral",
-        batch: "RV-2025-2202",
-      },
-      {
-        id: "v14",
-        name: "PCV (Pneumococcal)",
-        dose: "Dose 2",
-        ageLabel: "14 weeks",
-        scheduledDate: "Jun 24, 2025",
-        administeredDate: "Jun 25, 2025",
-        status: "completed",
-        site: "Left thigh (IM)",
-        batch: "PCV-2025-5541",
-      },
-    ],
-  },
-  {
-    ageLabel: "6 Months",
-    vaccines: [
-      {
-        id: "v15",
-        name: "OPV",
-        dose: "Dose 1",
-        ageLabel: "6 months",
-        scheduledDate: "Sep 18, 2025",
-        status: "missed",
-        notes: "Family travel - not administered. Catch-up needed.",
-      },
-      {
-        id: "v16",
-        name: "Hepatitis B",
-        dose: "Dose 2",
-        ageLabel: "6 months",
-        scheduledDate: "Sep 18, 2025",
-        status: "missed",
-        notes: "Missed along with OPV. Catch-up scheduled.",
-      },
-    ],
-  },
-  {
-    ageLabel: "9 Months",
-    vaccines: [
-      {
-        id: "v17",
-        name: "MR (Measles-Rubella)",
-        dose: "Dose 1",
-        ageLabel: "9 months",
-        scheduledDate: "Dec 18, 2025",
-        administeredDate: "Dec 19, 2025",
-        status: "completed",
-        site: "Right upper arm (SC)",
-        batch: "MR-2025-7890",
-      },
-      {
-        id: "v18",
-        name: "PCV (Pneumococcal)",
-        dose: "Booster",
-        ageLabel: "9 months",
-        scheduledDate: "Dec 18, 2025",
-        administeredDate: "Dec 19, 2025",
-        status: "completed",
-        site: "Left thigh (IM)",
-        batch: "PCV-2025-5542",
-      },
-      {
-        id: "v19",
-        name: "OPV",
-        dose: "Dose 1 (Catch-up)",
-        ageLabel: "9 months",
-        scheduledDate: "Dec 18, 2025",
-        administeredDate: "Dec 19, 2025",
-        status: "completed",
-        site: "Oral",
-        batch: "OPV-2025-1131",
-        notes: "Catch-up dose for missed 6-month dose.",
-      },
-    ],
-  },
-  {
-    ageLabel: "12 Months (Due Today)",
-    vaccines: [
-      {
-        id: "v20",
-        name: "Hepatitis A",
-        dose: "Dose 1",
-        ageLabel: "12 months",
-        scheduledDate: "Feb 22, 2026",
-        status: "due-today",
-      },
-      {
-        id: "v21",
-        name: "Hepatitis B",
-        dose: "Dose 2 (Catch-up)",
-        ageLabel: "12 months",
-        scheduledDate: "Feb 22, 2026",
-        status: "due-today",
-        notes: "Catch-up dose for missed 6-month HepB.",
-      },
-    ],
-  },
-  {
-    ageLabel: "15 Months",
-    vaccines: [
-      {
-        id: "v22",
-        name: "MMR",
-        dose: "Dose 1",
-        ageLabel: "15 months",
-        scheduledDate: "Jun 18, 2026",
-        status: "upcoming",
-      },
-      {
-        id: "v23",
-        name: "Varicella",
-        dose: "Dose 1",
-        ageLabel: "15 months",
-        scheduledDate: "Jun 18, 2026",
-        status: "upcoming",
-      },
-    ],
-  },
-  {
-    ageLabel: "16-18 Months",
-    vaccines: [
-      {
-        id: "v24",
-        name: "DPT Booster",
-        dose: "Booster 1",
-        ageLabel: "16-18 months",
-        scheduledDate: "Aug 18, 2026",
-        status: "upcoming",
-      },
-      {
-        id: "v25",
-        name: "IPV Booster",
-        dose: "Booster",
-        ageLabel: "16-18 months",
-        scheduledDate: "Aug 18, 2026",
-        status: "upcoming",
-      },
-      {
-        id: "v26",
-        name: "Hib Booster",
-        dose: "Booster",
-        ageLabel: "16-18 months",
-        scheduledDate: "Aug 18, 2026",
-        status: "upcoming",
-      },
-    ],
-  },
-]
-
-const allVaccines = vaccineGroups.flatMap((g) => g.vaccines)
-const completedCount = allVaccines.filter((v) => v.status === "completed").length
-const missedCount = allVaccines.filter((v) => v.status === "missed").length
-const dueTodayCount = allVaccines.filter((v) => v.status === "due-today").length
-const upcomingCount = allVaccines.filter((v) => v.status === "upcoming").length
-
 // ─── Status helpers ─────────────────────────────────────────
 const statusConfig: Record<
-  VaccineStatus,
+  string,
   { label: string; dotClass: string; bgClass: string; textClass: string; icon: React.ElementType }
 > = {
   completed: {
@@ -412,14 +96,70 @@ const statusConfig: Record<
     textClass: "text-muted-foreground",
     icon: CircleDashed,
   },
+  pending: {
+    label: "Pending",
+    dotClass: "bg-primary",
+    bgClass: "bg-primary/8",
+    textClass: "text-primary",
+    icon: CircleDashed,
+  }
 }
 
 // ─── Component ──────────────────────────────────────────────
-export function VaccinationContent({ patientId: _patientId }: { patientId?: string } = {}) {
+import { useMemo, useEffect } from "react"
+export function VaccinationContent({ patientId = "PED-20250318" }: { patientId?: string } = {}) {
+  const { schedule, isLoading } = usePatientVaccinations(patientId)
   const [completedVaccines, setCompletedVaccines] = useState<Set<string>>(new Set())
-  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
-    new Set(vaccineGroups.filter((g) => g.vaccines.some((v) => v.status === "due-today" || v.status === "missed")).map((g) => g.ageLabel))
-  )
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set())
+
+  const vaccineGroups = useMemo(() => {
+    if (!schedule) return []
+    const grouped = schedule.reduce((acc: any, vacc: any) => {
+      const label = vacc.ageLabel
+      if (!acc[label]) acc[label] = []
+
+      let mappedStatus = vacc.status.toLowerCase()
+      if (mappedStatus === 'pending') {
+        const schedDate = new Date(vacc.scheduledDate)
+        schedDate.setHours(0, 0, 0, 0)
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        if (schedDate.getTime() === today.getTime()) mappedStatus = "due-today"
+        else mappedStatus = "upcoming"
+      }
+
+      acc[label].push({
+        id: vacc.id,
+        name: vacc.vaccineName,
+        dose: vacc.dose,
+        ageLabel: vacc.ageLabel,
+        scheduledDate: new Date(vacc.scheduledDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
+        administeredDate: vacc.administeredDate ? new Date(vacc.administeredDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : undefined,
+        status: mappedStatus,
+        site: vacc.site,
+        batch: vacc.batchNumber,
+        notes: vacc.notes
+      })
+      return acc
+    }, {})
+
+    return Object.keys(grouped).map(label => ({
+      ageLabel: label,
+      vaccines: grouped[label]
+    }))
+  }, [schedule])
+
+  const allVaccines = useMemo(() => vaccineGroups.flatMap((g) => g.vaccines), [vaccineGroups])
+  const completedCount = allVaccines.filter((v: any) => v.status === "completed").length
+  const missedCount = allVaccines.filter((v: any) => v.status === "missed").length
+  const dueTodayCount = allVaccines.filter((v: any) => v.status === "due-today").length
+  const upcomingCount = allVaccines.filter((v: any) => v.status === "upcoming").length
+
+  useEffect(() => {
+    if (vaccineGroups.length > 0 && expandedGroups.size === 0) {
+      setExpandedGroups(new Set(vaccineGroups.filter((g) => g.vaccines.some((v: any) => v.status === "due-today" || v.status === "missed")).map((g) => g.ageLabel)))
+    }
+  }, [vaccineGroups])
 
   function toggleGroup(ageLabel: string) {
     setExpandedGroups((prev) => {
@@ -434,25 +174,25 @@ export function VaccinationContent({ patientId: _patientId }: { patientId?: stri
     setCompletedVaccines((prev) => new Set(prev).add(vaccineId))
   }
 
-  function getEffectiveStatus(vaccine: Vaccine): VaccineStatus {
+  function getEffectiveStatus(vaccine: any): string {
     if (completedVaccines.has(vaccine.id)) return "completed"
     return vaccine.status
   }
 
   // Timeline line color based on group status
-  function groupLineColor(group: VaccineGroup) {
+  function groupLineColor(group: any) {
     const statuses = group.vaccines.map(getEffectiveStatus)
-    if (statuses.every((s) => s === "completed")) return "bg-[#22a06b]"
-    if (statuses.some((s) => s === "missed")) return "bg-destructive"
-    if (statuses.some((s) => s === "due-today")) return "bg-primary"
+    if (statuses.every((s: string) => s === "completed")) return "bg-[#22a06b]"
+    if (statuses.some((s: string) => s === "missed")) return "bg-destructive"
+    if (statuses.some((s: string) => s === "due-today")) return "bg-primary"
     return "bg-border"
   }
 
-  function groupDotColor(group: VaccineGroup) {
+  function groupDotColor(group: any) {
     const statuses = group.vaccines.map(getEffectiveStatus)
-    if (statuses.every((s) => s === "completed")) return "border-[#22a06b] bg-[#22a06b]"
-    if (statuses.some((s) => s === "missed")) return "border-destructive bg-destructive"
-    if (statuses.some((s) => s === "due-today")) return "border-primary bg-primary"
+    if (statuses.every((s: string) => s === "completed")) return "border-[#22a06b] bg-[#22a06b]"
+    if (statuses.some((s: string) => s === "missed")) return "border-destructive bg-destructive"
+    if (statuses.some((s: string) => s === "due-today")) return "border-primary bg-primary"
     return "border-border bg-card"
   }
 
@@ -661,12 +401,12 @@ export function VaccinationContent({ patientId: _patientId }: { patientId?: stri
                           <span className="text-[11px] text-muted-foreground">
                             {group.vaccines.length} vaccine{group.vaccines.length > 1 ? "s" : ""}
                           </span>
-                          {group.vaccines.some((v) => getEffectiveStatus(v) === "missed") && (
+                          {group.vaccines.some((v: any) => getEffectiveStatus(v) === "missed") && (
                             <Badge variant="destructive" className="text-[10px] py-0">
                               Missed
                             </Badge>
                           )}
-                          {group.vaccines.some((v) => getEffectiveStatus(v) === "due-today") && (
+                          {group.vaccines.some((v: any) => getEffectiveStatus(v) === "due-today") && (
                             <Badge className="text-[10px] py-0">Due Today</Badge>
                           )}
                         </div>
@@ -679,7 +419,7 @@ export function VaccinationContent({ patientId: _patientId }: { patientId?: stri
 
                       {isExpanded && (
                         <div className="flex flex-col gap-2 mt-3">
-                          {group.vaccines.map((vaccine) => {
+                          {group.vaccines.map((vaccine: any) => {
                             const effStatus = getEffectiveStatus(vaccine)
                             const cfg = statusConfig[effStatus]
                             const StatusIcon = cfg.icon

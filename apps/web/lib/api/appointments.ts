@@ -111,3 +111,29 @@ export async function updateAppointmentStatus(id: string, status: ApptStatus): P
         body: JSON.stringify({ status }),
     });
 }
+
+/** Calendar data for a month */
+export interface MonthlyCalendarData {
+    year: number;
+    month: number;
+    days: Record<number, number>; // day -> count
+}
+
+/** GET /appointments/calendar — daily appointment counts for a month */
+export function useMonthlyCalendar(month?: string, doctorId?: string) {
+    const params = new URLSearchParams();
+    if (month) params.set("month", month);
+    if (doctorId) params.set("doctorId", doctorId);
+
+    const qs = params.toString() ? `?${params}` : "";
+    const { data, error, isLoading } = useSWR<MonthlyCalendarData>(
+        `/appointments/calendar${qs}`,
+        fetcher,
+        { revalidateOnFocus: false }
+    );
+    return {
+        calendar: data,
+        isLoading,
+        error,
+    };
+}

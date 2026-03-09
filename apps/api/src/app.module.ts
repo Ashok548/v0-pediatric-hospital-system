@@ -18,9 +18,13 @@ import { BillingModule } from './billing/billing.module';
 import { ReportsModule } from './reports/reports.module';
 import { AppointmentsModule } from './appointments/appointments.module';
 import { PharmacyModule } from './pharmacy/pharmacy.module';
+import { ConsultationsModule } from './consultations/consultations.module';
+import { LabsModule } from './labs/labs.module';
+import { VaccinationsModule } from './vaccinations/vaccinations.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule, ConsultationsModule, LabsModule, VaccinationsModule, SettingsModule],
 
   controllers: [AppController],
   providers: [

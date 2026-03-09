@@ -30,4 +30,12 @@ export declare class AuthController {
     getMe(user: {
         id: string;
     }): Promise<any>;
+    getWorkload(user: {
+        id: string;
+    }): Promise<{
+        inpatients: number;
+        labReports: number;
+        prescriptionsToday: number;
+        pendingReferrals: number;
+    }>;
 }

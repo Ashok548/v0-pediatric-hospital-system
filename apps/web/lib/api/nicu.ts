@@ -10,6 +10,7 @@ import type {
     ApiGrowthRecord,
     CreateVitalsPayload,
     CreateGrowthRecordPayload,
+    ApiNicuCriticalAlert,
 } from "@/lib/types/nicu"
 
 const fetcher = (url: string) => apiClient(url) as Promise<any>
@@ -68,6 +69,28 @@ export function useRecordVitals() {
 /** Delete a vitals entry */
 export async function deleteVitals(vitalsId: string): Promise<void> {
     await apiClient(`/nicu/vitals/${vitalsId}`, { method: "DELETE" })
+}
+
+// ─── NICU Critical Alerts ────────────────────────────────────────────────────
+
+/** Fetch active, unacknowledged critical NICU alerts (auto-refreshes) */
+export function useCriticalAlerts() {
+    const { data, error, isLoading, mutate } = useSWR<ApiNicuCriticalAlert[]>(
+        "/nicu/alerts",
+        fetcher,
+        { refreshInterval: 15_000 }  // Poll every 15 seconds for dashboard
+    )
+    return {
+        alerts: data ?? [],
+        isLoading,
+        error,
+        mutate,
+    }
+}
+
+/** Acknowledge an alert to clear it from the dashboard */
+export async function acknowledgeAlert(vitalsId: string): Promise<void> {
+    await apiClient(`/nicu/vitals/${vitalsId}/acknowledge`, { method: "POST" })
 }
 
 // ─── Growth Records ───────────────────────────────────────────────────────────

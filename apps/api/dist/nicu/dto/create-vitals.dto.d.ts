@@ -8,4 +8,6 @@ export declare class CreateVitalsDto {
     weight?: number;
     notes?: string;
     recordedBy?: string;
+    isCritical?: boolean;
+    alertMessage?: string;
 }

@@ -7,6 +7,8 @@ export interface ReportKpis {
     nicuOccupancy: { occupied: number; total: number; percentage: number }
     revenueToday: number
     revenueThisMonth: number
+    vaccinationsThisMonth: number
+    labsThisMonth: number
 }
 
 // Chart Data Types
@@ -19,7 +21,6 @@ export interface AdmissionsTrendData {
 export interface RevenueTrendData {
     week: string
     revenue: number
-    target: number
 }
 
 export interface DepartmentCensusData {
@@ -36,8 +37,23 @@ export interface TopDiagnosisData {
 
 // ─── SWR Hooks ──────────────────────────────────────────────────────────────
 
-export function useReportKpis() {
-    const { data, isLoading, error } = useQuery<ReportKpis>("/reports/kpis")
+export interface DateRange {
+    start?: Date;
+    end?: Date;
+}
+
+function appendDateParams(url: string, range?: DateRange) {
+    if (!range || (!range.start && !range.end)) return url;
+    const params = new URLSearchParams();
+    if (range.start) params.append("startDate", range.start.toISOString());
+    if (range.end) params.append("endDate", range.end.toISOString());
+
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}${params.toString()}`;
+}
+
+export function useReportKpis(dateRange?: DateRange) {
+    const { data, isLoading, error } = useQuery<ReportKpis>(appendDateParams("/reports/kpis", dateRange))
     return { kpis: data, isLoading, error }
 }
 
@@ -51,12 +67,22 @@ export function useRevenueTrend(weeks = 4) {
     return { data: data || [], isLoading, error }
 }
 
-export function useDepartmentCensus() {
-    const { data, isLoading, error } = useQuery<DepartmentCensusData[]>("/reports/department-census")
+export function useDepartmentCensus(dateRange?: DateRange) {
+    const { data, isLoading, error } = useQuery<DepartmentCensusData[]>(appendDateParams("/reports/department-census", dateRange))
     return { data: data || [], isLoading, error }
 }
 
-export function useTopDiagnoses(limit = 6) {
-    const { data, isLoading, error } = useQuery<TopDiagnosisData[]>(`/reports/top-diagnoses?limit=${limit}`)
+export function useTopDiagnoses(limit = 6, dateRange?: DateRange) {
+    const { data, isLoading, error } = useQuery<TopDiagnosisData[]>(appendDateParams(`/reports/top-diagnoses?limit=${limit}`, dateRange))
+    return { data: data || [], isLoading, error }
+}
+
+export interface VaccinationTrendData {
+    day: string
+    count: number
+}
+
+export function useVaccinationTrend(days = 7) {
+    const { data, isLoading, error } = useQuery<VaccinationTrendData[]>(`/reports/vaccination-trend?days=${days}`)
     return { data: data || [], isLoading, error }
 }

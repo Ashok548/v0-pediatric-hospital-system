@@ -115,4 +115,51 @@ export class AuthService {
         if (!user) throw new UnauthorizedException();
         return user;
     }
+
+    async getWorkload(userId: string) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        // Active admissions for this doctor/user
+        let inpatients = 0;
+        try {
+            inpatients = await prisma.admission.count({
+                // In future, uncomment below line when admittingDoctorId is fully enforced
+                // where: { status: 'ADMITTED', admittingDoctorId: userId }
+                where: { status: 'ADMITTED' }
+            });
+        } catch (e) { }
+
+        // Lab Reports to Review (Status = PARTIAL or PENDING if unread, here we just use PARTIAL/PENDING)
+        let labReports = 0;
+        try {
+            labReports = await prisma.labOrder.count({
+                // where: { doctorId: userId, status: { in: ['PENDING', 'PARTIAL'] } } // Doctor ID restricted
+                where: { status: { in: ['PENDING', 'PARTIAL'] } } // Global for demo
+            });
+        } catch (e) { }
+
+        // Prescriptions today
+        let prescriptionsToday = 0;
+        try {
+            prescriptionsToday = await prisma.prescription.count({
+                where: { doctorId: userId, createdAt: { gte: todayStart } }
+            });
+        } catch (e) { }
+
+        // Referrals
+        let pendingReferrals = 0;
+        try {
+            pendingReferrals = await prisma.admission.count({
+                where: { admissionType: 'REFERRAL', status: 'ADMITTED' }
+            });
+        } catch (e) { }
+
+        return {
+            inpatients,
+            labReports,
+            prescriptionsToday,
+            pendingReferrals
+        };
+    }
 }

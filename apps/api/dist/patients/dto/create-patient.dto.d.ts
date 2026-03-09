@@ -16,4 +16,5 @@ export declare class CreatePatientDto {
     city?: string;
     state?: string;
     pincode?: string;
+    allergies?: string[];
 }

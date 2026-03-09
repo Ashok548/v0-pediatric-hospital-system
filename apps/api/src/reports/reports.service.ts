@@ -18,7 +18,7 @@ export class ReportsService {
     private readonly prisma = prisma;
     constructor() { }
 
-    async getKpis() {
+    async getKpis(customStart?: string, customEnd?: string) {
         // 1. Total active inpatients
         const totalPatients = await this.prisma.admission.count({
             where: { status: AdmissionStatus.ADMITTED },
@@ -36,12 +36,20 @@ export class ReportsService {
         const nicuTotal = nicuBeds.length;
         const nicuOccupied = nicuBeds.filter((b: { status: string }) => b.status === BedStatus.OCCUPIED).length;
 
-        // 3. Revenue Today
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
 
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end) end.setHours(23, 59, 59, 999);
+
+        const periodStart = start || new Date(today.getFullYear(), today.getMonth(), 1);
+        const periodEnd = end || new Date(tomorrow.getTime() - 1);
+
+        // 3. Revenue Today -> strict snapshot of today regardless of filter, or we can make it revenue for the period start?
+        // We will keep Revenue Today as literally "Today" to not break the UI grid terminology.
         const revenueTodayAggr = await this.prisma.payment.aggregate({
             _sum: { amount: true },
             where: {
@@ -54,17 +62,32 @@ export class ReportsService {
 
         const revenueToday = Number(revenueTodayAggr._sum.amount || 0);
 
-        // 4. Monthly Revenue (for the KPI card)
-        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        // 4. Monthly Revenue (converted to Period Revenue if dates passed)
         const revenueMonthAggr = await this.prisma.payment.aggregate({
             _sum: { amount: true },
             where: {
                 paymentDate: {
-                    gte: firstDayOfMonth,
+                    gte: periodStart,
+                    lte: periodEnd,
                 },
             },
         });
         const revenueThisMonth = Number(revenueMonthAggr._sum.amount || 0);
+
+        // 5. Vaccinations This Period
+        const vaccinationsThisMonth = await this.prisma.patientVaccine.count({
+            where: {
+                administeredDate: { gte: periodStart, lte: periodEnd },
+                status: "ADMINISTERED"
+            }
+        });
+
+        // 6. Lab Tests Ordered This Period
+        const labsThisMonth = await this.prisma.labOrder.count({
+            where: {
+                orderDate: { gte: periodStart, lte: periodEnd }
+            }
+        });
 
         return {
             totalPatients,
@@ -80,6 +103,8 @@ export class ReportsService {
             },
             revenueToday,
             revenueThisMonth,
+            vaccinationsThisMonth,
+            labsThisMonth,
         };
     }
 
@@ -158,9 +183,9 @@ export class ReportsService {
         // Since we just need 4 distinct buckets, we can sort them temporally.
 
         // Create week buckets
-        const result: { week: string, revenue: number, target: number }[] = [];
+        const result: { week: string, revenue: number }[] = [];
         for (let i = weeks; i >= 1; i--) {
-            result.push({ week: `Week ${i} Ago`, revenue: 0, target: 400000 });
+            result.push({ week: `Week ${i} Ago`, revenue: 0 });
         }
         result[weeks - 1].week = "This Week";
 
@@ -181,12 +206,21 @@ export class ReportsService {
         return result;
     }
 
-    async getDepartmentCensus() {
+    async getDepartmentCensus(customStart?: string, customEnd?: string) {
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end) end.setHours(23, 59, 59, 999);
+
+        const whereClause: any = { status: AdmissionStatus.ADMITTED };
+        // If dates are provided, we check admissions that happened in that period
+        // Otherwise, it's just a snapshot of current active admissions
+        if (start && end) {
+            whereClause.admissionDate = { gte: start, lte: end };
+        }
+
         const admissions = await this.prisma.admission.groupBy({
             by: ['department'],
-            where: {
-                status: AdmissionStatus.ADMITTED,
-            },
+            where: whereClause,
             _count: {
                 _all: true,
             },
@@ -201,14 +235,23 @@ export class ReportsService {
         })).sort((a: { value: number }, b: { value: number }) => b.value - a.value);
     }
 
-    async getTopDiagnoses(limit: number = 6) {
+    async getTopDiagnoses(limit: number = 6, customStart?: string, customEnd?: string) {
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end) end.setHours(23, 59, 59, 999);
+
+        const whereClause: any = { initialDiagnosis: { not: null } };
+        if (start && end) {
+            whereClause.admissionDate = { gte: start, lte: end };
+        } else if (start) {
+            whereClause.admissionDate = { gte: start };
+        } else if (end) {
+            whereClause.admissionDate = { lte: end };
+        }
+
         const diagnoses = await this.prisma.admission.groupBy({
             by: ['initialDiagnosis'],
-            where: {
-                initialDiagnosis: {
-                    not: null,
-                },
-            },
+            where: whereClause,
             _count: {
                 _all: true,
             },
@@ -221,5 +264,149 @@ export class ReportsService {
             count: d._count._all,
             trend: "stable", // Mock trend as calculating historical week-over-week is complex for now
         }));
+    }
+
+    async getVaccinationTrend(days: number = 7) {
+        const today = new Date();
+        today.setHours(23, 59, 59, 999); // End of today
+
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - (days - 1));
+        startDate.setHours(0, 0, 0, 0); // Start of 'days' ago
+
+        // Fetch administered vaccines in the date range
+        const vaccines = await this.prisma.patientVaccine.findMany({
+            where: {
+                status: 'ADMINISTERED',
+                administeredDate: {
+                    gte: startDate,
+                    lte: today,
+                },
+            },
+            select: {
+                administeredDate: true,
+            },
+        });
+
+        // Initialize buckets for each day
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const result: Record<string, { day: string; count: number; rawDate: Date }> = {};
+
+        for (let i = 0; i < days; i++) {
+            const d = new Date(startDate);
+            d.setDate(startDate.getDate() + i);
+            const dateStr = d.toISOString().split('T')[0]; // Use YYYY-MM-DD as key for safety
+            result[dateStr] = {
+                day: dayNames[d.getDay()], // Short day name for UI
+                count: 0,
+                rawDate: d
+            };
+        }
+
+        // Count vaccines into buckets
+        vaccines.forEach((v: { administeredDate: Date | null }) => {
+            if (v.administeredDate) {
+                const dateStr = v.administeredDate.toISOString().split('T')[0];
+                if (result[dateStr]) {
+                    result[dateStr].count++;
+                }
+            }
+        });
+
+        // Convert dict to sorted array
+        const sorted = Object.values(result).sort((a: { rawDate: Date }, b: { rawDate: Date }) => a.rawDate.getTime() - b.rawDate.getTime());
+
+        // Pick only what UI needs
+        return sorted.map(({ day, count }) => ({ day, count }));
+    }
+
+    async generateExportCsv(customStart?: string, customEnd?: string): Promise<string> {
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end) end.setHours(23, 59, 59, 999);
+
+        let csv = '';
+
+        // Helper to format dates
+        const formatDate = (date: Date) => date.toISOString().split('T')[0];
+        // Helper to escape CSV strings
+        const escapeCsv = (str: string | null | undefined) => {
+            if (!str) return '""';
+            const s = String(str).replace(/"/g, '""');
+            return `"${s}"`;
+        };
+
+        // --- 1. SUMMARY SECTION ---
+        csv += '=== SUMMARY ===\n';
+        csv += 'Metric,Value\n';
+
+        const kpis = await this.getKpis(customStart, customEnd);
+        csv += `Report Period,${customStart || 'All Time'} to ${customEnd || 'Present'}\n`;
+        csv += `Total Admissions in Period,${kpis.totalPatients}\n`;
+        csv += `Bed Occupancy,${kpis.bedOccupancy.percentage}%\n`;
+        csv += `NICU Occupancy,${kpis.nicuOccupancy.percentage}%\n`;
+        csv += `Revenue in Period,${kpis.revenueThisMonth}\n`;
+        csv += `Vaccinations in Period,${kpis.vaccinationsThisMonth}\n`;
+        csv += `Lab Tests in Period,${kpis.labsThisMonth}\n`;
+
+        csv += '\n\n';
+
+        // --- 2. ADMISSIONS DETAIL SECTION ---
+        csv += '=== ADMISSIONS DETAIL ===\n';
+        csv += 'Patient Name,UHID,Admission Date,Department,Diagnosis,Status\n';
+
+        const whereClause: Prisma.AdmissionWhereInput = {};
+        if (start && end) {
+            whereClause.admissionDate = { gte: start, lte: end };
+        } else if (start) {
+            whereClause.admissionDate = { gte: start };
+        } else if (end) {
+            whereClause.admissionDate = { lte: end };
+        }
+
+        const admissions = await this.prisma.admission.findMany({
+            where: whereClause,
+            include: { patient: true },
+            orderBy: { admissionDate: 'desc' }
+        });
+
+        if (admissions.length === 0) {
+            csv += 'No admissions recorded in this period\n';
+        } else {
+            for (const adm of admissions) {
+                const name = `${adm.patient.firstName} ${adm.patient.lastName}`;
+                csv += `${escapeCsv(name)},${escapeCsv(adm.patient.uhid)},${formatDate(adm.admissionDate)},${escapeCsv(adm.department)},${escapeCsv(adm.initialDiagnosis)},${adm.status}\n`;
+            }
+        }
+
+        csv += '\n\n';
+
+        // --- 3. REVENUE BREAKDOWN SECTION ---
+        csv += '=== REVENUE BREAKDOWN ===\n';
+        csv += 'Payment Date,Amount,Payment Mode,Transaction Ref\n';
+
+        const paymentWhere: Prisma.PaymentWhereInput = {};
+        if (start && end) {
+            paymentWhere.paymentDate = { gte: start, lte: end };
+        } else if (start) {
+            paymentWhere.paymentDate = { gte: start };
+        } else if (end) {
+            paymentWhere.paymentDate = { lte: end };
+        }
+
+        const payments = await this.prisma.payment.findMany({
+            where: paymentWhere,
+            orderBy: { paymentDate: 'desc' }
+        });
+
+        if (payments.length === 0) {
+            csv += 'No payments recorded in this period\n';
+        } else {
+            for (const p of payments) {
+                csv += `${formatDate(p.paymentDate)},${p.amount},${p.paymentMode},${escapeCsv(p.transactionRef)}\n`;
+            }
+        }
+
+        return csv;
     }
 }

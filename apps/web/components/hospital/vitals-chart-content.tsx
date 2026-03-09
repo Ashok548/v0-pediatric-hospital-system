@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger
@@ -55,7 +56,7 @@ export function VitalsChartContent({ admissionId }: Props) {
     const [isSavingIo, setIsSavingIo] = useState(false)
 
     // ── Vital form state ──────────────────────────────────────────────────────
-    const [vf, setVf] = useState({ heartRate: "", spo2: "", temperature: "", respiratoryRate: "", bloodPressureSystolic: "", bloodPressureDiastolic: "", notes: "" })
+    const [vf, setVf] = useState({ heartRate: "", spo2: "", temperature: "", respiratoryRate: "", bloodPressureSystolic: "", bloodPressureDiastolic: "", notes: "", isCritical: false, alertMessage: "" })
 
     // ── I/O form state ─────────────────────────────────────────────────────────
     const [iof, setIof] = useState({ ioType: "INTAKE" as "INTAKE" | "OUTPUT", route: "IV Fluid", volumeMl: "", notes: "" })
@@ -82,8 +83,10 @@ export function VitalsChartContent({ admissionId }: Props) {
                 temperature: Number(vf.temperature), respiratoryRate: Number(vf.respiratoryRate),
                 bloodPressureSystolic: Number(vf.bloodPressureSystolic), bloodPressureDiastolic: Number(vf.bloodPressureDiastolic),
                 notes: vf.notes || undefined,
+                isCritical: vf.isCritical,
+                alertMessage: vf.isCritical && vf.alertMessage ? vf.alertMessage : undefined,
             })
-            setVf({ heartRate: "", spo2: "", temperature: "", respiratoryRate: "", bloodPressureSystolic: "", bloodPressureDiastolic: "", notes: "" })
+            setVf({ heartRate: "", spo2: "", temperature: "", respiratoryRate: "", bloodPressureSystolic: "", bloodPressureDiastolic: "", notes: "", isCritical: false, alertMessage: "" })
             setVitalOpen(false)
             toast.success("Vital reading recorded")
         } catch {
@@ -251,10 +254,41 @@ export function VitalsChartContent({ admissionId }: Props) {
                                     <Label>Notes (optional)</Label>
                                     <Textarea value={vf.notes} onChange={e => setVf(p => ({ ...p, notes: e.target.value }))} rows={2} />
                                 </div>
+                                <div className="col-span-2 mt-2 pt-3 border-t">
+                                    <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                            id="isCritical"
+                                            checked={vf.isCritical}
+                                            onCheckedChange={(c) => setVf(p => ({ ...p, isCritical: c === true }))}
+                                            className="data-[state=checked]:bg-destructive data-[state=checked]:border-destructive"
+                                        />
+                                        <Label htmlFor="isCritical" className="text-destructive font-medium cursor-pointer">
+                                            Flag as Critical Event
+                                        </Label>
+                                    </div>
+                                    {vf.isCritical && (
+                                        <div className="mt-3 space-y-1 animate-in fade-in slide-in-from-top-1">
+                                            <Label className="text-destructive">Alert Message (Required)</Label>
+                                            <Input
+                                                autoFocus
+                                                className="border-destructive/30 focus-visible:ring-destructive/30"
+                                                placeholder="e.g. SpO2 dropped to 85, oxygen administered"
+                                                value={vf.alertMessage}
+                                                onChange={e => setVf(p => ({ ...p, alertMessage: e.target.value }))}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
                             <DialogFooter>
                                 <Button variant="outline" onClick={() => setVitalOpen(false)}>Cancel</Button>
-                                <Button onClick={submitVital} disabled={!vf.heartRate || !vf.spo2}>Save Reading</Button>
+                                <Button
+                                    onClick={submitVital}
+                                    className={vf.isCritical ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground" : ""}
+                                    disabled={!vf.heartRate || !vf.spo2 || (vf.isCritical && !vf.alertMessage?.trim())}
+                                >
+                                    Save Reading
+                                </Button>
                             </DialogFooter>
                         </DialogContent>
                     </Dialog>

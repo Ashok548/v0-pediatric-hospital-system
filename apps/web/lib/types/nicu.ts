@@ -18,6 +18,10 @@ export interface ApiNicuVitals {
     notes?: string
     recordedAt: string     // ISO string
     recordedBy?: string    // user who recorded
+    isCritical?: boolean
+    alertMessage?: string | null
+    acknowledgedAt?: string | null
+    acknowledgedBy?: string | null
 }
 
 export interface CreateVitalsPayload {
@@ -30,6 +34,8 @@ export interface CreateVitalsPayload {
     weight?: number
     notes?: string
     recordedBy?: string
+    isCritical?: boolean
+    alertMessage?: string
 }
 
 // ─── NICU Admission (Admission + latest vitals snapshot) ─────────────────────
@@ -64,4 +70,24 @@ export interface CreateGrowthRecordPayload {
     height?: number
     headCircumference?: number
     notes?: string
+}
+
+// ─── NICU Critical Alerts ─────────────────────────────────────────────────────
+export interface ApiNicuCriticalAlert {
+    id: string
+    vitalsId: string
+    severity: 'CRITICAL' | 'WARNING'
+    alertMessage: string
+    recordedAt: string
+    patient: {
+        id: string
+        uhid: string
+        firstName: string
+        lastName: string
+    }
+    currentBed: {
+        bedNumber: string
+        ward: { name: string }
+    } | null
+    vitals: ApiNicuVitals
 }

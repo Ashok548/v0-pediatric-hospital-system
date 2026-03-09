@@ -92,5 +92,9 @@ export class CreatePatientDto {
     @IsString()
     @Matches(/^\d{6}$/, { message: "Pincode must be exactly 6 digits" })
     pincode?: string;
+
+    @IsOptional()
+    @IsString({ each: true })
+    allergies?: string[];
 }
 

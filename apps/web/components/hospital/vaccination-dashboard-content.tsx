@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+import { useVaccinationDashboard } from "@/lib/api/vaccinations"
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 type VaxStatus = "Due Today" | "Upcoming" | "Missed" | "Up to Date"
@@ -40,159 +41,7 @@ interface VaccinationPatient {
     status: VaxStatus
 }
 
-// ─── Mock Data ──────────────────────────────────────────────────────────────
-const vaccinationPatients: VaccinationPatient[] = [
-    {
-        id: "PED-20250318",
-        uhid: "CN-2026-0001",
-        name: "Arya Sharma",
-        dob: "18 Mar 2025",
-        age: "11 mo",
-        gender: "F",
-        guardian: "Vikram Sharma",
-        doctor: "Dr. Priya Reddy",
-        completedCount: 14,
-        totalCount: 16,
-        nextVaccine: "Hepatitis A + HepB (catch-up)",
-        nextDate: "22 Feb 2026",
-        status: "Due Today",
-    },
-    {
-        id: "PED-20210604",
-        uhid: "CN-2026-0002",
-        name: "Rohan Mehta",
-        dob: "04 Jun 2021",
-        age: "4y 8mo",
-        gender: "M",
-        guardian: "Sunita Mehta",
-        doctor: "Dr. Anil Kumar",
-        completedCount: 22,
-        totalCount: 24,
-        nextVaccine: "Varicella Dose 2",
-        nextDate: "04 Jun 2026",
-        status: "Up to Date",
-    },
-    {
-        id: "PED-20241201",
-        uhid: "CN-2026-0003",
-        name: "Anika Patel",
-        dob: "01 Dec 2024",
-        age: "2 mo",
-        gender: "F",
-        guardian: "Raj Patel",
-        doctor: "Dr. Meera Iyer",
-        completedCount: 3,
-        totalCount: 16,
-        nextVaccine: "Pentavalent + IPV + Rotavirus (6wk)",
-        nextDate: "22 Feb 2026",
-        status: "Due Today",
-    },
-    {
-        id: "PED-20221114",
-        uhid: "CN-2026-0004",
-        name: "Vivaan Reddy",
-        dob: "14 Nov 2022",
-        age: "3y 3mo",
-        gender: "M",
-        guardian: "Priya Reddy",
-        doctor: "Dr. Priya Reddy",
-        completedCount: 18,
-        totalCount: 24,
-        nextVaccine: "MMR Dose 2",
-        nextDate: "14 May 2026",
-        status: "Upcoming",
-    },
-    {
-        id: "PED-20190222",
-        uhid: "CN-2026-0005",
-        name: "Saanvi Nair",
-        dob: "22 Feb 2019",
-        age: "7y",
-        gender: "F",
-        guardian: "Ajay Nair",
-        doctor: "Dr. Anil Kumar",
-        completedCount: 28,
-        totalCount: 30,
-        nextVaccine: "Td Booster",
-        nextDate: "22 Feb 2026",
-        status: "Due Today",
-    },
-    {
-        id: "PED-20241018",
-        uhid: "CN-2026-0006",
-        name: "Ishaan Desai",
-        dob: "18 Oct 2024",
-        age: "4 mo",
-        gender: "M",
-        guardian: "Kavita Desai",
-        doctor: "Dr. Meera Iyer",
-        completedCount: 7,
-        totalCount: 16,
-        nextVaccine: "Pentavalent + Rotavirus (10wk)",
-        nextDate: "10 Mar 2026",
-        status: "Upcoming",
-    },
-    {
-        id: "PED-20260101",
-        uhid: "CN-2026-0007",
-        name: "Diya Gupta",
-        dob: "01 Jan 2026",
-        age: "7 wk",
-        gender: "F",
-        guardian: "Mohan Gupta",
-        doctor: "Dr. Priya Reddy",
-        completedCount: 3,
-        totalCount: 16,
-        nextVaccine: "Pentavalent + IPV + Rotavirus (6wk)",
-        nextDate: "22 Feb 2026",
-        status: "Missed",
-    },
-    {
-        id: "PED-20150602",
-        uhid: "CN-2026-0008",
-        name: "Aarav Singh",
-        dob: "02 Jun 2015",
-        age: "10y 8mo",
-        gender: "M",
-        guardian: "Deepak Singh",
-        doctor: "Dr. Anil Kumar",
-        completedCount: 30,
-        totalCount: 30,
-        nextVaccine: "All doses completed",
-        nextDate: "—",
-        status: "Up to Date",
-    },
-    {
-        id: "PED-20211101",
-        uhid: "CN-2026-0009",
-        name: "Myra Joshi",
-        dob: "01 Nov 2021",
-        age: "4y 3mo",
-        gender: "F",
-        guardian: "Rahul Joshi",
-        doctor: "Dr. Meera Iyer",
-        completedCount: 15,
-        totalCount: 24,
-        nextVaccine: "Typhoid Booster",
-        nextDate: "01 May 2026",
-        status: "Missed",
-    },
-    {
-        id: "PED-20240222",
-        uhid: "CN-2026-0010",
-        name: "Kabir Rao",
-        dob: "22 Feb 2024",
-        age: "1y",
-        gender: "M",
-        guardian: "Lakshmi Rao",
-        doctor: "Dr. Priya Reddy",
-        completedCount: 12,
-        totalCount: 16,
-        nextVaccine: "Hepatitis A Dose 1",
-        nextDate: "22 Feb 2026",
-        status: "Due Today",
-    },
-]
+// ─── Mock Data Removed in favor of real API ──────────────────────────────
 
 const statusConfig: Record<VaxStatus, { className: string; icon: React.ElementType }> = {
     "Due Today": { className: "bg-[#e8f4fd] text-[#1a6fb5] border-[#bcddf5]", icon: Clock },
@@ -208,27 +57,29 @@ function getInitials(name: string) {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 export function VaccinationDashboardContent() {
+    const { patients: vaccinationPatients, isLoading } = useVaccinationDashboard()
     const [statusFilter, setStatusFilter] = useState<VaxStatus | "all">("all")
     const [search, setSearch] = useState("")
 
     const counts = useMemo(() => ({
-        "Due Today": vaccinationPatients.filter(p => p.status === "Due Today").length,
-        Missed: vaccinationPatients.filter(p => p.status === "Missed").length,
-        Upcoming: vaccinationPatients.filter(p => p.status === "Upcoming").length,
-        "Up to Date": vaccinationPatients.filter(p => p.status === "Up to Date").length,
-    }), [])
+        "Due Today": vaccinationPatients?.filter((p: any) => p.status === "Due Today").length || 0,
+        Missed: vaccinationPatients?.filter((p: any) => p.status === "Missed").length || 0,
+        Upcoming: vaccinationPatients?.filter((p: any) => p.status === "Upcoming").length || 0,
+        "Up to Date": vaccinationPatients?.filter((p: any) => p.status === "Up to Date").length || 0,
+    }), [vaccinationPatients])
 
     const filtered = useMemo(() => {
+        if (!vaccinationPatients) return []
         const q = search.toLowerCase()
-        return vaccinationPatients.filter(p => {
+        return vaccinationPatients.filter((p: any) => {
             if (statusFilter !== "all" && p.status !== statusFilter) return false
             if (q && !p.name.toLowerCase().includes(q) && !p.uhid.toLowerCase().includes(q) && !p.guardian.toLowerCase().includes(q)) return false
             return true
         })
-    }, [statusFilter, search])
+    }, [statusFilter, search, vaccinationPatients])
 
     // Today's schedule = due today patients sorted by missed first
-    const todaySchedule = vaccinationPatients.filter(p => p.status === "Due Today" || p.status === "Missed")
+    const todaySchedule = vaccinationPatients?.filter((p: any) => p.status === "Due Today" || p.status === "Missed") || []
 
     return (
         <div className="p-4 lg:p-6 flex flex-col gap-5 max-w-[1600px] mx-auto">
@@ -237,7 +88,7 @@ export function VaccinationDashboardContent() {
                 <div>
                     <h1 className="text-xl font-bold text-foreground tracking-tight">Vaccination</h1>
                     <p className="text-sm text-muted-foreground mt-0.5">
-                        22 Feb 2026 &middot; {vaccinationPatients.length} patients on vaccination programme
+                        22 Feb 2026 &middot; {vaccinationPatients?.length || 0} patients on vaccination programme
                     </p>
                 </div>
                 <Button className="gap-2 shrink-0">
@@ -286,7 +137,7 @@ export function VaccinationDashboardContent() {
                     </CardHeader>
                     <CardContent className="px-4 pb-4">
                         <div className="flex flex-col gap-2">
-                            {todaySchedule.map(p => (
+                            {todaySchedule.map((p: any) => (
                                 <Link
                                     key={p.id}
                                     href={`/vaccination/${p.id}`}
@@ -307,7 +158,7 @@ export function VaccinationDashboardContent() {
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0">
-                                        <Badge variant="outline" className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", statusConfig[p.status].className)}>
+                                        <Badge variant="outline" className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", statusConfig[p.status as VaxStatus]?.className)}>
                                             {p.status}
                                         </Badge>
                                         <ChevronRight className="size-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
@@ -386,8 +237,8 @@ export function VaccinationDashboardContent() {
                                     </td>
                                 </tr>
                             ) : (
-                                filtered.map(p => {
-                                    const sc = statusConfig[p.status]
+                                filtered.map((p: any) => {
+                                    const sc = statusConfig[p.status as VaxStatus] || statusConfig["Up to Date"]
                                     const StatusIcon = sc.icon
                                     const pct = Math.round((p.completedCount / p.totalCount) * 100)
                                     return (
@@ -462,7 +313,7 @@ export function VaccinationDashboardContent() {
                 {/* Footer */}
                 <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-muted/20">
                     <p className="text-xs text-muted-foreground">
-                        Showing <span className="font-semibold text-foreground">{filtered.length}</span> of {vaccinationPatients.length} patients
+                        Showing <span className="font-semibold text-foreground">{filtered.length}</span> of {vaccinationPatients?.length || 0} patients
                     </p>
                 </div>
             </Card>

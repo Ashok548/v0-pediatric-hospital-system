@@ -34,6 +34,9 @@ let AppointmentsController = class AppointmentsController {
     getStats(date) {
         return this.appointmentsService.getStats(date);
     }
+    getCalendar(month, doctorId) {
+        return this.appointmentsService.getCalendar(month, doctorId);
+    }
     findOne(id) {
         return this.appointmentsService.findOne(id);
     }
@@ -73,6 +76,14 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], AppointmentsController.prototype, "getStats", null);
+__decorate([
+    (0, common_1.Get)('calendar'),
+    __param(0, (0, common_1.Query)('month')),
+    __param(1, (0, common_1.Query)('doctorId')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String]),
+    __metadata("design:returntype", void 0)
+], AppointmentsController.prototype, "getCalendar", null);
 __decorate([
     (0, common_1.Get)(':id'),
     __param(0, (0, common_1.Param)('id')),

@@ -12,4 +12,10 @@ export declare class AuthService {
         };
     }): string;
     getProfile(userId: string): Promise<any>;
+    getWorkload(userId: string): Promise<{
+        inpatients: number;
+        labReports: number;
+        prescriptionsToday: number;
+        pendingReferrals: number;
+    }>;
 }

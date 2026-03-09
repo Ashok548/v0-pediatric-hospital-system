@@ -71,4 +71,10 @@ export class AuthController {
     getMe(@CurrentUser() user: { id: string }) {
         return this.authService.getProfile(user.id);
     }
+
+    @UseGuards(JwtAuthGuard)
+    @Get("workload")
+    getWorkload(@CurrentUser() user: { id: string }) {
+        return this.authService.getWorkload(user.id);
+    }
 }

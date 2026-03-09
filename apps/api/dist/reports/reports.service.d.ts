@@ -1,7 +1,7 @@
 export declare class ReportsService {
     private readonly prisma;
     constructor();
-    getKpis(): Promise<{
+    getKpis(customStart?: string, customEnd?: string): Promise<{
         totalPatients: any;
         bedOccupancy: {
             occupied: any;
@@ -15,6 +15,8 @@ export declare class ReportsService {
         };
         revenueToday: number;
         revenueThisMonth: number;
+        vaccinationsThisMonth: any;
+        labsThisMonth: any;
     }>;
     getAdmissionsTrend(months?: number): Promise<{
         month: string;
@@ -24,8 +26,12 @@ export declare class ReportsService {
     getRevenueTrend(weeks?: number): Promise<{
         week: string;
         revenue: number;
-        target: number;
     }[]>;
-    getDepartmentCensus(): Promise<any>;
-    getTopDiagnoses(limit?: number): Promise<any>;
+    getDepartmentCensus(customStart?: string, customEnd?: string): Promise<any>;
+    getTopDiagnoses(limit?: number, customStart?: string, customEnd?: string): Promise<any>;
+    getVaccinationTrend(days?: number): Promise<{
+        day: string;
+        count: number;
+    }[]>;
+    generateExportCsv(customStart?: string, customEnd?: string): Promise<string>;
 }

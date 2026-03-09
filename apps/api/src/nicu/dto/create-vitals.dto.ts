@@ -46,4 +46,13 @@ export class CreateVitalsDto {
     @IsOptional()
     @IsString()
     recordedBy?: string
+
+    // ── Manual Alert Flags ──
+    @IsOptional()
+    @Type(() => Boolean)
+    isCritical?: boolean
+
+    @IsOptional()
+    @IsString()
+    alertMessage?: string
 }

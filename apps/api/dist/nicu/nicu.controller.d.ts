@@ -11,7 +11,9 @@ export declare class NicuController {
         limit: number;
         totalPages: number;
     }>;
+    getCriticalAlerts(): Promise<any[]>;
     findVitals(id: string): Promise<any>;
     recordVitals(id: string, dto: CreateVitalsDto, req: any): Promise<any>;
     deleteVitals(vid: string): Promise<any>;
+    acknowledgeAlert(vid: string, req: any): Promise<any>;
 }

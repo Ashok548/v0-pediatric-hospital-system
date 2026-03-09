@@ -61,3 +61,16 @@ export class GetPrescriptionsQueryDto {
     @IsString()
     admissionId?: string;
 }
+
+export class AdjustStockDto {
+    @IsInt()
+    quantity: number;
+
+    @IsOptional()
+    @IsString()
+    batchNumber?: string;
+
+    @IsOptional()
+    @IsString()
+    reason?: string;
+}

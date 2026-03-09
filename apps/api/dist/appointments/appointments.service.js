@@ -196,6 +196,43 @@ let AppointmentsService = class AppointmentsService {
         });
         return this.formatResponse(appt);
     }
+    async getCalendar(month, doctorId) {
+        const now = new Date();
+        let year = now.getFullYear();
+        let mon = now.getMonth();
+        if (month && /^\d{4}-\d{2}$/.test(month)) {
+            const [y, m] = month.split('-').map(Number);
+            year = y;
+            mon = m - 1;
+        }
+        const startDate = new Date(year, mon, 1);
+        const endDate = new Date(year, mon + 1, 0, 23, 59, 59, 999);
+        const where = {
+            appointmentDate: {
+                gte: startDate,
+                lte: endDate,
+            },
+        };
+        if (doctorId) {
+            where.doctorId = doctorId;
+        }
+        const appts = await this.prisma.appointment.findMany({
+            where,
+            select: {
+                appointmentDate: true,
+            },
+        });
+        const dayCounts = {};
+        for (const a of appts) {
+            const day = new Date(a.appointmentDate).getDate();
+            dayCounts[day] = (dayCounts[day] || 0) + 1;
+        }
+        return {
+            year,
+            month: mon + 1,
+            days: dayCounts,
+        };
+    }
 };
 exports.AppointmentsService = AppointmentsService;
 exports.AppointmentsService = AppointmentsService = __decorate([

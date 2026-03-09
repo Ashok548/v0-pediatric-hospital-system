@@ -1,8 +1,9 @@
+import type { Response } from 'express';
 import { ReportsService } from './reports.service';
 export declare class ReportsController {
     private readonly reportsService;
     constructor(reportsService: ReportsService);
-    getKpis(): Promise<{
+    getKpis(startDate?: string, endDate?: string): Promise<{
         totalPatients: any;
         bedOccupancy: {
             occupied: any;
@@ -16,6 +17,8 @@ export declare class ReportsController {
         };
         revenueToday: number;
         revenueThisMonth: number;
+        vaccinationsThisMonth: any;
+        labsThisMonth: any;
     }>;
     getAdmissionsTrend(months?: string): Promise<{
         month: string;
@@ -25,8 +28,12 @@ export declare class ReportsController {
     getRevenueTrend(weeks?: string): Promise<{
         week: string;
         revenue: number;
-        target: number;
     }[]>;
-    getDepartmentCensus(): Promise<any>;
-    getTopDiagnoses(limit?: string): Promise<any>;
+    getDepartmentCensus(startDate?: string, endDate?: string): Promise<any>;
+    getTopDiagnoses(limit?: string, startDate?: string, endDate?: string): Promise<any>;
+    getVaccinationTrend(days?: string): Promise<{
+        day: string;
+        count: number;
+    }[]>;
+    exportCsv(res: Response, startDate?: string, endDate?: string): Promise<void>;
 }

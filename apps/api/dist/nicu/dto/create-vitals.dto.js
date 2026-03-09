@@ -22,6 +22,8 @@ class CreateVitalsDto {
     weight;
     notes;
     recordedBy;
+    isCritical;
+    alertMessage;
 }
 exports.CreateVitalsDto = CreateVitalsDto;
 __decorate([
@@ -80,4 +82,14 @@ __decorate([
     (0, class_validator_1.IsString)(),
     __metadata("design:type", String)
 ], CreateVitalsDto.prototype, "recordedBy", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_transformer_1.Type)(() => Boolean),
+    __metadata("design:type", Boolean)
+], CreateVitalsDto.prototype, "isCritical", void 0);
+__decorate([
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)(),
+    __metadata("design:type", String)
+], CreateVitalsDto.prototype, "alertMessage", void 0);
 //# sourceMappingURL=create-vitals.dto.js.map

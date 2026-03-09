@@ -15,5 +15,5 @@ export declare class UpdatePatientDto {
     address?: string;
     city?: string;
     state?: string;
-    pincode?: string;
+    allergies?: string[];
 }

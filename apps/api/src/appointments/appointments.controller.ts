@@ -33,6 +33,14 @@ export class AppointmentsController {
         return this.appointmentsService.getStats(date);
     }
 
+    @Get('calendar')
+    getCalendar(
+        @Query('month') month?: string,
+        @Query('doctorId') doctorId?: string,
+    ) {
+        return this.appointmentsService.getCalendar(month, doctorId);
+    }
+
     @Get(':id')
     findOne(@Param('id') id: string) {
         // Ensure "stats" doesn't hit this

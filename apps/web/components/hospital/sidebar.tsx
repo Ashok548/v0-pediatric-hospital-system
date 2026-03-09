@@ -22,13 +22,9 @@ import {
   Database,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  TooltipProvider,
-} from "@/components/ui/tooltip"
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip"
 import { useAuthStore } from "@/lib/store/auth-store"
+import { usePharmacyStats } from "@/lib/api/pharmacy"
 
 const ALL_NAV_ITEMS = [
   { label: "Dashboard", icon: LayoutDashboard, href: "/dashboard", feature: "dashboard" },
@@ -55,6 +51,7 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggle, activeItem = "Dashboard" }: SidebarProps) {
   const { canAccess } = useAuthStore()
+  const { stats } = usePharmacyStats()
   const navItems = ALL_NAV_ITEMS.filter(item => canAccess(item.feature))
   return (
     <TooltipProvider delayDuration={0}>
@@ -89,11 +86,13 @@ export function Sidebar({ collapsed, onToggle, activeItem = "Dashboard" }: Sideb
           <ul className="flex flex-col gap-1" role="list">
             {navItems.map((item) => {
               const isActive = item.label === activeItem
+              const hasAlert = item.feature === "pharmacy" && stats?.lowStockCount > 0
+
               const linkContent = (
                 <Link
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                    "relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                     collapsed && "justify-center px-0",
                     isActive
                       ? "bg-sidebar-accent text-sidebar-accent-foreground"
@@ -103,6 +102,15 @@ export function Sidebar({ collapsed, onToggle, activeItem = "Dashboard" }: Sideb
                 >
                   <item.icon className="size-[18px] shrink-0" />
                   {!collapsed && <span className="truncate">{item.label}</span>}
+
+                  {hasAlert && !collapsed && (
+                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-sm tabular-nums">
+                      {stats.lowStockCount}
+                    </span>
+                  )}
+                  {hasAlert && collapsed && (
+                    <span className="absolute top-2 right-4 w-2 h-2 bg-red-500 rounded-full" />
+                  )}
                 </Link>
               )
 

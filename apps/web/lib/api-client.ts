@@ -1,6 +1,14 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL
-    ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, "")}/api`
-    : "http://localhost:4000/api";
+const getApiBaseUrl = () => {
+    if (typeof window !== "undefined") {
+        // Automatically use proxy during E2E tests (navigator.webdriver is true in Playwright)
+        if (navigator.webdriver || (window as unknown as any).isE2E) {
+            return "/api";
+        }
+    }
+    return process.env.NEXT_PUBLIC_API_URL
+        ? `${process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, "")}/api`
+        : "http://localhost:4000/api";
+};
 
 export class ApiError extends Error {
     constructor(
@@ -27,7 +35,13 @@ export async function apiClient<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
+    const API_BASE_URL = getApiBaseUrl();
     const url = `${API_BASE_URL}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+
+    // Debug log to confirm which URL is acting as the proxy
+    if (typeof window !== "undefined" && url.startsWith("/api")) {
+        console.debug(`[apiClient] Using E2E Proxy for: ${url}`);
+    }
 
     const headers = new Headers(options.headers || {});
 

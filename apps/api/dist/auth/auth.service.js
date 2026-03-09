@@ -133,6 +133,44 @@ let AuthService = AuthService_1 = class AuthService {
             throw new common_1.UnauthorizedException();
         return user;
     }
+    async getWorkload(userId) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        let inpatients = 0;
+        try {
+            inpatients = await database_1.prisma.admission.count({
+                where: { status: 'ADMITTED' }
+            });
+        }
+        catch (e) { }
+        let labReports = 0;
+        try {
+            labReports = await database_1.prisma.labOrder.count({
+                where: { status: { in: ['PENDING', 'PARTIAL'] } }
+            });
+        }
+        catch (e) { }
+        let prescriptionsToday = 0;
+        try {
+            prescriptionsToday = await database_1.prisma.prescription.count({
+                where: { doctorId: userId, createdAt: { gte: todayStart } }
+            });
+        }
+        catch (e) { }
+        let pendingReferrals = 0;
+        try {
+            pendingReferrals = await database_1.prisma.admission.count({
+                where: { admissionType: 'REFERRAL', status: 'ADMITTED' }
+            });
+        }
+        catch (e) { }
+        return {
+            inpatients,
+            labReports,
+            prescriptionsToday,
+            pendingReferrals
+        };
+    }
 };
 exports.AuthService = AuthService;
 exports.AuthService = AuthService = AuthService_1 = __decorate([

@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import {
     BarChart3,
     TrendingUp,
@@ -13,6 +14,7 @@ import {
     Download,
     Loader2
 } from "lucide-react"
+import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -36,28 +38,32 @@ import {
     useRevenueTrend,
     useDepartmentCensus,
     useTopDiagnoses,
+    useVaccinationTrend,
     type DepartmentCensusData,
     type TopDiagnosisData
 } from "@/lib/api/reports"
-
-// ─── Still Mocked (No Backend Yet) ──────────────────────────────────────────
-const vaccinationTrend = [
-    { day: "Mon", count: 42 },
-    { day: "Tue", count: 38 },
-    { day: "Wed", count: 51 },
-    { day: "Thu", count: 44 },
-    { day: "Fri", count: 47 },
-    { day: "Sat", count: 23 },
-]
+import { TooltipProvider, Tooltip as UITooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip"
 
 // ─── Component ──────────────────────────────────────────────────────────────
 export function ReportsContent() {
+    const [startDate, setStartDate] = useState<string>("")
+    const [endDate, setEndDate] = useState<string>("")
+    const [vaccinationDays, setVaccinationDays] = useState<number>(7)
+
+    const dateRange = {
+        start: startDate ? new Date(startDate) : undefined,
+        end: endDate ? new Date(endDate) : undefined
+    }
+
+    const isFiltered = !!(startDate || endDate);
+
     // 1. Fetch live data via SWR
-    const { kpis, isLoading: isKpiLoading } = useReportKpis()
+    const { kpis, isLoading: isKpiLoading } = useReportKpis(dateRange)
     const { data: admissionsData, isLoading: isAdmLoading } = useAdmissionsTrend(6)
     const { data: revenueData, isLoading: isRevLoading } = useRevenueTrend(4)
-    const { data: censusData, isLoading: isCenLoading } = useDepartmentCensus()
-    const { data: diagnosesData, isLoading: isDiagLoading } = useTopDiagnoses(6)
+    const { data: censusData, isLoading: isCenLoading } = useDepartmentCensus(dateRange)
+    const { data: diagnosesData, isLoading: isDiagLoading } = useTopDiagnoses(6, dateRange)
+    const { data: vaccinationTrendData, isLoading: isVaccLoading } = useVaccinationTrend(vaccinationDays)
 
     // 2. Format currency safely
     const formatCurrency = (amount: number | undefined) => {
@@ -86,21 +92,21 @@ export function ReportsContent() {
             positive: false, icon: Baby, iconColor: "text-destructive", iconBg: "bg-destructive/10"
         },
         {
-            label: "Revenue This Month",
+            label: isFiltered ? "Revenue for Period" : "Revenue This Month",
             value: isKpiLoading ? "..." : `₹${formatCurrency(kpis?.revenueThisMonth)}`,
             change: "Live billing",
             positive: true, icon: IndianRupee, iconColor: "text-chart-3", iconBg: "bg-chart-3/10"
         },
         {
-            label: "Vaccinations This Month",
-            value: "245",
-            change: "Mocked",
+            label: isFiltered ? "Vaccinations (Period)" : "Vaccinations This Month",
+            value: isKpiLoading ? "..." : String(kpis?.vaccinationsThisMonth ?? 0),
+            change: "Live data",
             positive: true, icon: Syringe, iconColor: "text-chart-5", iconBg: "bg-chart-5/10"
         },
         {
-            label: "Lab Tests Ordered",
-            value: "612",
-            change: "Mocked",
+            label: isFiltered ? "Lab Tests (Period)" : "Lab Tests Ordered",
+            value: isKpiLoading ? "..." : String(kpis?.labsThisMonth ?? 0),
+            change: "Live data",
             positive: true, icon: FlaskConical, iconColor: "text-chart-4", iconBg: "bg-chart-4/10"
         },
     ]
@@ -115,10 +121,79 @@ export function ReportsContent() {
                         CareNest Hospital &middot; Live Data Snapshot &middot; All departments
                     </p>
                 </div>
-                <Button variant="outline" className="gap-2 shrink-0">
-                    <Download className="size-4" />
-                    Export Report
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="date"
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm outline-none focus:ring-2 focus:ring-ring"
+                            value={startDate}
+                            onChange={e => setStartDate(e.target.value)}
+                        />
+                        <span className="text-muted-foreground text-sm">to</span>
+                        <input
+                            type="date"
+                            className="h-9 px-3 rounded-md border border-input bg-background text-sm outline-none focus:ring-2 focus:ring-ring"
+                            value={endDate}
+                            onChange={e => setEndDate(e.target.value)}
+                        />
+                        {(startDate || endDate) && (
+                            <Button variant="ghost" size="sm" onClick={() => { setStartDate(""); setEndDate("") }} className="text-xs h-8 px-2 text-muted-foreground">
+                                Clear
+                            </Button>
+                        )}
+                    </div>
+                    <Button
+                        variant="outline"
+                        className="gap-2 shrink-0"
+                        onClick={async () => {
+                            const toastId = toast.loading("Generating report...");
+                            try {
+                                let url = "/api/reports/export";
+                                const params = new URLSearchParams();
+                                if (startDate) params.append("startDate", new Date(startDate).toISOString());
+                                if (endDate) params.append("endDate", new Date(endDate).toISOString());
+
+                                const queryString = params.toString();
+                                if (queryString) {
+                                    url += `?${queryString}`;
+                                }
+
+                                const response = await fetch(url);
+                                if (!response.ok) throw new Error("Export failed");
+
+                                const blob = await response.blob();
+                                const downloadUrl = window.URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.style.display = 'none';
+                                a.href = downloadUrl;
+
+                                const disposition = response.headers.get('content-disposition');
+                                let filename = 'carenest-report.csv';
+                                if (disposition && disposition.indexOf('filename=') !== -1) {
+                                    const filenameRegex = /filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/;
+                                    const matches = filenameRegex.exec(disposition);
+                                    if (matches != null && matches[1]) {
+                                        filename = matches[1].replace(/['"]/g, '');
+                                    }
+                                }
+                                a.download = filename;
+
+                                document.body.appendChild(a);
+                                a.click();
+                                window.URL.revokeObjectURL(downloadUrl);
+                                document.body.removeChild(a);
+
+                                toast.success("Report exported successfully", { id: toastId });
+                            } catch (error) {
+                                console.error("Export error:", error);
+                                toast.error(error instanceof Error ? error.message : "Failed to export report", { id: toastId });
+                            }
+                        }}
+                    >
+                        <Download className="size-4" />
+                        Export Report
+                    </Button>
+                </div>
             </div>
 
             {/* KPI Grid */}
@@ -233,11 +308,11 @@ export function ReportsContent() {
 
             {/* Charts Row 2: Revenue + Vaccination */}
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {/* Weekly Revenue vs Target */}
+                {/* Weekly Revenue */}
                 <Card className="py-0">
                     <CardHeader className="px-4 pt-4 pb-2">
-                        <CardTitle className="text-sm font-semibold">Weekly Revenue vs Target</CardTitle>
-                        <CardDescription className="text-xs">Last 4 weeks · Target ₹400k/week</CardDescription>
+                        <CardTitle className="text-sm font-semibold">Weekly Revenue</CardTitle>
+                        <CardDescription className="text-xs">Gross receipts past 4 weeks</CardDescription>
                     </CardHeader>
                     <CardContent className="px-2 pb-4">
                         {isRevLoading ? (
@@ -255,7 +330,6 @@ export function ReportsContent() {
                                         formatter={(v: number) => [`₹${new Intl.NumberFormat("en-IN").format(v)}`, ""]}
                                         cursor={{ fill: "hsl(var(--muted))" }}
                                     />
-                                    <Bar dataKey="target" name="Target" fill="hsl(var(--muted))" radius={[4, 4, 0, 0]} />
                                     <Bar dataKey="revenue" name="Revenue" fill="hsl(var(--chart-3))" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -263,32 +337,54 @@ export function ReportsContent() {
                     </CardContent>
                 </Card>
 
-                {/* Vaccination Trend (Mocked) */}
+                {/* Vaccination Trend */}
                 <Card className="py-0">
-                    <CardHeader className="px-4 pt-4 pb-2">
-                        <CardTitle className="text-sm font-semibold">Daily Vaccination Count (Mocked)</CardTitle>
-                        <CardDescription className="text-xs">Module pending development</CardDescription>
+                    <CardHeader className="px-4 pt-4 pb-2 flex flex-row flex-wrap items-start justify-between gap-2">
+                        <div>
+                            <CardTitle className="text-sm font-semibold">Daily Vaccination Count</CardTitle>
+                            <CardDescription className="text-xs">Doses administered over time</CardDescription>
+                        </div>
+                        <div className="flex bg-muted/50 rounded-md border border-border overflow-hidden p-[2px]">
+                            {[7, 14, 30].map(days => (
+                                <button
+                                    key={days}
+                                    onClick={() => setVaccinationDays(days)}
+                                    className={`px-2 py-1 text-[10px] font-medium rounded-sm transition-colors ${vaccinationDays === days
+                                        ? "bg-background shadow-sm text-foreground"
+                                        : "text-muted-foreground hover:text-foreground"
+                                        }`}
+                                >
+                                    {days}d
+                                </button>
+                            ))}
+                        </div>
                     </CardHeader>
                     <CardContent className="px-2 pb-4">
-                        <ResponsiveContainer width="100%" height={200}>
-                            <LineChart data={vaccinationTrend}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
-                                <XAxis dataKey="day" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                                <Tooltip
-                                    contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
-                                />
-                                <Line
-                                    type="monotone"
-                                    dataKey="count"
-                                    name="Vaccinations"
-                                    stroke="hsl(var(--chart-5))"
-                                    strokeWidth={2.5}
-                                    dot={{ r: 4, fill: "hsl(var(--chart-5))", strokeWidth: 0 }}
-                                    activeDot={{ r: 6 }}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
+                        {isVaccLoading ? (
+                            <div className="flex items-center justify-center h-[200px]">
+                                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                            </div>
+                        ) : (
+                            <ResponsiveContainer width="100%" height={200}>
+                                <LineChart data={vaccinationTrendData}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-border" vertical={false} />
+                                    <XAxis dataKey="day" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                                    <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                                    <Tooltip
+                                        contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid hsl(var(--border))" }}
+                                    />
+                                    <Line
+                                        type="monotone"
+                                        dataKey="count"
+                                        name="Vaccinations"
+                                        stroke="hsl(var(--chart-5))"
+                                        strokeWidth={2.5}
+                                        dot={{ r: 4, fill: "hsl(var(--chart-5))", strokeWidth: 0 }}
+                                        activeDot={{ r: 6 }}
+                                    />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        )}
                     </CardContent>
                 </Card>
             </div>
@@ -346,10 +442,21 @@ export function ReportsContent() {
                     <BarChart3 className="size-3.5" />
                     <span>CareNest HMS · Analytics Module · Live Connected</span>
                 </div>
-                <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1 text-muted-foreground">
-                    <Download className="size-3" />
-                    PDF Report
-                </Button>
+                <TooltipProvider>
+                    <UITooltip delayDuration={100}>
+                        <TooltipTrigger asChild>
+                            <span className="inline-block"> {/* Wrap in span to reliably trigger tooltip on disabled button */}
+                                <Button variant="ghost" size="sm" className="h-6 text-[11px] gap-1 px-2 text-muted-foreground/60 cursor-not-allowed hidden sm:inline-flex" disabled>
+                                    <Download className="size-3" />
+                                    PDF Report
+                                </Button>
+                            </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="end" className="text-xs">
+                            <p>Coming Soon</p>
+                        </TooltipContent>
+                    </UITooltip>
+                </TooltipProvider>
             </div>
         </div>
     )

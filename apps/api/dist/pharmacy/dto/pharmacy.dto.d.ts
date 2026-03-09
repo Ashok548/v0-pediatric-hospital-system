@@ -22,3 +22,8 @@ export declare class GetPrescriptionsQueryDto {
     search?: string;
     admissionId?: string;
 }
+export declare class AdjustStockDto {
+    quantity: number;
+    batchNumber?: string;
+    reason?: string;
+}

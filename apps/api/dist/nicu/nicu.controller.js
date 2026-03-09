@@ -28,6 +28,9 @@ let NicuController = class NicuController {
     findNicuAdmissions(query) {
         return this.nicuService.findNicuAdmissions(query);
     }
+    getCriticalAlerts() {
+        return this.nicuService.getCriticalAlerts();
+    }
     findVitals(id) {
         return this.nicuService.findVitals(id);
     }
@@ -37,6 +40,10 @@ let NicuController = class NicuController {
     }
     deleteVitals(vid) {
         return this.nicuService.deleteVitals(vid);
+    }
+    acknowledgeAlert(vid, req) {
+        const userId = req.user?.id;
+        return this.nicuService.acknowledgeAlert(vid, userId);
     }
 };
 exports.NicuController = NicuController;
@@ -48,6 +55,13 @@ __decorate([
     __metadata("design:paramtypes", [query_nicu_dto_1.QueryNicuDto]),
     __metadata("design:returntype", void 0)
 ], NicuController.prototype, "findNicuAdmissions", null);
+__decorate([
+    (0, common_1.Get)("alerts"),
+    (0, roles_decorator_1.Roles)("ADMIN", "DOCTOR", "NURSE"),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", void 0)
+], NicuController.prototype, "getCriticalAlerts", null);
 __decorate([
     (0, common_1.Get)("admissions/:id/vitals"),
     (0, roles_decorator_1.Roles)("ADMIN", "DOCTOR", "NURSE"),
@@ -76,6 +90,16 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], NicuController.prototype, "deleteVitals", null);
+__decorate([
+    (0, common_1.Post)("vitals/:vid/acknowledge"),
+    (0, roles_decorator_1.Roles)("ADMIN", "DOCTOR", "NURSE"),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, common_1.Param)("vid", common_1.ParseUUIDPipe)),
+    __param(1, (0, common_1.Request)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], NicuController.prototype, "acknowledgeAlert", null);
 exports.NicuController = NicuController = __decorate([
     (0, common_1.UseGuards)(jwt_auth_guard_1.JwtAuthGuard, roles_guard_1.RolesGuard),
     (0, common_1.Controller)("nicu"),

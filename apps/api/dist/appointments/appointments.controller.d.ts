@@ -15,6 +15,11 @@ export declare class AppointmentsController {
         cancelled: number;
         noShow: number;
     }>;
+    getCalendar(month?: string, doctorId?: string): Promise<{
+        year: number;
+        month: number;
+        days: Record<number, number>;
+    }>;
     findOne(id: string): Promise<{
         id: string;
         patientName: string;

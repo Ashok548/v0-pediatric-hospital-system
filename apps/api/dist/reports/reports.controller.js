@@ -20,8 +20,8 @@ let ReportsController = class ReportsController {
     constructor(reportsService) {
         this.reportsService = reportsService;
     }
-    getKpis() {
-        return this.reportsService.getKpis();
+    getKpis(startDate, endDate) {
+        return this.reportsService.getKpis(startDate, endDate);
     }
     getAdmissionsTrend(months) {
         return this.reportsService.getAdmissionsTrend(months ? parseInt(months, 10) : undefined);
@@ -29,18 +29,34 @@ let ReportsController = class ReportsController {
     getRevenueTrend(weeks) {
         return this.reportsService.getRevenueTrend(weeks ? parseInt(weeks, 10) : undefined);
     }
-    getDepartmentCensus() {
-        return this.reportsService.getDepartmentCensus();
+    getDepartmentCensus(startDate, endDate) {
+        return this.reportsService.getDepartmentCensus(startDate, endDate);
     }
-    getTopDiagnoses(limit) {
-        return this.reportsService.getTopDiagnoses(limit ? parseInt(limit, 10) : undefined);
+    getTopDiagnoses(limit, startDate, endDate) {
+        return this.reportsService.getTopDiagnoses(limit ? parseInt(limit, 10) : undefined, startDate, endDate);
+    }
+    getVaccinationTrend(days) {
+        return this.reportsService.getVaccinationTrend(days ? parseInt(days, 10) : undefined);
+    }
+    async exportCsv(res, startDate, endDate) {
+        const csvString = await this.reportsService.generateExportCsv(startDate, endDate);
+        let filename = 'carenest-report';
+        if (startDate && endDate) {
+            filename += `-${startDate.split('T')[0]}-to-${endDate.split('T')[0]}`;
+        }
+        filename += '.csv';
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.status(200).send(csvString);
     }
 };
 exports.ReportsController = ReportsController;
 __decorate([
     (0, common_1.Get)('kpis'),
+    __param(0, (0, common_1.Query)('startDate')),
+    __param(1, (0, common_1.Query)('endDate')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", void 0)
 ], ReportsController.prototype, "getKpis", null);
 __decorate([
@@ -59,17 +75,37 @@ __decorate([
 ], ReportsController.prototype, "getRevenueTrend", null);
 __decorate([
     (0, common_1.Get)('department-census'),
+    __param(0, (0, common_1.Query)('startDate')),
+    __param(1, (0, common_1.Query)('endDate')),
     __metadata("design:type", Function),
-    __metadata("design:paramtypes", []),
+    __metadata("design:paramtypes", [String, String]),
     __metadata("design:returntype", void 0)
 ], ReportsController.prototype, "getDepartmentCensus", null);
 __decorate([
     (0, common_1.Get)('top-diagnoses'),
     __param(0, (0, common_1.Query)('limit')),
+    __param(1, (0, common_1.Query)('startDate')),
+    __param(2, (0, common_1.Query)('endDate')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, String, String]),
+    __metadata("design:returntype", void 0)
+], ReportsController.prototype, "getTopDiagnoses", null);
+__decorate([
+    (0, common_1.Get)('vaccination-trend'),
+    __param(0, (0, common_1.Query)('days')),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
-], ReportsController.prototype, "getTopDiagnoses", null);
+], ReportsController.prototype, "getVaccinationTrend", null);
+__decorate([
+    (0, common_1.Get)('export'),
+    __param(0, (0, common_1.Res)()),
+    __param(1, (0, common_1.Query)('startDate')),
+    __param(2, (0, common_1.Query)('endDate')),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, String]),
+    __metadata("design:returntype", Promise)
+], ReportsController.prototype, "exportCsv", null);
 exports.ReportsController = ReportsController = __decorate([
     (0, common_1.Controller)('reports'),
     __metadata("design:paramtypes", [reports_service_1.ReportsService])

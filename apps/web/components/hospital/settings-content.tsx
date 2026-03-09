@@ -1,28 +1,22 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
-    Settings,
-    User,
-    Bell,
-    Shield,
-    Printer,
-    Globe,
-    ChevronRight,
-    Save,
-    Moon,
-    Sun,
-    Monitor,
-    CheckCircle2,
+    Settings, User, Bell, Shield, Printer, Globe,
+    ChevronRight, Save, Moon, Sun, Monitor, CheckCircle2, Loader2
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { useAllSettings, updateSettings } from "@/lib/api/settings"
+import { useUsers } from "@/lib/api/users"
+import { useAuthStore } from "@/lib/store/auth-store"
 
 // ─── Settings Categories ────────────────────────────────────────────────────
 const settingsSections = [
-    { id: "hospital", label: "Hospital Profile", icon: Settings },
+    { id: "profile", label: "Hospital Profile", icon: Settings },
     { id: "users", label: "Users & Roles", icon: User },
     { id: "notifications", label: "Notifications", icon: Bell },
     { id: "security", label: "Security", icon: Shield },
@@ -55,9 +49,25 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
 
 // ─── Component ──────────────────────────────────────────────────────────────
 export function SettingsContent() {
-    const [activeSection, setActiveSection] = useState("hospital")
+    const [activeSection, setActiveSection] = useState("profile")
     const [theme, setTheme] = useState<Theme>("light")
     const [saved, setSaved] = useState(false)
+    const [isSaving, setIsSaving] = useState(false)
+    const { currentUser } = useAuthStore()
+
+    // Data Hooks
+    const { allSettings, isLoading } = useAllSettings()
+    const { users, isLoading: usersLoading } = useUsers()
+
+    // Active States
+    const [profileSettings, setProfileSettings] = useState({
+        hospitalName: "CareNest Children's Hospital",
+        registrationNumber: "MH-HOSP-2012-04521",
+        totalBeds: "200",
+        contactEmail: "admin@carenest.in",
+        emergencyPhone: "+91 99999 88888",
+        address: "14 Healing Road, Banjara Hills, Hyderabad – 500034"
+    })
 
     const [notifSettings, setNotifSettings] = useState({
         criticalAlerts: true,
@@ -75,9 +85,59 @@ export function SettingsContent() {
         ipWhitelist: false,
     })
 
-    const handleSave = () => {
-        setSaved(true)
-        setTimeout(() => setSaved(false), 2000)
+    const [printSettings, setPrintSettings] = useState({
+        headerText: "CareNest Children's Hospital",
+        footerText: "This is a computer generated document.",
+        defaultPaperSize: "A4",
+        defaultPrinter: "HP LaserJet Pro – Ward 1"
+    })
+
+    const [localeSettings, setLocaleSettings] = useState({
+        timezone: "Asia/Kolkata (IST +05:30)",
+        dateFormat: "DD MMM YYYY",
+        timeFormat: "12-hour (AM/PM)",
+        currency: "Indian Rupee (₹ INR)",
+        language: "English"
+    })
+
+    // Sync from API
+    useEffect(() => {
+        if (!allSettings) return;
+        if (allSettings.profile) setProfileSettings(p => ({ ...p, ...allSettings.profile }))
+        if (allSettings.notifications) setNotifSettings(p => ({ ...p, ...allSettings.notifications }))
+        if (allSettings.security) setSecuritySettings(p => ({ ...p, ...allSettings.security }))
+        if (allSettings.printing) setPrintSettings(p => ({ ...p, ...allSettings.printing }))
+        if (allSettings.locale) setLocaleSettings(p => ({ ...p, ...allSettings.locale }))
+    }, [allSettings])
+
+    const handleSave = async () => {
+        if (activeSection === "users") return; // Users are saved elsewhere
+
+        setIsSaving(true)
+
+        let dataToSave = {};
+        switch (activeSection) {
+            case "profile": dataToSave = profileSettings; break;
+            case "notifications": dataToSave = notifSettings; break;
+            case "security": dataToSave = securitySettings; break;
+            case "printing": dataToSave = printSettings; break;
+            case "locale": dataToSave = localeSettings; break;
+        }
+
+        try {
+            await updateSettings(activeSection, dataToSave, currentUser?.id);
+            setSaved(true)
+            setTimeout(() => setSaved(false), 2000)
+        } catch (error) {
+            console.error("Failed to save settings", error);
+            alert("Failed to save settings. Please try again.");
+        } finally {
+            setIsSaving(false)
+        }
+    }
+
+    if (isLoading) {
+        return <div className="p-8 flex items-center justify-center"><Loader2 className="size-8 animate-spin text-muted-foreground" /></div>
     }
 
     return (
@@ -90,10 +150,12 @@ export function SettingsContent() {
                         Manage hospital system preferences and configuration
                     </p>
                 </div>
-                <Button onClick={handleSave} className="gap-2 shrink-0">
-                    {saved ? <CheckCircle2 className="size-4" /> : <Save className="size-4" />}
-                    {saved ? "Saved!" : "Save Changes"}
-                </Button>
+                {activeSection !== "users" && (
+                    <Button onClick={handleSave} disabled={isSaving} className="gap-2 shrink-0">
+                        {isSaving ? <Loader2 className="size-4 animate-spin" /> : saved ? <CheckCircle2 className="size-4" /> : <Save className="size-4" />}
+                        {isSaving ? "Saving..." : saved ? "Saved!" : "Save Changes"}
+                    </Button>
+                )}
             </div>
 
             <div className="flex flex-col lg:flex-row gap-5">
@@ -125,7 +187,7 @@ export function SettingsContent() {
                 <div className="flex-1 flex flex-col gap-4">
 
                     {/* ── Hospital Profile ────────────────────────────────────── */}
-                    {activeSection === "hospital" && (
+                    {activeSection === "profile" && (
                         <>
                             <Card className="py-0">
                                 <CardHeader className="px-5 pt-4 pb-2">
@@ -134,18 +196,19 @@ export function SettingsContent() {
                                 </CardHeader>
                                 <CardContent className="px-5 pb-5 flex flex-col gap-4">
                                     {[
-                                        { label: "Hospital Name", value: "CareNest Children's Hospital", type: "text" },
-                                        { label: "Registration Number", value: "MH-HOSP-2012-04521", type: "text" },
-                                        { label: "Total Beds", value: "200", type: "number" },
-                                        { label: "Contact Email", value: "admin@carenest.in", type: "email" },
-                                        { label: "Emergency Phone", value: "+91 99999 88888", type: "tel" },
-                                        { label: "Address", value: "14 Healing Road, Banjara Hills, Hyderabad – 500034", type: "text" },
+                                        { key: "hospitalName", label: "Hospital Name", type: "text" },
+                                        { key: "registrationNumber", label: "Registration Number", type: "text" },
+                                        { key: "totalBeds", label: "Total Beds", type: "number" },
+                                        { key: "contactEmail", label: "Contact Email", type: "email" },
+                                        { key: "emergencyPhone", label: "Emergency Phone", type: "tel" },
+                                        { key: "address", label: "Address", type: "text" },
                                     ].map(field => (
-                                        <div key={field.label}>
+                                        <div key={field.key}>
                                             <label className="text-xs font-medium text-muted-foreground block mb-1">{field.label}</label>
                                             <input
                                                 type={field.type}
-                                                defaultValue={field.value}
+                                                value={(profileSettings as any)[field.key] || ""}
+                                                onChange={(e) => setProfileSettings(s => ({ ...s, [field.key]: e.target.value }))}
                                                 className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all"
                                             />
                                         </div>
@@ -280,37 +343,41 @@ export function SettingsContent() {
                                 </div>
                             </CardHeader>
                             <CardContent className="px-0 pb-0">
-                                {[
-                                    { name: "Dr. Priya Reddy", role: "Senior Paediatrician", dept: "Neonatology", status: "Active" },
-                                    { name: "Dr. Anil Kumar", role: "Consultant", dept: "General Paediatrics", status: "Active" },
-                                    { name: "Dr. Meera Iyer", role: "Paediatric Cardiologist", dept: "Cardiology", status: "Active" },
-                                    { name: "Nandini Rao", role: "Head Nurse", dept: "NICU", status: "Active" },
-                                    { name: "Ravi Shankar", role: "Lab Technician", dept: "Pathology", status: "Active" },
-                                    { name: "Admin User", role: "System Administrator", dept: "IT", status: "Active" },
-                                ].map((user, i, arr) => (
-                                    <div key={user.name} className={cn(
-                                        "flex items-center justify-between px-5 py-3 hover:bg-muted/40 transition-colors",
-                                        i < arr.length - 1 && "border-b border-border"
-                                    )}>
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex items-center justify-center size-8 rounded-full bg-primary/10 text-xs font-bold text-primary">
-                                                {user.name.split(" ").map(w => w[0]).join("").slice(0, 2).toUpperCase()}
+                                {usersLoading ? (
+                                    <div className="p-8 flex justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+                                ) : users.length === 0 ? (
+                                    <div className="p-8 text-center text-sm text-muted-foreground">No users found.</div>
+                                ) : (
+                                    users.map((user: any, i: number, arr: any[]) => (
+                                        <div key={user.id} className={cn(
+                                            "flex items-center justify-between px-5 py-3 hover:bg-muted/40 transition-colors",
+                                            i < arr.length - 1 && "border-b border-border"
+                                        )}>
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex items-center justify-center size-8 rounded-full bg-primary/10 text-xs font-bold text-primary shrink-0">
+                                                    {user.name.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-medium text-foreground">{user.name}</p>
+                                                    <p className="text-[11px] text-muted-foreground">{user.role?.name || "User"} · {user.email}</p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-foreground">{user.name}</p>
-                                                <p className="text-[11px] text-muted-foreground">{user.role} · {user.dept}</p>
+                                            <div className="flex items-center gap-2">
+                                                <Badge variant="outline" className={cn(
+                                                    "text-[11px]",
+                                                    user.status === "ACTIVE"
+                                                        ? "text-[#1a7a4c] border-[#b4e4cb] bg-[#e6f6ee]"
+                                                        : "text-muted-foreground"
+                                                )}>
+                                                    {user.status}
+                                                </Badge>
+                                                <Button variant="ghost" size="sm" className="size-7 p-0 text-muted-foreground">
+                                                    <ChevronRight className="size-4" />
+                                                </Button>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2">
-                                            <Badge variant="outline" className="text-[11px] text-[#1a7a4c] border-[#b4e4cb] bg-[#e6f6ee]">
-                                                {user.status}
-                                            </Badge>
-                                            <Button variant="ghost" size="sm" className="size-7 p-0 text-muted-foreground">
-                                                <ChevronRight className="size-4" />
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    ))
+                                )}
                             </CardContent>
                         </Card>
                     )}
@@ -324,19 +391,20 @@ export function SettingsContent() {
                             </CardHeader>
                             <CardContent className="px-5 pb-5 flex flex-col gap-4">
                                 {[
-                                    { label: "Timezone", value: "Asia/Kolkata (IST +05:30)" },
-                                    { label: "Date Format", value: "DD MMM YYYY" },
-                                    { label: "Time Format", value: "12-hour (AM/PM)" },
-                                    { label: "Currency", value: "Indian Rupee (₹ INR)" },
-                                    { label: "Language", value: "English" },
+                                    { key: "timezone", label: "Timezone", options: ["Asia/Kolkata (IST +05:30)", "UTC", "America/New_York"] },
+                                    { key: "dateFormat", label: "Date Format", options: ["DD MMM YYYY", "MM/DD/YYYY", "YYYY-MM-DD"] },
+                                    { key: "timeFormat", label: "Time Format", options: ["12-hour (AM/PM)", "24-hour"] },
+                                    { key: "currency", label: "Currency", options: ["Indian Rupee (₹ INR)", "US Dollar ($ USD)", "Euro (€ EUR)"] },
+                                    { key: "language", label: "Language", options: ["English", "Hindi", "Telugu"] },
                                 ].map(field => (
-                                    <div key={field.label}>
+                                    <div key={field.key}>
                                         <label className="text-xs font-medium text-muted-foreground block mb-1">{field.label}</label>
                                         <select
-                                            defaultValue={field.value}
+                                            value={(localeSettings as any)[field.key] || field.options[0]}
+                                            onChange={e => setLocaleSettings(s => ({ ...s, [field.key]: e.target.value }))}
                                             className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all"
                                         >
-                                            <option>{field.value}</option>
+                                            {field.options.map(opt => <option key={opt}>{opt}</option>)}
                                         </select>
                                     </div>
                                 ))}
@@ -353,16 +421,17 @@ export function SettingsContent() {
                             </CardHeader>
                             <CardContent className="px-5 pb-5 flex flex-col gap-4">
                                 {[
-                                    { label: "Report Header Text", value: "CareNest Children's Hospital" },
-                                    { label: "Footer Text", value: "This is a computer generated document." },
-                                    { label: "Default Paper Size", value: "A4" },
-                                    { label: "Default Printer", value: "HP LaserJet Pro – Ward 1" },
+                                    { key: "headerText", label: "Report Header Text" },
+                                    { key: "footerText", label: "Footer Text" },
+                                    { key: "defaultPaperSize", label: "Default Paper Size" },
+                                    { key: "defaultPrinter", label: "Default Printer" },
                                 ].map(field => (
-                                    <div key={field.label}>
+                                    <div key={field.key}>
                                         <label className="text-xs font-medium text-muted-foreground block mb-1">{field.label}</label>
                                         <input
                                             type="text"
-                                            defaultValue={field.value}
+                                            value={(printSettings as any)[field.key] || ""}
+                                            onChange={e => setPrintSettings(s => ({ ...s, [field.key]: e.target.value }))}
                                             className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm text-foreground outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all"
                                         />
                                     </div>

@@ -60,4 +60,9 @@ export declare class AppointmentsService {
         notes: string | null;
         chiefComplaint: string | null;
     }>;
+    getCalendar(month?: string, doctorId?: string): Promise<{
+        year: number;
+        month: number;
+        days: Record<number, number>;
+    }>;
 }

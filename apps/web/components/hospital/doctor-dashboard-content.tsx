@@ -16,8 +16,11 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { useAdmissions } from "@/lib/api/admissions"
 import { useAppointments } from "@/lib/api/appointments"
+import { useDashboardWorkload } from "@/lib/api/dashboard"
 import { formatDistanceToNow } from "date-fns"
-import { ApiNicuAdmission } from "@/lib/types/nicu"
+import { useAuthStore, HospitalRole } from "@/lib/store/auth-store"
+import { apiClient } from "@/lib/api-client"
+import useSWR from "swr"
 import {
   Search,
   CalendarDays,
@@ -38,42 +41,9 @@ import {
   X,
 } from "lucide-react"
 
-// ── Data ──────────────────────────────────────────────────────────────
-
-const doctorProfile = {
-  name: "Dr. Priya Reddy",
-  speciality: "Consultant Pediatrician",
-  department: "General Pediatrics",
-  mci: "MCI-78432",
-}
-
-// todaysAppointments removed, using live data
-
-const calendarDays = (() => {
-  const today = new Date()
-  const year = today.getFullYear()
-  const month = today.getMonth()
-  const firstDay = new Date(year, month, 1).getDay()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const days: { day: number; isToday: boolean; hasAppointments: boolean; appointmentCount: number }[] = []
-
-  for (let i = 0; i < firstDay; i++) {
-    days.push({ day: 0, isToday: false, hasAppointments: false, appointmentCount: 0 })
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    const isToday = d === today.getDate()
-    const apptCount = isToday ? 10 : Math.floor(Math.random() * 8)
-    days.push({ day: d, isToday, hasAppointments: apptCount > 0, appointmentCount: apptCount })
-  }
-  return days
-})()
-
-// Mock data for appointments and tasks since we only built the Admissions API so far
-// Real implementations would fetch these modules too.
+// ── Helpers ───────────────────────────────────────────────────────────
 
 const monthName = new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })
-
-// ── Helpers ───────────────────────────────────────────────────────────
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -112,27 +82,67 @@ function getDischargeStatusLabel(status: string) {
   }
 }
 
+const fetcher = (url: string) => apiClient(url) as Promise<any>;
+
 // ── Component ─────────────────────────────────────────────────────────
 
 export function DoctorDashboardContent() {
   const [searchQuery, setSearchQuery] = useState("")
   const [searchFocused, setSearchFocused] = useState(false)
 
+  // Calendar States
+  const [currentDate, setCurrentDate] = useState(new Date()) // Controls month being viewed
+  const [selectedDate, setSelectedDate] = useState(new Date()) // Controls daily schedule shown
+
+  const { currentUser } = useAuthStore()
+
+  // Dynamic role mapping for display
+  const specialityMap: Record<HospitalRole, string> = {
+    doctor: "Consultant Pediatrician",
+    admin: "System Administrator",
+    nurse: "Head Nurse",
+    billing_clerk: "Billing Officer",
+    pharmacist: "Chief Pharmacist",
+  }
+
+  const doctorProfile = currentUser ? {
+    name: currentUser.name,
+    speciality: specialityMap[currentUser.role as HospitalRole] || "Staff",
+    department: currentUser.department,
+  } : {
+    name: "Dr. Unknown",
+    speciality: "Staff",
+    department: "Hospital",
+  }
+
   // Fetch real admission data
   const { admissions = [] } = useAdmissions({ status: "ADMITTED" })
 
-  // Fetch live appointments
-  const todayISO = useMemo(() => new Date().toISOString(), [])
-  const { appointments = [], isLoading: apptsLoading } = useAppointments({ date: todayISO })
+  // Fetch live appointments for the specifically selected date
+  const selectedDateISO = useMemo(() => {
+    const d = new Date(selectedDate)
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset()) // robust local iso date
+    return d.toISOString().split('T')[0]
+  }, [selectedDate])
 
-  const pendingDischarges = admissions.filter(a => a.dischargeStatus === "IN_PROGRESS") // Only show in-progress discharges
+  const { appointments = [], isLoading: apptsLoading } = useAppointments({ date: selectedDateISO })
 
-  // Real logic would be more robust, for demo we check the first vitals record
-  const nicuAlerts = (admissions as ApiNicuAdmission[]).filter(a => {
-    if (a.department !== "NICU" && a.department !== "Neonatal ICU" || !a.vitalsRecords || a.vitalsRecords.length === 0) return false;
-    const v = a.vitalsRecords[0];
-    return v.spo2 < 90 || v.heartRate > 180 || (v.bloodPressureSystolic && v.bloodPressureDiastolic && (v.bloodPressureSystolic > 140 || v.bloodPressureDiastolic > 90));
-  });
+  // Fetch Calendar monthly data
+  const viewMonthISO = useMemo(() => {
+    const y = currentDate.getFullYear();
+    const m = (currentDate.getMonth() + 1).toString().padStart(2, '0');
+    return `${y}-${m}`;
+  }, [currentDate]);
+
+  const { data: calendarData } = useSWR(currentUser?.id ? `/appointments/calendar?month=${viewMonthISO}&doctorId=${currentUser.id}` : `/appointments/calendar?month=${viewMonthISO}`, fetcher)
+
+  // Fetch workload data
+  const { workload, isLoading: workloadLoading } = useDashboardWorkload()
+
+  const pendingDischarges = admissions.filter(a => a.dischargeStatus === "IN_PROGRESS" || a.dischargeStatus === "PENDING")
+
+  // Fetch Live NICU Alerts
+  const { data: activeNicuAlerts = [] } = useSWR(`/nicu/alerts`, fetcher, { refreshInterval: 15000 })
 
   const now = new Date()
   const currentHour = now.getHours()
@@ -151,6 +161,38 @@ export function DoctorDashboardContent() {
       p => `${p.patient.firstName} ${p.patient.lastName}`.toLowerCase().includes(q) || p.patient.uhid.toLowerCase().includes(q)
     )
   }, [searchQuery, admissions])
+
+  // Generate dynamic calendar grid mapped to live data
+  const calendarDays = useMemo(() => {
+    const year = currentDate.getFullYear()
+    const month = currentDate.getMonth()
+    const firstDay = new Date(year, month, 1).getDay()
+    const daysInMonth = new Date(year, month + 1, 0).getDate()
+
+    const today = new Date()
+    const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month
+
+    const days: { day: number; isToday: boolean; isSelected: boolean; hasAppointments: boolean; appointmentCount: number }[] = []
+
+    // Pad starting empty days
+    for (let i = 0; i < firstDay; i++) {
+      days.push({ day: 0, isToday: false, isSelected: false, hasAppointments: false, appointmentCount: 0 })
+    }
+
+    // Fill active days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const isToday = isCurrentMonth && d === today.getDate()
+      const isSelected = selectedDate.getFullYear() === year && selectedDate.getMonth() === month && selectedDate.getDate() === d
+
+      const apptCount = calendarData?.days?.[d] || 0
+
+      days.push({ day: d, isToday, isSelected, hasAppointments: apptCount > 0, appointmentCount: apptCount })
+    }
+    return days
+  }, [currentDate, selectedDate, calendarData])
+
+  const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1))
+  const prevMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1, 1))
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -257,8 +299,8 @@ export function DoctorDashboardContent() {
               <AlertTriangle className="size-5 text-red-600" />
             </div>
             <div className="flex flex-col">
-              <span className="text-2xl font-bold text-foreground leading-none">{nicuAlerts.length}</span>
-              <span className="text-xs text-muted-foreground mt-0.5">NICU Critical</span>
+              <span className="text-2xl font-bold text-foreground leading-none">{activeNicuAlerts.length}</span>
+              <span className="text-xs text-muted-foreground mt-0.5">NICU Alerts</span>
             </div>
           </CardContent>
         </Card>
@@ -281,17 +323,27 @@ export function DoctorDashboardContent() {
         {/* ── Left Column: Appointments ────────────────────────────── */}
         <div className="xl:col-span-2 space-y-6">
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-start justify-between">
               <div className="flex flex-col gap-0.5">
-                <CardTitle className="text-base">{"Today's Appointments"}</CardTitle>
+                <CardTitle className="text-base">
+                  {selectedDate.toDateString() === new Date().toDateString() ? "Today's Appointments" : `${selectedDate.toLocaleDateString('en-IN', { weekday: 'long', month: 'short', day: 'numeric' })} Schedule`}
+                </CardTitle>
                 <CardDescription>
                   {completedCount} completed &middot; {inProgressCount} in progress &middot; {waitingCount} waiting
                 </CardDescription>
               </div>
-              <CardAction>
-                <Button variant="outline" size="sm" className="text-xs gap-1.5">
-                  <CalendarDays className="size-3.5" />
-                  Full Schedule
+              <CardAction className="flex gap-2 isolate">
+                <Button size="sm" className="hidden sm:inline-flex text-xs gap-1.5 shrink-0" asChild>
+                  <a href="/appointments">
+                    <CalendarDays className="size-3.5" />
+                    New Appointment
+                  </a>
+                </Button>
+                <Button variant="outline" size="sm" className="text-xs gap-1.5 shrink-0" asChild>
+                  <a href="/appointments">
+                    <FileText className="size-3.5" />
+                    Full Schedule
+                  </a>
                 </Button>
               </CardAction>
             </CardHeader>
@@ -385,7 +437,7 @@ export function DoctorDashboardContent() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-3">
-                {admissions.slice(0, 3).map((ds) => (
+                {pendingDischarges.slice(0, 3).map((ds: any) => (
                   <div key={ds.id} className="flex flex-col sm:flex-row sm:items-center gap-3 rounded-lg border p-4 hover:bg-muted/50 transition-colors">
                     <div className="flex items-start gap-3 flex-1 min-w-0">
                       <Avatar className="size-10 mt-0.5 shrink-0">
@@ -416,8 +468,8 @@ export function DoctorDashboardContent() {
                     </div>
                   </div>
                 ))}
-                {admissions.length === 0 && (
-                  <p className="text-xs text-muted-foreground py-4 text-center">No inpatients currently admitted.</p>
+                {pendingDischarges.length === 0 && (
+                  <p className="text-xs text-muted-foreground py-4 text-center">No discharge summaries require your attention right now.</p>
                 )}
               </div>
             </CardContent>
@@ -437,7 +489,7 @@ export function DoctorDashboardContent() {
                 <div className="flex flex-col gap-0.5">
                   <CardTitle className="text-base">NICU Alerts</CardTitle>
                   <CardDescription>
-                    {nicuAlerts.length} critical, 0 warning
+                    {activeNicuAlerts.length} unresolved alerts
                   </CardDescription>
                 </div>
               </div>
@@ -449,9 +501,8 @@ export function DoctorDashboardContent() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-3">
-                {nicuAlerts.map((alert) => {
-                  const vital = alert.vitalsRecords![0]
-                  const isCritical = true // Hardcoded for demo since we pulled it by logic
+                {activeNicuAlerts.map((alert: any) => {
+                  const isCritical = alert.severity === 'CRITICAL'
                   return (
                     <div
                       key={alert.id}
@@ -473,9 +524,9 @@ export function DoctorDashboardContent() {
                           <span className="text-sm font-semibold text-foreground leading-tight">{alert.patient.firstName} {alert.patient.lastName}</span>
                           <Badge
                             variant={isCritical ? "destructive" : "outline"}
-                            className={cn("text-[9px] shrink-0 uppercase tracking-wider", !isCritical && "border-amber-300 text-amber-700 bg-amber-50")}
+                            className={cn("text-[8px] sm:text-[9px] shrink-0 uppercase tracking-wider", !isCritical && "border-amber-300 text-amber-700 bg-amber-50")}
                           >
-                            CRITICAL
+                            {alert.severity}
                           </Badge>
                         </div>
                         <span className="text-xs text-muted-foreground">{alert.currentBed?.bedNumber}</span>
@@ -484,11 +535,11 @@ export function DoctorDashboardContent() {
                           isCritical ? "bg-destructive/10 text-destructive" : "bg-amber-500/10 text-amber-700"
                         )}>
                           <HeartPulse className="size-3" />
-                          {vital.spo2 < 90 ? `SpO2: ${vital.spo2}% (Low)` : `HR: ${vital.heartRate} (High)`}
+                          {alert.alertMessage}
                         </div>
                         <p className="text-xs text-foreground/70 leading-relaxed mt-0.5">Automated vital alert generated from monitor</p>
                         <div className="flex items-center justify-between mt-1">
-                          <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(vital.recordedAt), { addSuffix: true })}</span>
+                          <span className="text-[10px] text-muted-foreground">{formatDistanceToNow(new Date(alert.recordedAt), { addSuffix: true })}</span>
                           <Button variant="ghost" size="sm" className={cn(
                             "text-[10px] h-6 px-2",
                             isCritical ? "text-destructive hover:text-destructive" : "text-primary hover:text-primary"
@@ -500,8 +551,8 @@ export function DoctorDashboardContent() {
                     </div>
                   )
                 })}
-                {nicuAlerts.length === 0 && (
-                  <p className="text-xs text-muted-foreground py-4 text-center">No critical NICU alerts at this time.</p>
+                {activeNicuAlerts.length === 0 && (
+                  <p className="text-xs text-muted-foreground py-4 text-center">No NICU alerts at this time.</p>
                 )}
                 <Button variant="outline" size="sm" className="text-xs gap-1.5 w-full mt-1">
                   <Baby className="size-3.5" />
@@ -522,10 +573,10 @@ export function DoctorDashboardContent() {
               </div>
               <CardAction>
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Previous month">
+                  <Button variant="ghost" size="icon-sm" className="size-7" onClick={prevMonth} aria-label="Previous month">
                     <ChevronLeft className="size-4" />
                   </Button>
-                  <Button variant="ghost" size="icon-sm" className="size-7" aria-label="Next month">
+                  <Button variant="ghost" size="icon-sm" className="size-7" onClick={nextMonth} aria-label="Next month">
                     <ChevronRight className="size-4" />
                   </Button>
                 </div>
@@ -533,7 +584,9 @@ export function DoctorDashboardContent() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-3">
-                <span className="text-sm font-semibold text-foreground text-center">{monthName}</span>
+                <span className="text-sm font-semibold text-foreground text-center">
+                  {currentDate.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+                </span>
 
                 {/* Weekday headers */}
                 <div className="grid grid-cols-7 gap-1">
@@ -550,9 +603,16 @@ export function DoctorDashboardContent() {
                     <button
                       key={i}
                       disabled={day.day === 0}
+                      onClick={() => {
+                        if (day.day > 0) {
+                          const d = new Date(currentDate.getFullYear(), currentDate.getMonth(), day.day)
+                          setSelectedDate(d)
+                        }
+                      }}
                       className={cn(
                         "relative flex flex-col items-center justify-center aspect-square rounded-lg text-xs transition-colors",
-                        day.day === 0 && "invisible",
+                        day.day === 0 && "invisible pointer-events-none",
+                        day.isSelected && !day.isToday && "ring-2 ring-primary/50 text-foreground ring-offset-1 bg-muted/50 font-bold",
                         day.isToday
                           ? "bg-primary text-primary-foreground font-bold"
                           : day.hasAppointments
@@ -603,20 +663,26 @@ export function DoctorDashboardContent() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-col gap-3">
-                {[
-                  { label: "Inpatients Under Care", value: "14", sub: "3 wards" },
-                  { label: "Lab Reports to Review", value: "6", sub: "2 critical" },
-                  { label: "Prescriptions Today", value: "22", sub: "3 pending sign" },
-                  { label: "Pending Referrals", value: "2", sub: "1 urgent" },
-                ].map((item) => (
-                  <div key={item.label} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                    <div className="flex flex-col">
-                      <span className="text-sm text-foreground">{item.label}</span>
-                      <span className="text-[11px] text-muted-foreground">{item.sub}</span>
-                    </div>
-                    <span className="text-lg font-bold text-foreground">{item.value}</span>
+                {workloadLoading ? (
+                  <div className="flex items-center justify-center p-4">
+                    <span className="text-sm text-muted-foreground animate-pulse">Loading stats...</span>
                   </div>
-                ))}
+                ) : (
+                  [
+                    { label: "Inpatients Under Care", value: workload?.inpatients?.toString() || "0", sub: "Active Admits" },
+                    { label: "Lab Reports to Review", value: workload?.labReports?.toString() || "0", sub: "Pending/Partial" },
+                    { label: "Prescriptions Today", value: workload?.prescriptionsToday?.toString() || "0", sub: "Issued Today" },
+                    { label: "Pending Referrals", value: workload?.pendingReferrals?.toString() || "0", sub: "Required Action" },
+                  ].map((item) => (
+                    <div key={item.label} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                      <div className="flex flex-col">
+                        <span className="text-sm text-foreground">{item.label}</span>
+                        <span className="text-[11px] text-muted-foreground">{item.sub}</span>
+                      </div>
+                      <span className="text-lg font-bold text-foreground">{item.value}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </CardContent>
           </Card>

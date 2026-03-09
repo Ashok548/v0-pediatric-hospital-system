@@ -21,8 +21,15 @@ export declare class PharmacyService {
         lowStockCount: any;
         urgentCount: any;
     }>;
+    getLowStockInventory(): Promise<any>;
     checkClearance(admissionId: string): Promise<{
         cleared: boolean;
         pendingPrescriptions: any;
     }>;
+    adjustStock(medicationId: string, dto: {
+        quantity: number;
+        batchNumber?: string;
+        reason?: string;
+        performedBy: string;
+    }): Promise<any>;
 }

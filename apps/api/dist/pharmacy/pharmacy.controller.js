@@ -26,6 +26,14 @@ let PharmacyController = class PharmacyController {
         const result = await this.pharmacyService.getInventory();
         return { data: result };
     }
+    async getLowStockInventory() {
+        const result = await this.pharmacyService.getLowStockInventory();
+        return { data: result };
+    }
+    async adjustStock(medicationId, dto, req) {
+        const result = await this.pharmacyService.adjustStock(medicationId, { ...dto, performedBy: req.user?.id || 'SYSTEM' });
+        return { success: true, data: result };
+    }
     async getPrescriptions(query) {
         const result = await this.pharmacyService.getPrescriptions(query);
         return { data: result };
@@ -64,6 +72,21 @@ __decorate([
     __metadata("design:paramtypes", []),
     __metadata("design:returntype", Promise)
 ], PharmacyController.prototype, "getInventory", null);
+__decorate([
+    (0, common_1.Get)('inventory/low-stock'),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", []),
+    __metadata("design:returntype", Promise)
+], PharmacyController.prototype, "getLowStockInventory", null);
+__decorate([
+    (0, common_1.Post)('inventory/:medicationId/adjust'),
+    __param(0, (0, common_1.Param)('medicationId')),
+    __param(1, (0, common_1.Body)()),
+    __param(2, (0, common_1.Req)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, pharmacy_dto_1.AdjustStockDto, Object]),
+    __metadata("design:returntype", Promise)
+], PharmacyController.prototype, "adjustStock", null);
 __decorate([
     (0, common_1.Get)('prescriptions'),
     __param(0, (0, common_1.Query)()),

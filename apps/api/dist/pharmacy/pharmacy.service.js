@@ -246,15 +246,12 @@ let PharmacyService = class PharmacyService {
     async getStats() {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const [totalActive, pending, partial, dispensedToday, lowStockCount, urgentCount] = await Promise.all([
+        const [totalActive, pending, partial, dispensedToday, urgentCount] = await Promise.all([
             this.prisma.prescription.count(),
             this.prisma.prescription.count({ where: { status: 'PENDING' } }),
             this.prisma.prescription.count({ where: { status: 'PARTIAL' } }),
             this.prisma.prescription.count({
                 where: { status: 'DISPENSED', dispensedAt: { gte: today } }
-            }),
-            this.prisma.medication.count({
-                where: { stockAvailable: { lte: 10 } }
             }),
             this.prisma.prescription.count({
                 where: {
@@ -265,6 +262,8 @@ let PharmacyService = class PharmacyService {
                 }
             })
         ]);
+        const allMeds = await this.prisma.medication.findMany({ select: { stockAvailable: true, reorderLevel: true } });
+        const lowStockCount = allMeds.filter((m) => m.stockAvailable <= m.reorderLevel).length;
         return {
             totalActive,
             pending,
@@ -273,6 +272,53 @@ let PharmacyService = class PharmacyService {
             lowStockCount,
             urgentCount
         };
+    }
+    async getLowStockInventory() {
+        const meds = await this.prisma.medication.findMany({
+            include: {
+                adjustments: {
+                    where: { expiryDate: { not: null } },
+                    select: { expiryDate: true }
+                }
+            }
+        });
+        const lowStock = meds.filter((m) => m.stockAvailable <= m.reorderLevel);
+        const thirtyDaysFromNow = new Date();
+        thirtyDaysFromNow.setDate(thirtyDaysFromNow.getDate() + 30);
+        const withSeverity = lowStock.map((m) => {
+            let severity = 'LOW';
+            if (m.stockAvailable === 0) {
+                severity = 'CRITICAL';
+            }
+            else if (m.stockAvailable <= m.reorderLevel / 2) {
+                severity = 'WARNING';
+            }
+            const suggestedOrderQty = Math.max(0, (m.reorderLevel * 2) - m.stockAvailable);
+            let earliestExpiry = null;
+            let expiringSoon = false;
+            if (m.adjustments && m.adjustments.length > 0) {
+                const futureExpiries = m.adjustments
+                    .map((adj) => adj.expiryDate)
+                    .filter((date) => date > new Date())
+                    .sort((a, b) => a.getTime() - b.getTime());
+                if (futureExpiries.length > 0) {
+                    earliestExpiry = futureExpiries[0];
+                    if (earliestExpiry && earliestExpiry <= thirtyDaysFromNow) {
+                        expiringSoon = true;
+                    }
+                }
+            }
+            const { adjustments, ...rest } = m;
+            return {
+                ...rest,
+                severity,
+                deficit: m.reorderLevel - m.stockAvailable,
+                suggestedOrderQty,
+                earliestExpiry,
+                expiringSoon
+            };
+        });
+        return withSeverity.sort((a, b) => b.deficit - a.deficit);
     }
     async checkClearance(admissionId) {
         const pendingRx = await this.prisma.prescription.findMany({
@@ -291,6 +337,37 @@ let PharmacyService = class PharmacyService {
             cleared: pendingRx.length === 0,
             pendingPrescriptions: pendingRx
         };
+    }
+    async adjustStock(medicationId, dto) {
+        return this.prisma.$transaction(async (tx) => {
+            const medication = await tx.medication.findUnique({
+                where: { id: medicationId },
+                select: { id: true, stockAvailable: true, drugName: true }
+            });
+            if (!medication) {
+                throw new Error('Medication not found');
+            }
+            const newStock = medication.stockAvailable + dto.quantity;
+            if (newStock < 0) {
+                throw new Error(`Insufficient stock for ${medication.drugName}. Current: ${medication.stockAvailable}, Attempted deduction: ${Math.abs(dto.quantity)}`);
+            }
+            const adjustmentType = dto.quantity > 0 ? 'RESTOCK' : 'WRITE_OFF';
+            const adjustment = await tx.stockAdjustment.create({
+                data: {
+                    medicationId,
+                    adjustmentType,
+                    quantity: dto.quantity,
+                    batchNumber: dto.batchNumber,
+                    reason: dto.reason,
+                    performedBy: dto.performedBy
+                }
+            });
+            await tx.medication.update({
+                where: { id: medicationId },
+                data: { stockAvailable: newStock }
+            });
+            return adjustment;
+        });
     }
 };
 exports.PharmacyService = PharmacyService;

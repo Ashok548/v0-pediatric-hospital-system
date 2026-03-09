@@ -27,12 +27,16 @@ const billing_module_1 = require("./billing/billing.module");
 const reports_module_1 = require("./reports/reports.module");
 const appointments_module_1 = require("./appointments/appointments.module");
 const pharmacy_module_1 = require("./pharmacy/pharmacy.module");
+const consultations_module_1 = require("./consultations/consultations.module");
+const labs_module_1 = require("./labs/labs.module");
+const vaccinations_module_1 = require("./vaccinations/vaccinations.module");
+const settings_module_1 = require("./settings/settings.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
 exports.AppModule = AppModule = __decorate([
     (0, common_1.Module)({
-        imports: [config_1.ConfigModule.forRoot({ isGlobal: true }), auth_module_1.AuthModule, users_module_1.UsersModule, roles_module_1.RolesModule, master_module_1.MasterModule, patients_module_1.PatientsModule, admissions_module_1.AdmissionsModule, nicu_module_1.NicuModule, growth_module_1.GrowthModule, nursing_module_1.NursingModule, billing_module_1.BillingModule, reports_module_1.ReportsModule, appointments_module_1.AppointmentsModule, pharmacy_module_1.PharmacyModule],
+        imports: [config_1.ConfigModule.forRoot({ isGlobal: true }), auth_module_1.AuthModule, users_module_1.UsersModule, roles_module_1.RolesModule, master_module_1.MasterModule, patients_module_1.PatientsModule, admissions_module_1.AdmissionsModule, nicu_module_1.NicuModule, growth_module_1.GrowthModule, nursing_module_1.NursingModule, billing_module_1.BillingModule, reports_module_1.ReportsModule, appointments_module_1.AppointmentsModule, pharmacy_module_1.PharmacyModule, consultations_module_1.ConsultationsModule, labs_module_1.LabsModule, vaccinations_module_1.VaccinationsModule, settings_module_1.SettingsModule],
         controllers: [app_controller_1.AppController],
         providers: [
             app_service_1.AppService,

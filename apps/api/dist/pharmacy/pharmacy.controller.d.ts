@@ -1,9 +1,16 @@
 import { PharmacyService } from './pharmacy.service';
-import { CreatePrescriptionDto, DispensePrescriptionDto, GetPrescriptionsQueryDto } from './dto/pharmacy.dto';
+import { CreatePrescriptionDto, DispensePrescriptionDto, GetPrescriptionsQueryDto, AdjustStockDto } from './dto/pharmacy.dto';
 export declare class PharmacyController {
     private readonly pharmacyService;
     constructor(pharmacyService: PharmacyService);
     getInventory(): Promise<{
+        data: any;
+    }>;
+    getLowStockInventory(): Promise<{
+        data: any;
+    }>;
+    adjustStock(medicationId: string, dto: AdjustStockDto, req: any): Promise<{
+        success: boolean;
         data: any;
     }>;
     getPrescriptions(query: GetPrescriptionsQueryDto): Promise<{

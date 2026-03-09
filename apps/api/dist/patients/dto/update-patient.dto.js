@@ -29,7 +29,7 @@ class UpdatePatientDto {
     address;
     city;
     state;
-    pincode;
+    allergies;
 }
 exports.UpdatePatientDto = UpdatePatientDto;
 __decorate([
@@ -124,6 +124,8 @@ __decorate([
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.Matches)(/^\d{6}$/, { message: "Pincode must be exactly 6 digits" }),
-    __metadata("design:type", String)
-], UpdatePatientDto.prototype, "pincode", void 0);
+    (0, class_validator_1.IsOptional)(),
+    (0, class_validator_1.IsString)({ each: true }),
+    __metadata("design:type", Array)
+], UpdatePatientDto.prototype, "allergies", void 0);
 //# sourceMappingURL=update-patient.dto.js.map

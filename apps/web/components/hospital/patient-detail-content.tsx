@@ -30,6 +30,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@/hooks/use-query"
 import { usePatientAdmissions } from "@/lib/api/admissions"
+import { usePatientLabOrders } from "@/lib/api/labs"
+import { usePatientVaccinations } from "@/lib/api/vaccinations"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -149,6 +151,8 @@ function DetailSkeleton() {
 export function PatientDetailContent({ patientId }: { patientId: string }) {
     const { data: patient, isLoading, error } = useQuery<ApiPatient>(`/patients/${patientId}`)
     const { admissions: admissionHistory, isLoading: admLoading } = usePatientAdmissions(patient?.id ?? null)
+    const { orders: labOrders } = usePatientLabOrders(patient?.id ?? null)
+    const { schedule: vaccineSchedule } = usePatientVaccinations(patient?.id ?? null)
 
     // Loading state
     if (isLoading) return <DetailSkeleton />
@@ -392,10 +396,79 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                     </CardContent>
                 </Card>
 
-                {/* ── Placeholder for future modules ─────────────────────────────── */}
-                <div className="flex items-center gap-3 rounded-lg border border-dashed border-border px-4 py-3 text-xs text-muted-foreground">
-                    <Loader2 className="size-3.5 shrink-0 opacity-40" />
-                    Appointment history, lab results, and patient timeline will appear here once those modules are connected.
+                {/* ── Connected EMR Modules Preview ─────────────────────────────── */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    {/* Labs Mini Card */}
+                    <Card className="py-0">
+                        <CardHeader className="px-5 pt-4 pb-2">
+                            <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                                <span className="flex items-center gap-2">
+                                    <Activity className="size-4 text-primary" /> Recent Labs
+                                </span>
+                                <Link href={`/lab`} className="text-xs text-primary hover:underline">View All</Link>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-5 pb-4 pt-0">
+                            {labOrders.length === 0 ? (
+                                <p className="text-xs text-muted-foreground pt-2">No recent labs.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2 pt-2">
+                                    {labOrders.slice(0, 3).map((order: any) => (
+                                        <div key={order.id} className="flex justify-between items-center text-xs border-b last:border-0 pb-2 last:pb-0">
+                                            <div className="flex flex-col">
+                                                <span className="font-semibold">{order.orderNumber}</span>
+                                                <span className="text-muted-foreground">{new Date(order.orderDate).toLocaleDateString()}</span>
+                                            </div>
+                                            <Badge variant={order.status === "FINALIZED" ? "secondary" : "outline"} className="text-[10px]">
+                                                {order.status}
+                                            </Badge>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Vaccines Mini Card */}
+                    <Card className="py-0">
+                        <CardHeader className="px-5 pt-4 pb-2">
+                            <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                                <span className="flex items-center gap-2">
+                                    <Syringe className="size-4 text-primary" /> Vaccination Progress
+                                </span>
+                                <Link href={`/vaccination`} className="text-xs text-primary hover:underline">View Chart</Link>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-5 pb-4 pt-0">
+                            {vaccineSchedule.length === 0 ? (
+                                <p className="text-xs text-muted-foreground pt-2">No schedule generated yet.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2 pt-2">
+                                    {vaccineSchedule.slice(0, 3).map((vax: any) => (
+                                        <div key={vax.id} className="flex justify-between items-center text-xs border-b last:border-0 pb-2 last:pb-0">
+                                            <div className="flex flex-col">
+                                                <span className="font-semibold">{vax.vaccineName}</span>
+                                                <span className="text-muted-foreground">{vax.ageLabel}</span>
+                                            </div>
+                                            {vax.status === "COMPLETED" ? (
+                                                <Badge className="text-[10px] bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border-emerald-200">
+                                                    Completed
+                                                </Badge>
+                                            ) : vax.status === "MISSED" ? (
+                                                <Badge variant="destructive" className="text-[10px]">
+                                                    Missed
+                                                </Badge>
+                                            ) : (
+                                                <Badge variant="outline" className="text-[10px]">
+                                                    Upcoming
+                                                </Badge>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
                 </div>
             </div>
         </>

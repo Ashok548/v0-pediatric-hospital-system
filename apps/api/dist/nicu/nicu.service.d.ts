@@ -11,4 +11,6 @@ export declare class NicuService {
     findVitals(admissionId: string): Promise<any>;
     recordVitals(admissionId: string, dto: CreateVitalsDto, recordedBy?: string): Promise<any>;
     deleteVitals(vitalsId: string): Promise<any>;
+    getCriticalAlerts(): Promise<any[]>;
+    acknowledgeAlert(vitalsId: string, userId?: string): Promise<any>;
 }

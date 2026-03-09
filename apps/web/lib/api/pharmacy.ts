@@ -12,6 +12,12 @@ export interface ApiMedication {
     unit: string;
     unitPrice: number;
     stockAvailable: number;
+    reorderLevel: number;
+    severity?: 'CRITICAL' | 'WARNING' | 'LOW';
+    deficit?: number;
+    suggestedOrderQty?: number;
+    earliestExpiry?: string;
+    expiringSoon?: boolean;
 }
 
 export interface ApiPrescriptionItem {
@@ -77,6 +83,20 @@ export function usePharmacyInventory() {
     };
 }
 
+export function useLowStockInventory() {
+    const { data, error, mutate, isLoading } = useSWR<{ data: ApiMedication[] }>(
+        '/pharmacy/inventory/low-stock',
+        fetcher,
+        { refreshInterval: 60000 }
+    );
+    return {
+        lowStock: data?.data ?? [],
+        isLoading,
+        error,
+        mutate,
+    };
+}
+
 export function usePrescriptions(params?: { status?: string; search?: string; admissionId?: string }) {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.set('status', params.status);
@@ -124,6 +144,10 @@ export async function returnPrescription(id: string, reason: string) {
 
 export async function createPrescription(payload: any) {
     return apiClient(`/pharmacy/prescriptions`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+export async function adjustStock(medicationId: string, payload: { quantity: number; batchNumber?: string; reason?: string }) {
+    return apiClient<{ success: boolean; data: any }>(`/pharmacy/inventory/${medicationId}/adjust`, { method: "POST", body: JSON.stringify(payload) });
 }
 
 export function usePharmacyClearance(admissionId: string) {

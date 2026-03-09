@@ -10,3 +10,10 @@ node_modules/
 .DS_Store
 .turbo/
 /api/dist/
+/apps/web/test-results/
+/apps/web/playwright-report/
+
+# Playwright
+**/playwright-report/
+**/test-results/
+/apps/web/test-results/*

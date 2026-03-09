@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { PharmacyService } from './pharmacy.service';
-import { CreatePrescriptionDto, DispensePrescriptionDto, GetPrescriptionsQueryDto } from './dto/pharmacy.dto';
+import { CreatePrescriptionDto, DispensePrescriptionDto, GetPrescriptionsQueryDto, AdjustStockDto } from './dto/pharmacy.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -12,6 +12,26 @@ export class PharmacyController {
     async getInventory() {
         const result = await this.pharmacyService.getInventory();
         return { data: result };
+    }
+
+    @Get('inventory/low-stock')
+    async getLowStockInventory() {
+        const result = await this.pharmacyService.getLowStockInventory();
+        return { data: result };
+    }
+
+    @Post('inventory/:medicationId/adjust')
+    async adjustStock(
+        @Param('medicationId') medicationId: string,
+        @Body() dto: AdjustStockDto,
+        @Req() req: any
+    ) {
+        // Assume req.user.id is populated by JwtAuthGuard
+        const result = await this.pharmacyService.adjustStock(
+            medicationId,
+            { ...dto, performedBy: req.user?.id || 'SYSTEM' }
+        );
+        return { success: true, data: result };
     }
 
     @Get('prescriptions')

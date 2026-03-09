@@ -15,7 +15,7 @@ const database_1 = require("@carenest/database");
 let ReportsService = class ReportsService {
     prisma = database_1.prisma;
     constructor() { }
-    async getKpis() {
+    async getKpis(customStart, customEnd) {
         const totalPatients = await this.prisma.admission.count({
             where: { status: database_1.AdmissionStatus.ADMITTED },
         });
@@ -31,6 +31,12 @@ let ReportsService = class ReportsService {
         today.setHours(0, 0, 0, 0);
         const tomorrow = new Date(today);
         tomorrow.setDate(tomorrow.getDate() + 1);
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end)
+            end.setHours(23, 59, 59, 999);
+        const periodStart = start || new Date(today.getFullYear(), today.getMonth(), 1);
+        const periodEnd = end || new Date(tomorrow.getTime() - 1);
         const revenueTodayAggr = await this.prisma.payment.aggregate({
             _sum: { amount: true },
             where: {
@@ -41,16 +47,27 @@ let ReportsService = class ReportsService {
             },
         });
         const revenueToday = Number(revenueTodayAggr._sum.amount || 0);
-        const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
         const revenueMonthAggr = await this.prisma.payment.aggregate({
             _sum: { amount: true },
             where: {
                 paymentDate: {
-                    gte: firstDayOfMonth,
+                    gte: periodStart,
+                    lte: periodEnd,
                 },
             },
         });
         const revenueThisMonth = Number(revenueMonthAggr._sum.amount || 0);
+        const vaccinationsThisMonth = await this.prisma.patientVaccine.count({
+            where: {
+                administeredDate: { gte: periodStart, lte: periodEnd },
+                status: "ADMINISTERED"
+            }
+        });
+        const labsThisMonth = await this.prisma.labOrder.count({
+            where: {
+                orderDate: { gte: periodStart, lte: periodEnd }
+            }
+        });
         return {
             totalPatients,
             bedOccupancy: {
@@ -65,6 +82,8 @@ let ReportsService = class ReportsService {
             },
             revenueToday,
             revenueThisMonth,
+            vaccinationsThisMonth,
+            labsThisMonth,
         };
     }
     async getAdmissionsTrend(months = 6) {
@@ -122,7 +141,7 @@ let ReportsService = class ReportsService {
         });
         const result = [];
         for (let i = weeks; i >= 1; i--) {
-            result.push({ week: `Week ${i} Ago`, revenue: 0, target: 400000 });
+            result.push({ week: `Week ${i} Ago`, revenue: 0 });
         }
         result[weeks - 1].week = "This Week";
         const millisecondsPerWeek = 7 * 24 * 60 * 60 * 1000;
@@ -137,12 +156,18 @@ let ReportsService = class ReportsService {
         });
         return result;
     }
-    async getDepartmentCensus() {
+    async getDepartmentCensus(customStart, customEnd) {
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end)
+            end.setHours(23, 59, 59, 999);
+        const whereClause = { status: database_1.AdmissionStatus.ADMITTED };
+        if (start && end) {
+            whereClause.admissionDate = { gte: start, lte: end };
+        }
         const admissions = await this.prisma.admission.groupBy({
             by: ['department'],
-            where: {
-                status: database_1.AdmissionStatus.ADMITTED,
-            },
+            where: whereClause,
             _count: {
                 _all: true,
             },
@@ -154,14 +179,24 @@ let ReportsService = class ReportsService {
             color: colors[index % colors.length],
         })).sort((a, b) => b.value - a.value);
     }
-    async getTopDiagnoses(limit = 6) {
+    async getTopDiagnoses(limit = 6, customStart, customEnd) {
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end)
+            end.setHours(23, 59, 59, 999);
+        const whereClause = { initialDiagnosis: { not: null } };
+        if (start && end) {
+            whereClause.admissionDate = { gte: start, lte: end };
+        }
+        else if (start) {
+            whereClause.admissionDate = { gte: start };
+        }
+        else if (end) {
+            whereClause.admissionDate = { lte: end };
+        }
         const diagnoses = await this.prisma.admission.groupBy({
             by: ['initialDiagnosis'],
-            where: {
-                initialDiagnosis: {
-                    not: null,
-                },
-            },
+            where: whereClause,
             _count: {
                 _all: true,
             },
@@ -173,6 +208,124 @@ let ReportsService = class ReportsService {
             count: d._count._all,
             trend: "stable",
         }));
+    }
+    async getVaccinationTrend(days = 7) {
+        const today = new Date();
+        today.setHours(23, 59, 59, 999);
+        const startDate = new Date(today);
+        startDate.setDate(today.getDate() - (days - 1));
+        startDate.setHours(0, 0, 0, 0);
+        const vaccines = await this.prisma.patientVaccine.findMany({
+            where: {
+                status: 'ADMINISTERED',
+                administeredDate: {
+                    gte: startDate,
+                    lte: today,
+                },
+            },
+            select: {
+                administeredDate: true,
+            },
+        });
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const result = {};
+        for (let i = 0; i < days; i++) {
+            const d = new Date(startDate);
+            d.setDate(startDate.getDate() + i);
+            const dateStr = d.toISOString().split('T')[0];
+            result[dateStr] = {
+                day: dayNames[d.getDay()],
+                count: 0,
+                rawDate: d
+            };
+        }
+        vaccines.forEach((v) => {
+            if (v.administeredDate) {
+                const dateStr = v.administeredDate.toISOString().split('T')[0];
+                if (result[dateStr]) {
+                    result[dateStr].count++;
+                }
+            }
+        });
+        const sorted = Object.values(result).sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime());
+        return sorted.map(({ day, count }) => ({ day, count }));
+    }
+    async generateExportCsv(customStart, customEnd) {
+        const start = customStart ? new Date(customStart) : null;
+        const end = customEnd ? new Date(customEnd) : null;
+        if (end)
+            end.setHours(23, 59, 59, 999);
+        let csv = '';
+        const formatDate = (date) => date.toISOString().split('T')[0];
+        const escapeCsv = (str) => {
+            if (!str)
+                return '""';
+            const s = String(str).replace(/"/g, '""');
+            return `"${s}"`;
+        };
+        csv += '=== SUMMARY ===\n';
+        csv += 'Metric,Value\n';
+        const kpis = await this.getKpis(customStart, customEnd);
+        csv += `Report Period,${customStart || 'All Time'} to ${customEnd || 'Present'}\n`;
+        csv += `Total Admissions in Period,${kpis.totalPatients}\n`;
+        csv += `Bed Occupancy,${kpis.bedOccupancy.percentage}%\n`;
+        csv += `NICU Occupancy,${kpis.nicuOccupancy.percentage}%\n`;
+        csv += `Revenue in Period,${kpis.revenueThisMonth}\n`;
+        csv += `Vaccinations in Period,${kpis.vaccinationsThisMonth}\n`;
+        csv += `Lab Tests in Period,${kpis.labsThisMonth}\n`;
+        csv += '\n\n';
+        csv += '=== ADMISSIONS DETAIL ===\n';
+        csv += 'Patient Name,UHID,Admission Date,Department,Diagnosis,Status\n';
+        const whereClause = {};
+        if (start && end) {
+            whereClause.admissionDate = { gte: start, lte: end };
+        }
+        else if (start) {
+            whereClause.admissionDate = { gte: start };
+        }
+        else if (end) {
+            whereClause.admissionDate = { lte: end };
+        }
+        const admissions = await this.prisma.admission.findMany({
+            where: whereClause,
+            include: { patient: true },
+            orderBy: { admissionDate: 'desc' }
+        });
+        if (admissions.length === 0) {
+            csv += 'No admissions recorded in this period\n';
+        }
+        else {
+            for (const adm of admissions) {
+                const name = `${adm.patient.firstName} ${adm.patient.lastName}`;
+                csv += `${escapeCsv(name)},${escapeCsv(adm.patient.uhid)},${formatDate(adm.admissionDate)},${escapeCsv(adm.department)},${escapeCsv(adm.initialDiagnosis)},${adm.status}\n`;
+            }
+        }
+        csv += '\n\n';
+        csv += '=== REVENUE BREAKDOWN ===\n';
+        csv += 'Payment Date,Amount,Payment Mode,Transaction Ref\n';
+        const paymentWhere = {};
+        if (start && end) {
+            paymentWhere.paymentDate = { gte: start, lte: end };
+        }
+        else if (start) {
+            paymentWhere.paymentDate = { gte: start };
+        }
+        else if (end) {
+            paymentWhere.paymentDate = { lte: end };
+        }
+        const payments = await this.prisma.payment.findMany({
+            where: paymentWhere,
+            orderBy: { paymentDate: 'desc' }
+        });
+        if (payments.length === 0) {
+            csv += 'No payments recorded in this period\n';
+        }
+        else {
+            for (const p of payments) {
+                csv += `${formatDate(p.paymentDate)},${p.amount},${p.paymentMode},${escapeCsv(p.transactionRef)}\n`;
+            }
+        }
+        return csv;
     }
 };
 exports.ReportsService = ReportsService;

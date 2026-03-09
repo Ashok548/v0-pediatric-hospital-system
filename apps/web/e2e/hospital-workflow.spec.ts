@@ -29,24 +29,29 @@ test.describe('Full Hospital Workflow - Happy Path', () => {
             // Wait for the login form to appear
             await expect(page.getByRole('heading', { level: 2, name: /Sign in to your account/i })).toBeVisible();
 
-            // Since the backend API might still be booting up in the test environment, we retry the login an extra time if it fails
             await page.getByPlaceholder('you@carenest.com').fill('admin@carenest.com');
             await page.getByPlaceholder('••••••••').fill('Admin@1234');
 
-            await expect(async () => {
-                await page.getByRole('button', { name: 'Sign in' }).click();
-                // If error banner appears, it throws and retries
-                const errorBanner = page.getByText('Unable to connect to server. Please try again.');
-                if (await errorBanner.isVisible()) {
-                    throw new Error('Backend not ready');
-                }
-                // Wait for dashboard to load to confirm login was successful
-                await expect(page.getByRole('heading', { level: 2, name: /Sign in to your account/i })).toBeHidden({ timeout: 5000 });
-            }).toPass({
-                intervals: [5000, 10000, 15000],
-                timeout: 120000
-            });
+            // Click sign in and wait for navigation
+            await page.getByRole('button', { name: 'Sign in' }).click();
 
+            // Check for potential errors
+            const invalidCreds = page.getByText(/Invalid email or password/i);
+            const serverError = page.getByText(/Unable to connect to server/i);
+
+            if (await invalidCreds.isVisible()) {
+                throw new Error('Login failed: Invalid email or password. Verify seed data.');
+            }
+            if (await serverError.isVisible()) {
+                throw new Error('Login failed: Backend server is unreachable.');
+            }
+
+            // Wait for dashboard to load to confirm login was successful
+            // We look for the "Dashboard" sidebar link
+            await expect(page.getByRole('link', { name: /Dashboard/i })).toBeVisible({ timeout: 15000 });
+            await expect(page.getByRole('heading', { level: 2, name: /Sign in to your account/i })).toBeHidden();
+
+            console.log('✅ Logged in successfully');
         });
 
         // =========================================================================
