@@ -1,11 +1,13 @@
 import {
     Injectable,
     NotFoundException,
+    ConflictException,
 } from "@nestjs/common";
 import { prisma } from "@carenest/database";
 import { CreateServiceDto } from "./dto/create-service.dto";
 import { UpdateServiceDto } from "./dto/update-service.dto";
 import { QueryServicesDto } from "./dto/query-services.dto";
+import { STANDARD_PEDIATRIC_SERVICES } from "./services-template";
 
 @Injectable()
 export class ServicesService {
@@ -15,16 +17,38 @@ export class ServicesService {
         // Auto-generate code if missing (e.g., LAB-CBC)
         const code = dto.code || `${dto.category.substring(0, 3)}-${dto.name.substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 1000)}`;
 
-        const existing = await prisma.service.findUnique({
-            where: { name_category: { name: dto.name, category: dto.category } }
+        // Check for duplicate code/name within category
+        const existing = await prisma.service.findFirst({
+            where: {
+                OR: [
+                    { code: dto.code },
+                    { name: dto.name, category: dto.category },
+                ],
+            },
         });
-        if (existing) {
-            import('@nestjs/common').then(m => { throw new m.ConflictException(`Service with name '${dto.name}' already exists in category '${dto.category}'`) });
-        }
 
+        if (existing) {
+            throw new ConflictException(
+                `Service with code '${dto.code}' or name '${dto.name}' already exists in category ${dto.category}`
+            );
+        }
         return prisma.service.create({
             data: { ...dto, code }
         });
+    }
+
+    // ─── Seed Template ─────────────────────────────────────────────────────────
+    async seedTemplate() {
+        const result = await prisma.service.createMany({
+            data: STANDARD_PEDIATRIC_SERVICES as any,
+            skipDuplicates: true, // Will skip if code already exists
+        });
+
+        return {
+            created: result.count,
+            skipped: STANDARD_PEDIATRIC_SERVICES.length - result.count,
+            total: STANDARD_PEDIATRIC_SERVICES.length
+        };
     }
 
     // ─── List (paginated) ──────────────────────────────────────────────────────
@@ -94,11 +118,21 @@ export class ServicesService {
     // ─── Toggle Status ───────────────────────────────────────────────────────────
     async softDelete(id: string) {
         const service = await this.findOne(id);
-        // Future-safe: check if referenced in bill_items before deactivating
-        // const billedCount = await prisma.billItem.count({ where: { serviceId: id } });
-        // if (billedCount > 0) throw new ConflictException(
-        //     "Cannot deactivate: service has existing bill records"
-        // );
+        
+        // Prevent deactivation if the service is used in any active tariff plan
+        if (service.status === "ACTIVE") {
+            const activeTariffCount = await prisma.tariffRate.count({
+                where: {
+                    serviceId: id,
+                    tariffPlan: { status: "ACTIVE" }
+                }
+            });
+            
+            if (activeTariffCount > 0) {
+                throw new ConflictException(`Cannot deactivate service: it is used in ${activeTariffCount} active tariff plan(s).`);
+            }
+        }
+        
         const newStatus = service.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
         return prisma.service.update({
             where: { id },

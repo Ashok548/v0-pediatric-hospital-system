@@ -43,6 +43,20 @@ enum ServiceCategory {
   PROCEDURE
   ROOM
   MISC
+  RESPIRATORY
+  MONITORING
+  THERAPY
+  INFUSION
+  FEEDING
+  IMAGING
+}
+
+enum BillingType {
+  DAY
+  HOUR
+  TEST
+  PROCEDURE
+  VISIT
 }
 
 model Role {
@@ -141,15 +155,16 @@ model Department {
 }
 
 model Service {
-  id         String          @id @default(uuid())
-  code       String          @unique @db.VarChar(50)
-  name       String
-  category   ServiceCategory @default(CONSULTATION)
-  basePrice  Decimal         @map("base_price") @db.Decimal(10, 2)
-  taxPercent Decimal         @default(0) @map("tax_percent") @db.Decimal(5, 2)
-  status     MasterStatus    @default(ACTIVE)
-  createdAt  DateTime        @default(now()) @map("created_at")
-  updatedAt  DateTime        @updatedAt @map("updated_at")
+  id          String          @id @default(uuid())
+  code        String          @unique @db.VarChar(50)
+  name        String
+  category    ServiceCategory @default(CONSULTATION)
+  billingType BillingType     @default(DAY) @map("billing_type")
+  basePrice   Decimal         @map("base_price") @db.Decimal(10, 2)
+  taxPercent  Decimal         @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  status      MasterStatus    @default(ACTIVE)
+  createdAt   DateTime        @default(now()) @map("created_at")
+  updatedAt   DateTime        @updatedAt @map("updated_at")
 
   @@unique([name, category])
   @@index([category])
@@ -207,12 +222,13 @@ model TariffPlan {
 
 model TariffRate {
   id              String   @id @default(uuid())
-  tariffPlanId    String   @map("tariff_plan_id")
-  serviceId       String   @map("service_id")
-  priceOverride   Decimal  @map("price_override") @db.Decimal(10, 2)
-  discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(5, 2)
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  tariffPlanId    String       @map("tariff_plan_id")
+  serviceId       String       @map("service_id")
+  priceOverride   Decimal      @map("price_override") @db.Decimal(10, 2)
+  discountPercent Decimal      @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  status          MasterStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
 
   tariffPlan TariffPlan @relation(fields: [tariffPlanId], references: [id], onDelete: Cascade)
 
@@ -364,6 +380,7 @@ model Admission {
   bills         Bill[]
   prescriptions Prescription[]
   consultations Consultation[]
+  labOrders     LabOrder[]
 
   @@index([patientId])
   @@index([status])
@@ -533,6 +550,7 @@ model Appointment {
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
   consultation    Consultation?
+  labOrders       LabOrder[]
 
   @@unique([doctorId, appointmentDate, timeSlot])
   @@index([appointmentDate])
@@ -723,6 +741,12 @@ model PrescriptionItem {
   medication     Medication   @relation(fields: [medicationId], references: [id])
   prescribedQty  Int          @map("prescribed_qty")
   dispensedQty   Int          @default(0) @map("dispensed_qty")
+  
+  dose           String?      @db.VarChar(100)
+  frequency      String?      @db.VarChar(100)
+  duration       Int?         // in days
+  instructions   String?      @db.Text
+  
   createdAt      DateTime     @default(now()) @map("created_at")
 
   @@index([prescriptionId])
@@ -772,8 +796,18 @@ model LabOrderSequence {
 model LabOrder {
   id              String   @id @default(uuid())
   orderNumber     String   @unique @map("order_number") @db.VarChar(20)
+
   patientId       String   @map("patient_id") @db.Uuid
   patient         Patient  @relation(fields: [patientId], references: [id])
+
+  admissionId     String?  @map("admission_id")
+  admission       Admission? @relation(fields: [admissionId], references: [id])
+
+  appointmentId   String?  @map("appointment_id")
+  appointment     Appointment? @relation(fields: [appointmentId], references: [id])
+
+  patientType     String   @default("INPATIENT") @map("patient_type") @db.VarChar(20)
+
   doctorId        String   @map("doctor_id")
   doctor          User     @relation("LabOrderDoctor", fields: [doctorId], references: [id])
   status          String   @default("PENDING") @db.VarChar(20)
@@ -786,6 +820,8 @@ model LabOrder {
   panels LabResultPanel[]
 
   @@index([patientId])
+  @@index([admissionId])
+  @@index([appointmentId])
   @@index([status])
   @@index([orderDate])
   @@map("lab_orders")

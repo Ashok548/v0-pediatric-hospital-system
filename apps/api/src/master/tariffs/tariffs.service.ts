@@ -16,6 +16,8 @@ export class TariffsService {
         const nameExists = await prisma.tariffPlan.findUnique({ where: { name: dto.name } });
         if (nameExists) throw new ConflictException(`Tariff plan with name '${dto.name}' already exists`);
 
+        await this.assertNoDateOverlap(dto.effectiveFrom, dto.effectiveTo, dto.wardType);
+
         const { rates, wardType, ...planData } = dto;
 
         return prisma.tariffPlan.create({
@@ -83,12 +85,20 @@ export class TariffsService {
 
     // ─── Update Plan ───────────────────────────────────────────────────────────
     async updatePlan(id: string, dto: UpdateTariffPlanDto) {
-        await this.findOnePlan(id);
+        const plan = await this.findOnePlan(id);
 
-        const { wardType, ...rest } = dto;
+        const effectiveFrom = dto.effectiveFrom ?? plan.effectiveFrom;
+        const effectiveTo = dto.effectiveTo !== undefined ? dto.effectiveTo : plan.effectiveTo;
+        const wardType = dto.wardType !== undefined ? dto.wardType : plan.wardType;
+
+        if (dto.effectiveFrom !== undefined || dto.effectiveTo !== undefined || dto.wardType !== undefined) {
+            await this.assertNoDateOverlap(effectiveFrom, effectiveTo, wardType, id);
+        }
+
+        const { wardType: wType, ...rest } = dto;
         return prisma.tariffPlan.update({
             where: { id },
-            data: { ...rest, wardType: wardType as any }
+            data: { ...rest, wardType: wType as any }
         });
     }
 
@@ -127,8 +137,34 @@ export class TariffsService {
         });
         if (!rate) throw new NotFoundException(`Rate for service ${serviceId} not found in this tariff plan`);
 
-        return prisma.tariffRate.delete({
-            where: { tariffPlanId_serviceId: { tariffPlanId, serviceId } }
+        return prisma.tariffRate.update({
+            where: { tariffPlanId_serviceId: { tariffPlanId, serviceId } },
+            data: { status: "INACTIVE" }
         });
+    }
+
+    // ─── Helpers ───────────────────────────────────────────────────────────────
+    private async assertNoDateOverlap(from: Date | string, to?: Date | string | null, wardType?: string | null, excludeId?: string) {
+        const effectiveFrom = new Date(from);
+        const effectiveTo = to ? new Date(to) : new Date("2099-12-31");
+
+        const overlapping = await prisma.tariffPlan.findFirst({
+            where: {
+                status: "ACTIVE",
+                wardType: wardType as any,
+                ...(excludeId && { NOT: { id: excludeId } }),
+                OR: [
+                    { effectiveFrom: { lte: effectiveFrom }, effectiveTo: { gte: effectiveFrom } },
+                    { effectiveFrom: { lte: effectiveFrom }, effectiveTo: null },
+                    { effectiveFrom: { lte: effectiveTo }, effectiveTo: { gte: effectiveTo } },
+                    { effectiveFrom: { lte: effectiveTo }, effectiveTo: null },
+                    { effectiveFrom: { gte: effectiveFrom }, effectiveTo: { lte: effectiveTo } }
+                ]
+            }
+        });
+
+        if (overlapping) {
+            throw new ConflictException(`Date range overlaps with existing active tariff plan: ${overlapping.name}`);
+        }
     }
 }

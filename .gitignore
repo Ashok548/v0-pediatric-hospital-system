@@ -9,7 +9,8 @@ node_modules/
 .env*.local
 .DS_Store
 .turbo/
-/api/dist/
+dist/
+**/dist/
 /apps/web/test-results/
 /apps/web/playwright-report/
 

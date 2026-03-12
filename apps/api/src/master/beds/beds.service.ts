@@ -8,6 +8,7 @@ import { prisma } from "@carenest/database";
 import { CreateBedDto } from "./dto/create-bed.dto";
 import { UpdateBedDto } from "./dto/update-bed.dto";
 import { QueryBedsDto } from "./dto/query-beds.dto";
+import { BatchCreateBedsDto } from "./dto/batch-create-beds.dto";
 
 @Injectable()
 export class BedsService {
@@ -35,6 +36,45 @@ export class BedsService {
             }
             throw error;
         }
+    }
+
+    // ─── Batch Create ──────────────────────────────────────────────────────────
+    async batchCreate(dto: BatchCreateBedsDto) {
+        await this.assertWardExists(dto.wardId);
+
+        if (dto.startNumber > dto.endNumber) {
+            throw new ConflictException("Start number cannot be greater than end number");
+        }
+
+        const maxBatchSize = 100;
+        if (dto.endNumber - dto.startNumber + 1 > maxBatchSize) {
+            throw new ConflictException(`Cannot create more than ${maxBatchSize} beds at once`);
+        }
+
+        const bedsToCreate = [];
+        for (let i = dto.startNumber; i <= dto.endNumber; i++) {
+            // Pad with leading zero if < 10 (e.g., NICU-01, NICU-10)
+            const paddedNumber = i < 10 ? `0${i}` : `${i}`;
+            const bedNumber = `${dto.prefix}-${paddedNumber}`;
+            
+            bedsToCreate.push({
+                wardId: dto.wardId,
+                bedNumber,
+                status: "AVAILABLE",
+            });
+        }
+
+        const result = await prisma.bed.createMany({
+            data: bedsToCreate as any,
+            skipDuplicates: true, // If bed already exists in ward, skip it instead of throwing
+        });
+
+        const totalAttempted = dto.endNumber - dto.startNumber + 1;
+        return {
+            created: result.count,
+            skipped: totalAttempted - result.count,
+            total: totalAttempted
+        };
     }
 
     // ─── List (paginated) ──────────────────────────────────────────────────────
@@ -128,9 +168,12 @@ export class BedsService {
 
     // ─── Soft Delete (sets MAINTENANCE) ────────────────────────────────────────
     async softDelete(id: string) {
-        await this.findOne(id);
-        // Future-safe: placeholder for checking bill_item or admission assignment
-        // if (assigned) throw new ConflictException(...)
+        const bed = await this.findOne(id);
+        
+        if (bed.status === "OCCUPIED") {
+            throw new ConflictException("Cannot set to maintenance: bed is currently occupied");
+        }
+        
         return prisma.bed.update({
             where: { id },
             data: { status: "MAINTENANCE" },

@@ -53,6 +53,38 @@ async function main() {
         console.log(`✅ User: ${user.email} (${user.roleName})`);
     }
 
+    // 3. Seed Services
+    console.log("💉 Seeding services...");
+    const { seedServices } = await import("./seed-data/services.js");
+    let serviceCount = 0;
+    
+    for (const service of seedServices) {
+        // Generate a simple code if not provided (e.g., first 3 letters of category + index)
+        const prefix = service.category.substring(0, 3).toUpperCase();
+        const code = `${prefix}-${String(serviceCount + 1).padStart(3, '0')}`;
+        
+        await prisma.service.upsert({
+            where: { name_category: { name: service.name, category: service.category } },
+            update: { billingType: service.billingType },
+            create: {
+                code: code,
+                name: service.name,
+                category: service.category,
+                billingType: service.billingType,
+                basePrice: 0.00,
+                taxPercent: 0,
+                status: "ACTIVE",
+            },
+        });
+        serviceCount++;
+    }
+    console.log(`✅ Seeded ${serviceCount} services.`);
+
+    // 4. Seed Medications
+    console.log("💊 Seeding medications...");
+    const { seedMedications } = await import("./seed-data/medications.js");
+    await seedMedications(prisma);
+
     console.log("✨ Seed complete.");
 }
 

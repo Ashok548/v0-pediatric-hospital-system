@@ -11,6 +11,14 @@ export function usePatientLabOrders(patientId: string | null) {
     return { orders: data ?? [], isLoading, error, mutate };
 }
 
+export function useAdmissionLabOrders(admissionId: string | null) {
+    const { data, error, isLoading, mutate } = useSWR(
+        admissionId ? `/labs/orders/admission/${admissionId}` : null,
+        fetcher
+    );
+    return { orders: data ?? [], isLoading, error, mutate };
+}
+
 export function useLabOrders() {
     const { data, error, isLoading, mutate } = useSWR(
         '/labs/orders',

@@ -24,6 +24,11 @@ export class LabsController {
         return this.labsService.findByPatient(patientId);
     }
 
+    @Get('orders/admission/:admissionId')
+    findByAdmission(@Param('admissionId') admissionId: string) {
+        return this.labsService.findByAdmission(admissionId);
+    }
+
     @Get('orders/:id')
     findOne(@Param('id') id: string) {
         return this.labsService.findOne(id);

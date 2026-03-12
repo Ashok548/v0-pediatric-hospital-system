@@ -32,6 +32,8 @@ import { useQuery } from "@/hooks/use-query"
 import { usePatientAdmissions } from "@/lib/api/admissions"
 import { usePatientLabOrders } from "@/lib/api/labs"
 import { usePatientVaccinations } from "@/lib/api/vaccinations"
+import { usePrescriptions } from "@/lib/api/pharmacy"
+import { CreateLabOrderDialog } from "./dialogs/create-lab-order-dialog"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -153,6 +155,7 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
     const { admissions: admissionHistory, isLoading: admLoading } = usePatientAdmissions(patient?.id ?? null)
     const { orders: labOrders } = usePatientLabOrders(patient?.id ?? null)
     const { schedule: vaccineSchedule } = usePatientVaccinations(patient?.id ?? null)
+    const { prescriptions } = usePrescriptions({ patientId: patient?.id ?? undefined })
 
     // Loading state
     if (isLoading) return <DetailSkeleton />
@@ -397,7 +400,7 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                 </Card>
 
                 {/* ── Connected EMR Modules Preview ─────────────────────────────── */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {/* Labs Mini Card */}
                     <Card className="py-0">
                         <CardHeader className="px-5 pt-4 pb-2">
@@ -405,7 +408,21 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                                 <span className="flex items-center gap-2">
                                     <Activity className="size-4 text-primary" /> Recent Labs
                                 </span>
-                                <Link href={`/lab`} className="text-xs text-primary hover:underline">View All</Link>
+                                <div className="flex items-center gap-3">
+                                    {admissionHistory.find(a => a.status === "ADMITTED" || a.status === "BED_ASSIGNED") && (
+                                        <CreateLabOrderDialog 
+                                            patientId={patientId} 
+                                            admissionId={admissionHistory.find(a => a.status === "ADMITTED" || a.status === "BED_ASSIGNED")?.id} 
+                                            trigger={<Button size="sm" variant="outline" className="h-7 px-2 text-xs">Order Labs (IP)</Button>}
+                                        />
+                                    )}
+                                    <CreateLabOrderDialog 
+                                        patientId={patientId} 
+                                        appointmentId="dummy-appt-id-for-now" // In a real OP flow, this would come from the active appointment
+                                        trigger={<Button size="sm" variant="outline" className="h-7 px-2 text-xs">Order Labs (OP)</Button>}
+                                    />
+                                    <Link href={`/lab`} className="text-xs text-primary hover:underline ml-1">View All</Link>
+                                </div>
                             </CardTitle>
                         </CardHeader>
                         <CardContent className="px-5 pb-4 pt-0">
@@ -463,6 +480,44 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                                                     Upcoming
                                                 </Badge>
                                             )}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </CardContent>
+                    </Card>
+
+                    {/* Pharmacy Mini Card */}
+                    <Card className="py-0">
+                        <CardHeader className="px-5 pt-4 pb-2">
+                            <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                                <span className="flex items-center gap-2">
+                                    <FileText className="size-4 text-primary" /> Recent Prescriptions
+                                </span>
+                                <div className="flex items-center gap-2">
+                                    <Link href={`/patients/${patientId}/prescription`} className="text-xs text-primary hover:underline">View All</Link>
+                                    <span className="text-muted-foreground">/</span>
+                                    <Link href={`/patients/${patientId}/prescription`} className="text-xs text-primary hover:underline font-bold">New Rx</Link>
+                                </div>
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-5 pb-4 pt-0">
+                            {prescriptions.length === 0 ? (
+                                <p className="text-xs text-muted-foreground pt-2">No prescriptions found.</p>
+                            ) : (
+                                <div className="flex flex-col gap-2 pt-2">
+                                    {prescriptions.slice(0, 3).map((rx: any) => (
+                                        <div key={rx.id} className="flex justify-between items-start text-xs border-b last:border-0 pb-2 last:pb-0">
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="font-semibold">{rx.prescriptionNumber}</span>
+                                                <span className="text-muted-foreground">
+                                                  {new Date(rx.orderedAt).toLocaleDateString()} · By {rx.doctor?.name}
+                                                </span>
+                                                <span className="text-[10px] text-muted-foreground mt-0.5">{rx.items?.length || 0} items prescribed</span>
+                                            </div>
+                                            <Badge variant={rx.status === "DISPENSED" ? "secondary" : "outline"} className="text-[10px]">
+                                                {rx.status}
+                                            </Badge>
                                         </div>
                                     ))}
                                 </div>

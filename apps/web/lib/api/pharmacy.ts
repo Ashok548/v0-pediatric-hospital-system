@@ -18,6 +18,7 @@ export interface ApiMedication {
     suggestedOrderQty?: number;
     earliestExpiry?: string;
     expiringSoon?: boolean;
+    status?: 'ACTIVE' | 'INACTIVE';
 }
 
 export interface ApiPrescriptionItem {
@@ -26,6 +27,10 @@ export interface ApiPrescriptionItem {
     medication: ApiMedication;
     prescribedQty: number;
     dispensedQty: number;
+    dose?: string;
+    frequency?: string;
+    duration?: number;
+    instructions?: string;
 }
 
 export interface ApiPrescription {
@@ -97,11 +102,12 @@ export function useLowStockInventory() {
     };
 }
 
-export function usePrescriptions(params?: { status?: string; search?: string; admissionId?: string }) {
+export function usePrescriptions(params?: { status?: string; search?: string; admissionId?: string; patientId?: string }) {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.set('status', params.status);
     if (params?.search) searchParams.set('search', params.search);
     if (params?.admissionId) searchParams.set('admissionId', params.admissionId);
+    if (params?.patientId) searchParams.set('patientId', params.patientId);
 
     const qs = searchParams.toString();
     const url = qs ? `/pharmacy/prescriptions?${qs}` : '/pharmacy/prescriptions';
@@ -160,4 +166,34 @@ export function usePharmacyClearance(admissionId: string) {
         isLoading,
         error
     };
+}
+
+export async function createMedication(data: Partial<ApiMedication>) {
+    const res = await apiClient('/pharmacy/inventory', {
+        method: 'POST',
+        body: JSON.stringify(data),
+    });
+    return res as unknown as { success: true; data: ApiMedication };
+}
+
+export async function bulkCreateMedications(medications: Partial<ApiMedication>[]) {
+    const res = await apiClient('/pharmacy/inventory/bulk', {
+        method: 'POST',
+        body: JSON.stringify({ medications }),
+    });
+    return res as unknown as { success: true; data: { count: number } };
+}
+export async function updateMedication(id: string, data: Partial<ApiMedication>) {
+    const res = await apiClient(`/pharmacy/inventory/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+    });
+    return res as unknown as { success: true; data: ApiMedication };
+}
+
+export async function deactivateMedication(id: string) {
+    const res = await apiClient(`/pharmacy/inventory/${id}`, {
+        method: 'DELETE',
+    });
+    return res as unknown as { success: true };
 }

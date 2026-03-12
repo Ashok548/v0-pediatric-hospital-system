@@ -20,6 +20,14 @@ export class CreateLabOrderDto {
     @IsNotEmpty()
     patientId: string;
 
+    @IsString()
+    @IsOptional()
+    admissionId?: string;
+
+    @IsString()
+    @IsOptional()
+    appointmentId?: string;
+
     @IsArray()
     @ValidateNested({ each: true })
     @Type(() => CreateLabPanelDto)

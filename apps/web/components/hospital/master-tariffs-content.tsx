@@ -23,7 +23,7 @@ import { useDebounce } from "@/hooks/use-debounce"
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-type WardType = "GENERAL" | "ICU" | "HDU" | "NICU" | "PICU" | "PRIVATE" | "SEMI_PRIVATE"
+type WardType = "GENERAL" | "PRIVATE" | "NICU" | "PICU" | "SURGICAL"
 
 interface TariffPlan {
     id: string
@@ -61,18 +61,16 @@ const EMPTY_FORM: FormState = {
 }
 
 const WARD_LABELS: Record<string, string> = {
-    GENERAL: "General Ward", ICU: "ICU", HDU: "HDU",
-    NICU: "NICU", PICU: "PICU", PRIVATE: "Private", SEMI_PRIVATE: "Semi-Private"
+    GENERAL: "General Ward", PRIVATE: "Private",
+    NICU: "NICU", PICU: "PICU", SURGICAL: "Surgical"
 }
 
 const WARD_COLORS: Record<string, string> = {
     GENERAL: "bg-slate-100 text-slate-700 border-slate-200",
-    ICU: "bg-red-100 text-red-700 border-red-200",
-    HDU: "bg-orange-100 text-orange-700 border-orange-200",
+    PRIVATE: "bg-emerald-100 text-emerald-700 border-emerald-200",
     NICU: "bg-blue-100 text-blue-700 border-blue-200",
     PICU: "bg-purple-100 text-purple-700 border-purple-200",
-    PRIVATE: "bg-emerald-100 text-emerald-700 border-emerald-200",
-    SEMI_PRIVATE: "bg-teal-100 text-teal-700 border-teal-200",
+    SURGICAL: "bg-red-100 text-red-700 border-red-200",
     ALL: "bg-gray-100 text-gray-600 border-gray-200",
 }
 
@@ -103,7 +101,7 @@ export function MasterTariffsContent() {
 
     const { data, isLoading, mutate } = useQuery<ApiListResponse<TariffPlan>>(`/master/tariffs?${queryStr.toString()}`)
     const plans = data?.data ?? []
-    const total = data?.data?.length ?? 0
+    const total = data?.total ?? 0
     const totalPages = data?.totalPages ?? 1
 
     const { trigger: createPlan, isMutating: isCreating } = useMutation<TariffPlan, any>(

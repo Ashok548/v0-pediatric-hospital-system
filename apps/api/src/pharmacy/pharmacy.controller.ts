@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Req, UseGuards, Patch, Delete } from '@nestjs/common';
 import { PharmacyService } from './pharmacy.service';
-import { CreatePrescriptionDto, DispensePrescriptionDto, GetPrescriptionsQueryDto, AdjustStockDto } from './dto/pharmacy.dto';
+import { CreatePrescriptionDto, DispensePrescriptionDto, GetPrescriptionsQueryDto, AdjustStockDto, CreateMedicationDto, BulkCreateMedicationsDto, UpdateMedicationDto } from './dto/pharmacy.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
@@ -18,6 +18,30 @@ export class PharmacyController {
     async getLowStockInventory() {
         const result = await this.pharmacyService.getLowStockInventory();
         return { data: result };
+    }
+
+    @Post('inventory')
+    async createMedication(@Body() dto: CreateMedicationDto) {
+        const result = await this.pharmacyService.createMedication(dto);
+        return { success: true, data: result };
+    }
+
+    @Post('inventory/bulk')
+    async bulkCreateMedications(@Body() dto: BulkCreateMedicationsDto) {
+        const result = await this.pharmacyService.bulkCreateMedications(dto);
+        return { success: true, data: result };
+    }
+
+    @Patch('inventory/:id')
+    async updateMedication(@Param('id') id: string, @Body() dto: UpdateMedicationDto) {
+        const result = await this.pharmacyService.updateMedication(id, dto);
+        return { success: true, data: result };
+    }
+
+    @Delete('inventory/:id')
+    async deactivateMedication(@Param('id') id: string) {
+        const result = await this.pharmacyService.deactivateMedication(id);
+        return { success: true, data: result };
     }
 
     @Post('inventory/:medicationId/adjust')

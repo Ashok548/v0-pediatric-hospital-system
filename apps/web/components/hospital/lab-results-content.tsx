@@ -381,6 +381,12 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                     <User2 className="size-3" />
                     Patient Profile
                   </span>
+                  <span className="text-muted-foreground/50">•</span>
+                  <span className="flex items-center gap-1" title={order?.admissionId || ''}>
+                    {order?.patientType === "INPATIENT" ? "🏥" : "🩺"} 
+                    {order?.patientType === "INPATIENT" ? `Inpatient Admission` : `Outpatient Visit`}
+                  </span>
+                  <span className="text-muted-foreground/50">•</span>
                   <span className="flex items-center gap-1">
                     <Stethoscope className="size-3" />
                     {order?.doctor?.name || "Dr. Priya Reddy"}

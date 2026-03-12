@@ -15,6 +15,7 @@ import {
 import { Pill, CheckCircle, Clock, User, BedDouble, AlertCircle, AlertTriangle, Search, Undo2, Loader2, Plus, PackagePlus } from "lucide-react"
 import { format, formatDistanceToNow } from "date-fns"
 import { toast } from "sonner"
+import { PharmacyInventoryTab } from "./pharmacy-inventory-tab"
 
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
     PENDING: { label: "Pending", color: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" },
@@ -67,11 +68,25 @@ function OrderCard({ order, onAction, actionLabel, icon }: { order: ApiPrescript
                 )}
                 <div className="space-y-1.5">
                     {order.items.map(item => (
-                        <div key={item.id} className="flex items-center justify-between text-sm bg-muted/40 rounded-md px-2.5 py-2">
-                            <span className="font-medium truncate pr-2">{item.medication.drugName} <span className="text-muted-foreground font-normal text-xs">{item.medication.strength}</span></span>
-                            <span className="text-muted-foreground shrink-0 text-xs font-medium">
-                                {(order.status === "DISPENSED" || order.status === "RETURNED") ? `${item.dispensedQty}` : `${item.prescribedQty}`} {item.medication.unit}
-                            </span>
+                        <div key={item.id} className="flex flex-col bg-muted/40 rounded-md px-2.5 py-2">
+                            <div className="flex items-center justify-between text-sm">
+                                <span className="font-medium truncate pr-2">{item.medication.drugName} <span className="text-muted-foreground font-normal text-xs">{item.medication.strength}</span></span>
+                                <span className="text-muted-foreground shrink-0 text-xs font-medium">
+                                    {(order.status === "DISPENSED" || order.status === "RETURNED") ? `${item.dispensedQty}` : `${item.prescribedQty}`} {item.medication.unit}
+                                </span>
+                            </div>
+                            {(item.dose || item.frequency) && (
+                                <div className="text-[10px] text-muted-foreground mt-1 flex gap-2">
+                                    {item.dose && <span>Dose: {item.dose}</span>}
+                                    {item.frequency && <span>Freq: {item.frequency}</span>}
+                                    {item.duration && <span>Duration: {item.duration}d</span>}
+                                </div>
+                            )}
+                            {item.instructions && (
+                                <div className="text-[10px] italic text-blue-600 dark:text-blue-400 mt-0.5 leading-tight">
+                                    "{item.instructions}"
+                                </div>
+                            )}
                         </div>
                     ))}
                 </div>
@@ -162,7 +177,7 @@ function InventoryAlertCard({ med, onRestock }: { med: ApiMedication, onRestock:
 export function PharmacyContent() {
     const { currentUser } = useAuthStore()
     const [search, setSearch] = useState("")
-    const [activeTab, setActiveTab] = useState("PENDING")
+    const [activeTab, setActiveTab] = useState("INVENTORY")
 
     const { prescriptions, isLoading, mutate } = usePrescriptions({ search })
     const { stats, mutate: mutateStats } = usePharmacyStats()
@@ -305,6 +320,7 @@ export function PharmacyContent() {
             <div className="flex flex-col sm:flex-row gap-4 items-center justify-between">
                 <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full sm:w-auto">
                     <TabsList>
+                        <TabsTrigger value="INVENTORY">Inventory</TabsTrigger>
                         <TabsTrigger value="PENDING">Pending Orders</TabsTrigger>
                         <TabsTrigger value="DISPENSED">Dispensed</TabsTrigger>
                         <TabsTrigger value="RETURNED">Returned</TabsTrigger>
@@ -326,7 +342,9 @@ export function PharmacyContent() {
             </div>
 
             {/* Content */}
-            {activeTab === "LOW_STOCK" ? (
+            {activeTab === "INVENTORY" ? (
+                <PharmacyInventoryTab />
+            ) : activeTab === "LOW_STOCK" ? (
                 isLowStockLoading ? (
                     <div className="py-24 text-center">
                         <Loader2 className="h-8 w-8 animate-spin mx-auto text-muted-foreground" />
@@ -392,28 +410,44 @@ export function PharmacyContent() {
                                     if (!showItem) return null;
 
                                     return (
-                                        <div key={item.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-muted/40 rounded-lg px-3 py-3 border border-transparent hover:border-border transition-colors">
-                                            <div className="flex-1 min-w-0">
-                                                <p className="font-medium text-sm truncate">{item.medication.drugName}</p>
-                                                <p className="text-xs text-muted-foreground mt-0.5">
-                                                    {item.medication.strength} · Need: {actionType === "dispense" ? remaining : item.dispensedQty} {item.medication.unit}
-                                                    {actionType === "dispense" && (
-                                                        <span className={`ml-2 font-medium ${item.medication.stockAvailable >= remaining ? "text-green-600 dark:text-green-500" : "text-red-500"}`}>
-                                                            (Stock: {item.medication.stockAvailable})
-                                                        </span>
-                                                    )}
-                                                </p>
+                                        <div key={item.id} className="flex flex-col bg-muted/40 rounded-lg px-3 py-3 border border-transparent hover:border-border transition-colors">
+                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="font-medium text-sm truncate">{item.medication.drugName}</p>
+                                                    <p className="text-xs text-muted-foreground mt-0.5">
+                                                        {item.medication.strength} · Need: {actionType === "dispense" ? remaining : item.dispensedQty} {item.medication.unit}
+                                                        {actionType === "dispense" && (
+                                                            <span className={`ml-2 font-medium ${item.medication.stockAvailable >= remaining ? "text-green-600 dark:text-green-500" : "text-red-500"}`}>
+                                                                (Stock: {item.medication.stockAvailable})
+                                                            </span>
+                                                        )}
+                                                    </p>
+                                                </div>
+                                                {actionType === "dispense" && (
+                                                    <div className="shrink-0 w-24">
+                                                        <Input
+                                                            type="number"
+                                                            min={0}
+                                                            max={item.medication.stockAvailable < remaining ? item.medication.stockAvailable : remaining}
+                                                            value={dispensedQtys[item.id] ?? remaining}
+                                                            onChange={e => setDispensedQtys(p => ({ ...p, [item.id]: Number(e.target.value) }))}
+                                                            className="h-9 text-center"
+                                                        />
+                                                    </div>
+                                                )}
                                             </div>
-                                            {actionType === "dispense" && (
-                                                <div className="shrink-0 w-24">
-                                                    <Input
-                                                        type="number"
-                                                        min={0}
-                                                        max={item.medication.stockAvailable < remaining ? item.medication.stockAvailable : remaining}
-                                                        value={dispensedQtys[item.id] ?? remaining}
-                                                        onChange={e => setDispensedQtys(p => ({ ...p, [item.id]: Number(e.target.value) }))}
-                                                        className="h-9 text-center"
-                                                    />
+                                            {(item.dose || item.frequency || item.instructions) && (
+                                                <div className="mt-2 text-[11px] border-t pt-2 border-muted-foreground/10">
+                                                    <div className="flex gap-3 text-muted-foreground">
+                                                        {item.dose && <span><strong>Dose:</strong> {item.dose}</span>}
+                                                        {item.frequency && <span><strong>Freq:</strong> {item.frequency}</span>}
+                                                        {item.duration && <span><strong>Dur:</strong> {item.duration} days</span>}
+                                                    </div>
+                                                    {item.instructions && (
+                                                        <div className="mt-1 text-blue-700 dark:text-blue-400 font-medium">
+                                                            Instructions: {item.instructions}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             )}
                                         </div>

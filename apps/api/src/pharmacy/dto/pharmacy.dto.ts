@@ -1,6 +1,6 @@
 import { IsString, IsInt, Min, IsArray, ValidateNested, IsOptional, IsEnum } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PrescriptionStatus } from '@carenest/database';
+import { PrescriptionStatus, MasterStatus } from '@carenest/database';
 
 export class CreatePrescriptionItemDto {
     @IsString()
@@ -9,6 +9,22 @@ export class CreatePrescriptionItemDto {
     @IsInt()
     @Min(1)
     prescribedQty: number;
+
+    @IsOptional()
+    @IsString()
+    dose?: string;
+
+    @IsOptional()
+    @IsString()
+    frequency?: string;
+
+    @IsOptional()
+    @IsInt()
+    duration?: number;
+
+    @IsOptional()
+    @IsString()
+    instructions?: string;
 }
 
 export class CreatePrescriptionDto {
@@ -60,6 +76,10 @@ export class GetPrescriptionsQueryDto {
     @IsOptional()
     @IsString()
     admissionId?: string;
+
+    @IsOptional()
+    @IsString()
+    patientId?: string;
 }
 
 export class AdjustStockDto {
@@ -73,4 +93,80 @@ export class AdjustStockDto {
     @IsOptional()
     @IsString()
     reason?: string;
+}
+
+export class CreateMedicationDto {
+    @IsString()
+    drugName: string;
+
+    @IsString()
+    genericName: string;
+
+    @IsString()
+    form: string;
+
+    @IsString()
+    strength: string;
+
+    @IsString()
+    unit: string;
+
+    @Type(() => Number)
+    unitPrice: number;
+
+    @Type(() => Number)
+    @IsInt()
+    stockAvailable: number;
+
+    @Type(() => Number)
+    @IsInt()
+    reorderLevel: number;
+}
+
+
+export class BulkCreateMedicationsDto {
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => CreateMedicationDto)
+    medications: CreateMedicationDto[];
+}
+
+export class UpdateMedicationDto {
+    @IsOptional()
+    @IsString()
+    drugName?: string;
+
+    @IsOptional()
+    @IsString()
+    genericName?: string;
+
+    @IsOptional()
+    @IsString()
+    form?: string;
+
+    @IsOptional()
+    @IsString()
+    strength?: string;
+
+    @IsOptional()
+    @IsString()
+    unit?: string;
+
+    @IsOptional()
+    @Type(() => Number)
+    unitPrice?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    stockAvailable?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    reorderLevel?: number;
+
+    @IsOptional()
+    @IsEnum(MasterStatus)
+    status?: MasterStatus;
 }

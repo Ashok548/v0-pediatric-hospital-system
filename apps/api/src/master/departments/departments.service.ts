@@ -62,10 +62,20 @@ export class DepartmentsService {
 
     // ─── Soft Delete ───────────────────────────────────────────────────────────
     async softDelete(id: string) {
-        await this.findOne(id);
-        // Future-safe: check if any users / doctors are assigned to this department
-        // const userCount = await prisma.user.count({ where: { departmentId: id } });
-        // if (userCount > 0) throw new ConflictException(...);
+        const dept = await this.findOne(id);
+        
+        // Check if referenced by active admissions
+        const activeAdmissions = await prisma.admission.count({
+            where: {
+                department: dept.name, // The schema uses the name string right now
+                status: { in: ["DRAFT", "BED_ASSIGNED", "ADMITTED"] }
+            }
+        });
+        
+        if (activeAdmissions > 0) {
+            throw new ConflictException(`Cannot deactivate department: there are ${activeAdmissions} active admissions associated with it.`);
+        }
+
         return prisma.department.update({
             where: { id },
             data: { status: "INACTIVE" },

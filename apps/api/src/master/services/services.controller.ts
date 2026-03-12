@@ -23,6 +23,12 @@ export class ServicesController {
         return this.servicesService.create(dto);
     }
 
+    @Post("seed-template")
+    @HttpCode(HttpStatus.CREATED)
+    seedTemplate() {
+        return this.servicesService.seedTemplate();
+    }
+
     @Get()
     findAll(@Query() query: QueryServicesDto) {
         return this.servicesService.findAll(query);

@@ -10,6 +10,8 @@ import {
     AlertTriangle,
     CalendarDays,
     ChevronRight,
+    Building2,
+    Stethoscope as StethoscopeIcon,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -125,6 +127,7 @@ export function LabDashboardContent() {
                                 <tr>
                                     <th className="px-5 py-3 font-medium border-b border-border/50 w-[250px]">Lab Order</th>
                                     <th className="px-5 py-3 font-medium border-b border-border/50">Patient</th>
+                                    <th className="px-5 py-3 font-medium border-b border-border/50 w-[180px]">Context</th>
                                     <th className="px-5 py-3 font-medium border-b border-border/50">Ordered By</th>
                                     <th className="px-5 py-3 font-medium border-b border-border/50">Tests</th>
                                     <th className="px-5 py-3 font-medium border-b border-border/50">Status</th>
@@ -159,6 +162,33 @@ export function LabDashboardContent() {
                                                     </span>
                                                 </div>
                                             </div>
+                                        </td>
+                                        <td className="px-5 py-3.5">
+                                            {order.patientType === "INPATIENT" ? (
+                                                <div className="flex flex-col gap-1">
+                                                    <Badge variant="secondary" className="w-fit text-[10px] bg-blue-50 text-blue-700 border-blue-200">
+                                                        <Building2 className="size-3 mr-1" />
+                                                        Inpatient
+                                                    </Badge>
+                                                    {order.admission && (
+                                                        <span className="text-[11px] text-muted-foreground truncate w-full max-w-[150px]" title={order.admission.id}>
+                                                            ID: {order.admission.id.slice(-8).toUpperCase()}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <div className="flex flex-col gap-1">
+                                                    <Badge variant="secondary" className="w-fit text-[10px] bg-emerald-50 text-emerald-700 border-emerald-200">
+                                                        <StethoscopeIcon className="size-3 mr-1" />
+                                                        Outpatient
+                                                    </Badge>
+                                                    {order.appointment && (
+                                                        <span className="text-[11px] text-muted-foreground truncate w-full max-w-[150px]">
+                                                            {new Date(order.appointment.appointmentDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                         </td>
                                         <td className="px-5 py-3.5">
                                             <span className="text-sm font-medium">{order.doctor?.name || 'Dr. Unknown'}</span>

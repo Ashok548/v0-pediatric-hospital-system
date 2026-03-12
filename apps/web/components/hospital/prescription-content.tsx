@@ -21,11 +21,12 @@ import {
   Search,
   XCircle,
   AlertOctagon,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { usePharmacyInventory, createPrescription } from "@/lib/api/pharmacy"
-import { usePatients } from "@/lib/api/patients"
+import { usePatients, usePatient } from "@/lib/api/patients"
 import { useAuthStore } from "@/lib/store/auth-store"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -50,21 +51,18 @@ import {
 } from "@/components/ui/dialog"
 
 // ─── Patient Data ──────────────────────────────────────────────
-const patient = {
-  id: "PED-20260189",
-  name: "Aarav Sharma",
-  dob: "Mar 15, 2023",
-  age: "2 years 11 months",
-  gender: "Male",
-  bloodGroup: "B+",
-  weight: 12.5,
-  height: "89 cm",
-  bsa: "0.56 m\u00B2",
-  allergies: ["Sulfonamide", "Ibuprofen"],
-  guardian: "Meera Sharma (Mother)",
-  phone: "+91 97654 32100",
-  diagnosis: "Acute Otitis Media with Moderate Fever",
-  doctor: "Dr. Priya Reddy",
+function calcAgeDisplay(dateOfBirth: string): string {
+    if (!dateOfBirth) return "Unknown"
+    const dob = new Date(dateOfBirth)
+    const now = new Date()
+    let years = now.getFullYear() - dob.getFullYear()
+    let months = now.getMonth() - dob.getMonth()
+    let days = now.getDate() - dob.getDate()
+    if (days < 0) { months--; days += 30 }
+    if (months < 0) { years--; months += 12 }
+    if (years === 0 && months === 0) return `${days} days`
+    if (years === 0) return `${months} month${months !== 1 ? "s" : ""}`
+    return `${years}y ${months}mo`
 }
 
 // ─── Drug Database ─────────────────────────────────────────────
@@ -210,7 +208,9 @@ const drugDatabase: Drug[] = [
 // ─── Prescription Row Type ─────────────────────────────────────
 interface PrescriptionRow {
   id: number
-  drugId: string
+  drugId: string // This will now be the DB medication.id
+  drugName: string
+  genericName: string
   form: string
   dose: string
   frequency: string
@@ -220,46 +220,51 @@ interface PrescriptionRow {
 }
 
 // ─── Helpers ───────────────────────────────────────────────────
-function getDrug(drugId: string) {
-  return drugDatabase.find((d) => d.id === drugId)
+function getClinicalDrug(drugName: string, genericName: string) {
+  return drugDatabase.find((d) => 
+    drugName.toLowerCase().includes(d.name.toLowerCase()) || 
+    d.generic.toLowerCase().includes(genericName.toLowerCase()) ||
+    genericName.toLowerCase().includes(d.generic.toLowerCase())
+  )
 }
 
-function checkOverdose(drugId: string, doseStr: string, weightKg: number) {
-  const drug = getDrug(drugId)
-  if (!drug || !doseStr) return null
+function checkOverdose(drugName: string, genericName: string, doseStr: string, weightKg: number) {
+  const clinical = getClinicalDrug(drugName, genericName)
+  if (!clinical || !doseStr) return null
   const dose = parseFloat(doseStr)
   if (isNaN(dose)) return null
-  const maxTotal = drug.maxDosePerKg * weightKg
+  const maxTotal = clinical.maxDosePerKg * weightKg
   if (dose > maxTotal) {
     return {
       entered: dose,
       max: maxTotal,
-      maxPerKg: drug.maxDosePerKg,
-      unit: drug.unit,
+      maxPerKg: clinical.maxDosePerKg,
+      unit: clinical.unit,
     }
   }
   return null
 }
 
-function checkInteractions(prescribedDrugIds: string[]): { drugA: string; drugB: string; reason: string }[] {
+function checkInteractions(medications: { name: string; generic: string }[]): { drugA: string; drugB: string; reason: string }[] {
   const results: { drugA: string; drugB: string; reason: string }[] = []
-  for (let i = 0; i < prescribedDrugIds.length; i++) {
-    for (let j = i + 1; j < prescribedDrugIds.length; j++) {
-      const drugA = getDrug(prescribedDrugIds[i])
-      const drugB = getDrug(prescribedDrugIds[j])
+  for (let i = 0; i < medications.length; i++) {
+    for (let j = i + 1; j < medications.length; j++) {
+      const drugA = getClinicalDrug(medications[i].name, medications[i].generic)
+      const drugB = getClinicalDrug(medications[j].name, medications[j].generic)
       if (!drugA || !drugB) continue
+      
       if (drugA.interactions.some((x) => drugB.name.toLowerCase().includes(x.toLowerCase()))) {
         results.push({
-          drugA: drugA.name,
-          drugB: drugB.name,
+          drugA: medications[i].name,
+          drugB: medications[j].name,
           reason: `${drugA.name} has a known interaction with ${drugB.name}. Concurrent use may alter efficacy or increase adverse effects.`,
         })
       }
       if (drugB.interactions.some((x) => drugA.name.toLowerCase().includes(x.toLowerCase()))) {
-        if (!results.find((r) => r.drugA === drugB.name && r.drugB === drugA.name)) {
+        if (!results.find((r) => r.drugA === medications[j].name && r.drugB === medications[i].name)) {
           results.push({
-            drugA: drugB.name,
-            drugB: drugA.name,
+            drugA: medications[j].name,
+            drugB: medications[i].name,
             reason: `${drugB.name} has a known interaction with ${drugA.name}. Review dosing and monitor closely.`,
           })
         }
@@ -269,14 +274,13 @@ function checkInteractions(prescribedDrugIds: string[]): { drugA: string; drugB:
   return results
 }
 
-function checkAllergyConflict(drugId: string, allergies: string[]) {
-  const drug = getDrug(drugId)
-  if (!drug) return null
+function checkAllergyConflict(drugName: string, genericName: string, allergies: string[]) {
+  const clinical = getClinicalDrug(drugName, genericName)
   for (const allergy of allergies) {
-    if (drug.name.toLowerCase().includes(allergy.toLowerCase()) ||
-      drug.generic.toLowerCase().includes(allergy.toLowerCase()) ||
-      drug.contraindications.some((c) => c.toLowerCase().includes(allergy.toLowerCase()))) {
-      return { drug: drug.name, allergy }
+    if (drugName.toLowerCase().includes(allergy.toLowerCase()) ||
+      genericName.toLowerCase().includes(allergy.toLowerCase()) ||
+      (clinical && clinical.contraindications.some((c) => c.toLowerCase().includes(allergy.toLowerCase())))) {
+      return { drug: drugName, allergy }
     }
   }
   return null
@@ -288,29 +292,25 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
   const { inventory } = usePharmacyInventory()
   const { patients } = usePatients(patientId ? { search: patientId } : undefined)
   const activePatientId = patientId || (patients?.[0]?.id)
+  const { patient: realPatient, isLoading: patientLoading } = usePatient(activePatientId || null)
 
-  const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([
-    {
-      id: 1,
-      drugId: "amoxicillin",
-      form: "Suspension 250mg/5ml",
-      dose: "375",
-      frequency: "TID (8-hourly)",
-      duration: "7",
-      route: "Oral",
-      instructions: "After food",
-    },
-    {
-      id: 2,
-      drugId: "paracetamol",
-      form: "Syrup 120mg/5ml",
-      dose: "150",
-      frequency: "QID (6-hourly)",
-      duration: "5",
-      route: "Oral",
-      instructions: "For fever > 100.4F. Min 4h gap.",
-    },
-  ])
+  const patientData = realPatient ? {
+    id: realPatient.uhid || realPatient.id,
+    name: `${realPatient.firstName || ''} ${realPatient.lastName || ''}`.trim(),
+    dob: realPatient.dateOfBirth ? new Date(realPatient.dateOfBirth).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—",
+    age: realPatient.dateOfBirth ? calcAgeDisplay(realPatient.dateOfBirth) : "—",
+    gender: realPatient.gender === "MALE" ? "Male" : realPatient.gender === "FEMALE" ? "Female" : "Other",
+    bloodGroup: (realPatient as any).bloodGroup || "—",
+    weight: (realPatient as any).birthWeight ? parseFloat((realPatient as any).birthWeight) : 10,
+    bsa: "—",
+    allergies: (realPatient as any).allergies || [],
+    guardian: (realPatient as any).guardianName || "—",
+    phone: realPatient.phone || "—",
+    diagnosis: "General Checkup",
+    doctor: currentUser?.name || "Dr. Priya Reddy",
+  } : null
+
+  const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([])
   const [nextId, setNextId] = useState(3)
   const [interactionDialogOpen, setInteractionDialogOpen] = useState(false)
   const [pendingInteractions, setPendingInteractions] = useState<{ drugA: string; drugB: string; reason: string }[]>([])
@@ -320,22 +320,21 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
   const [showDrugSearch, setShowDrugSearch] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  const filteredDrugs = drugSearchQuery.trim()
-    ? drugDatabase.filter(
-      (d) =>
-        d.name.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
-        d.generic.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
-        d.category.toLowerCase().includes(drugSearchQuery.toLowerCase())
+  const filteredDrugs = (drugSearchQuery.trim()
+    ? inventory.filter(
+      (m) =>
+        m.drugName.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
+        m.genericName.toLowerCase().includes(drugSearchQuery.toLowerCase())
     )
-    : drugDatabase
+    : inventory).filter(m => m.status !== 'INACTIVE')
 
   const addDrug = useCallback(
-    (drugId: string) => {
-      const drug = getDrug(drugId)
-      if (!drug) return
+    (medicationId: string) => {
+      const dbMed = inventory.find(m => m.id === medicationId)
+      if (!dbMed) return
 
       // Allergy check
-      const allergyConflict = checkAllergyConflict(drugId, patient.allergies)
+      const allergyConflict = checkAllergyConflict(dbMed.drugName, dbMed.genericName, patientData?.allergies || [])
       if (allergyConflict) {
         setPendingAllergyConflict(allergyConflict)
         setAllergyDialogOpen(true)
@@ -345,12 +344,15 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
       }
 
       // Add the drug
+      const clinicalInfo = getClinicalDrug(dbMed.drugName, dbMed.genericName)
       const newRow: PrescriptionRow = {
         id: nextId,
-        drugId,
-        form: drug.defaultForm,
+        drugId: dbMed.id,
+        drugName: dbMed.drugName,
+        genericName: dbMed.genericName,
+        form: clinicalInfo?.defaultForm || dbMed.form,
         dose: "",
-        frequency: drug.defaultFrequency,
+        frequency: clinicalInfo?.defaultFrequency || "OD (once daily)",
         duration: "",
         route: "Oral",
         instructions: "",
@@ -360,8 +362,8 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
       setNextId((p) => p + 1)
 
       // Interaction check
-      const allDrugIds = updatedList.map((r) => r.drugId)
-      const interactions = checkInteractions(allDrugIds)
+      const allMedsForInteraction = updatedList.map((r) => ({ name: r.drugName, generic: r.genericName }))
+      const interactions = checkInteractions(allMedsForInteraction)
       if (interactions.length > 0) {
         setPendingInteractions(interactions)
         setInteractionDialogOpen(true)
@@ -384,15 +386,19 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
     )
   }, [])
 
-  const [isSaving, setIsSaving] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSubmit = async () => {
-    const allDrugIds = prescriptions.map((r) => r.drugId)
-    const interactions = checkInteractions(allDrugIds)
-    if (interactions.length > 0) {
-      setPendingInteractions(interactions)
-      setInteractionDialogOpen(true)
-      return
+  const handleSubmit = async (bypassInteractions = false) => {
+    const isBypass = typeof bypassInteractions === 'boolean' ? bypassInteractions : false;
+    
+    if (!isBypass) {
+      const interactions = checkInteractions(prescriptions.map((r) => ({ name: r.drugName, generic: r.genericName })))
+      if (interactions.length > 0) {
+        setPendingInteractions(interactions)
+        setInteractionDialogOpen(true)
+        toast.error(`Detected ${interactions.length} drug interaction warning${interactions.length !== 1 ? 's' : ''}. Please review before continuing.`)
+        return
+      }
     }
 
     if (!activePatientId && !patientId) {
@@ -400,37 +406,80 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
       return
     }
 
-    setIsSaving(true)
+    if (!currentUser?.id) {
+      toast.error("You must be logged in as a valid Doctor to prescribe medications.")
+      return
+    }
+
+    setIsSubmitting(true)
     try {
       const itemsPayload = []
       for (const row of prescriptions) {
-        // Map to real DB medication using naive start matching
-        const dbMed = inventory.find(m => m.drugName.toLowerCase().includes(row.drugId.toLowerCase()) || m.genericName.toLowerCase().includes(row.drugId.toLowerCase()))
+        // Find fresh medication object to ensure we have valid reference
+        const dbMed = inventory.find(m => m.id === row.drugId)
 
         if (!dbMed) {
-          toast.error(`Medication for ${row.drugId} not found in Pharmacy. Please alert admin to add it to Data Master.`)
-          setIsSaving(false)
+          toast.error(`Medication for ${row.drugName} not found in Pharmacy Inventory. Please alert admin to add it to Data Master.`)
+          setIsSubmitting(false)
           return
         }
 
-        // Basic calculation
+        // Intelligent quantity calculation
         const days = parseInt(row.duration) || 1
-        let mult = 1
+        let dosesPerDay = 1
         const freq = row.frequency.toLowerCase()
-        if (freq.includes('bid') || freq.includes('12-hourly')) mult = 2
-        if (freq.includes('tid') || freq.includes('8-hourly')) mult = 3
-        if (freq.includes('qid') || freq.includes('6-hourly')) mult = 4
-        const qty = mult * days
+        if (freq.includes('bid') || freq.includes('12-hourly')) dosesPerDay = 2
+        if (freq.includes('tid') || freq.includes('8-hourly')) dosesPerDay = 3
+        if (freq.includes('qid') || freq.includes('6-hourly')) dosesPerDay = 4
+        
+        let qty = dosesPerDay * days // Default to dose count (e.g. tablets)
+        
+        const formLower = dbMed.form.toLowerCase();
+        const strengthStr = dbMed.strength.toLowerCase();
+        const isLiquid = formLower.includes('syrup') || formLower.includes('suspension') || formLower.includes('liquid') || strengthStr.includes('/ml');
+        const doseMg = parseFloat(row.dose);
+
+        if (isLiquid && !isNaN(doseMg)) {
+            // Try to parse concentration (e.g. "125mg/5ml")
+            const concentrationMatch = dbMed.strength.match(/(\d+)\s*mg\s*\/\s*(\d+)\s*ml/i);
+            if (concentrationMatch) {
+                const mgInConcentration = parseFloat(concentrationMatch[1]);
+                const mlInConcentration = parseFloat(concentrationMatch[2]);
+                const mlPerDose = (doseMg / mgInConcentration) * mlInConcentration;
+                const totalMlNeeded = mlPerDose * dosesPerDay * days;
+                
+                // If unit is "bottles", we need to know bottle size
+                if (dbMed.unit.toLowerCase().includes('bottle')) {
+                    const bottleSizeMatch = dbMed.strength.match(/\((\d+)\s*ml\)/i) || dbMed.strength.match(/(\d+)\s*ml/);
+                    const bottleSize = bottleSizeMatch ? parseFloat(bottleSizeMatch[1]) : 60; // Fallback to 60ml
+                    qty = Math.ceil(totalMlNeeded / bottleSize);
+                } else {
+                    qty = Math.ceil(totalMlNeeded); // MLs
+                }
+            }
+        } else if (!isNaN(doseMg)) {
+            // For tablets/capsules, check if dose matches strength
+            const strengthMatch = dbMed.strength.match(/(\d+)\s*mg/i);
+            if (strengthMatch) {
+                const mgPerTab = parseFloat(strengthMatch[1]);
+                const tabsPerDose = doseMg / mgPerTab;
+                qty = Math.ceil(tabsPerDose * dosesPerDay * days);
+            }
+        }
 
         itemsPayload.push({
           medicationId: dbMed.id,
-          prescribedQty: qty > 0 ? qty : 1
+          prescribedQty: qty > 0 ? qty : 1,
+          dose: row.dose,
+          frequency: row.frequency,
+          duration: days,
+          instructions: row.instructions
         })
       }
 
       await createPrescription({
-        patientId: activePatientId || "6035987a-3ea1-4217-bf24-2794ac1bdeb3", // Fallback to a valid seeded patient if running blind
-        doctorId: currentUser?.id || "e1e19488-812e-4e4b-a7e8-1c4912953282", // Fallback default doctor
+        patientId: activePatientId,
+        doctorId: currentUser?.id,
         notes: prescriptions[0]?.instructions || "Generated from Dashboard",
         items: itemsPayload
       })
@@ -440,12 +489,12 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
     } catch (err: any) {
       toast.error(err.message || "Failed to submit prescription")
     } finally {
-      setIsSaving(false)
+      setIsSubmitting(false)
     }
   }
 
   // current interactions for display
-  const currentInteractions = checkInteractions(prescriptions.map((r) => r.drugId))
+  const currentInteractions = checkInteractions(prescriptions.map((r) => ({ name: r.drugName, generic: r.genericName })))
 
   return (
     <div className="p-4 lg:p-6 flex flex-col gap-5 max-w-[1200px] mx-auto">
@@ -463,6 +512,13 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
       </div>
 
       {/* ─── Patient Header ──────────────────────────────────── */}
+      {patientLoading || !patientData ? (
+        <Card className="gap-0 py-0">
+          <CardContent className="px-5 py-10 flex justify-center">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
+      ) : (
       <Card className="gap-0 py-0">
         <CardContent className="px-5 py-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -473,28 +529,28 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
               <div className="flex flex-col gap-1.5 min-w-0">
                 <div className="flex items-center gap-2.5 flex-wrap">
                   <h1 className="text-lg font-bold text-foreground tracking-tight">
-                    {patient.name}
+                    {patientData.name}
                   </h1>
                   <Badge variant="secondary" className="text-[11px] font-medium">
-                    {patient.id}
+                    {patientData.id}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
                     <CalendarDays className="size-3" />
-                    DOB: {patient.dob}
+                    DOB: {patientData.dob}
                   </span>
                   <span className="flex items-center gap-1">
                     <User2 className="size-3" />
-                    {patient.age} &middot; {patient.gender}
+                    {patientData.age} &middot; {patientData.gender}
                   </span>
                   <span className="flex items-center gap-1">
                     <Stethoscope className="size-3" />
-                    {patient.doctor}
+                    {patientData.doctor}
                   </span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                  <span>Dx: {patient.diagnosis}</span>
+                  <span>Dx: {patientData.diagnosis}</span>
                 </div>
               </div>
             </div>
@@ -506,19 +562,19 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                   <Weight className="size-4" />
                   <span className="text-[11px] font-semibold uppercase tracking-wider">Weight</span>
                 </div>
-                <span className="text-2xl font-bold text-foreground mt-0.5">{patient.weight} <span className="text-sm font-medium text-muted-foreground">kg</span></span>
-                <span className="text-[10px] text-muted-foreground mt-0.5">BSA: {patient.bsa}</span>
+                <span className="text-2xl font-bold text-foreground mt-0.5">{patientData.weight} <span className="text-sm font-medium text-muted-foreground">kg</span></span>
+                <span className="text-[10px] text-muted-foreground mt-0.5">BSA: {patientData.bsa}</span>
               </div>
             </div>
           </div>
 
           {/* Allergy Banner */}
-          {patient.allergies.length > 0 && (
+          {patientData.allergies.length > 0 && (
             <div className="mt-4 flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5">
               <AlertOctagon className="size-4 text-destructive shrink-0" />
               <span className="text-xs font-semibold text-destructive">KNOWN ALLERGIES:</span>
               <div className="flex items-center gap-1.5 flex-wrap">
-                {patient.allergies.map((a) => (
+                {patientData.allergies.map((a: string) => (
                   <Badge
                     key={a}
                     className="text-[10px] font-semibold bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/10"
@@ -531,6 +587,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* ─── Drug Interaction Alert (persistent) ─────────────── */}
       {currentInteractions.length > 0 && (
@@ -596,25 +653,31 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                         No medicines found
                       </li>
                     ) : (
-                      filteredDrugs.map((drug) => {
-                        const alreadyAdded = prescriptions.some((r) => r.drugId === drug.id)
+                      filteredDrugs.map((medication) => {
+                        const alreadyAdded = prescriptions.some((r) => r.drugId === medication.id)
+                        const isLowStock = medication.stockAvailable <= medication.reorderLevel;
+                        
                         return (
-                          <li key={drug.id}>
+                          <li key={medication.id}>
                             <button
                               className={cn(
                                 "w-full text-left px-4 py-2.5 hover:bg-muted/60 transition-colors flex flex-col gap-0.5",
                                 alreadyAdded && "opacity-50 pointer-events-none"
                               )}
-                              onClick={() => addDrug(drug.id)}
+                              onClick={() => addDrug(medication.id)}
                               disabled={alreadyAdded}
                               role="option"
                               aria-selected={false}
                             >
                               <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium text-foreground">{drug.name}</span>
-                                <Badge variant="secondary" className="text-[10px]">{drug.category}</Badge>
+                                <span className="text-sm font-medium text-foreground">{medication.drugName}</span>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className={cn("text-xs flex items-center gap-1 font-medium", isLowStock ? "text-amber-600 dark:text-amber-500" : "text-green-600 dark:text-green-500")}>
+                                        Stock: {medication.stockAvailable}
+                                    </span>
+                                </div>
                               </div>
-                              <span className="text-xs text-muted-foreground">{drug.generic}</span>
+                              <span className="text-xs text-muted-foreground">{medication.genericName} • {medication.form} {medication.strength}</span>
                               {alreadyAdded && (
                                 <span className="text-[10px] text-primary font-medium">Already added</span>
                               )}
@@ -650,10 +713,11 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
           ) : (
             <div className="divide-y divide-border">
               {prescriptions.map((row, index) => {
-                const drug = getDrug(row.drugId)
-                if (!drug) return null
-                const overdose = checkOverdose(row.drugId, row.dose, patient.weight)
-                const allergyConflict = checkAllergyConflict(row.drugId, patient.allergies)
+                const clinicalInfo = getClinicalDrug(row.drugName, row.genericName)
+                const overdose = checkOverdose(row.drugName, row.genericName, row.dose, patientData?.weight || 10)
+                const allergyConflict = checkAllergyConflict(row.drugName, row.genericName, patientData?.allergies || [])
+                
+                const forms = clinicalInfo?.forms || [row.form]
 
                 return (
                   <div key={row.id} className="px-5 py-5">
@@ -665,10 +729,10 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                         </span>
                         <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-foreground">{drug.name}</span>
-                            <Badge variant="secondary" className="text-[10px]">{drug.category}</Badge>
+                            <span className="text-sm font-semibold text-foreground">{row.drugName}</span>
+                            {clinicalInfo?.category && <Badge variant="secondary" className="text-[10px]">{clinicalInfo.category}</Badge>}
                           </div>
-                          <span className="text-xs text-muted-foreground">{drug.generic}</span>
+                          <span className="text-xs text-muted-foreground">{row.genericName}</span>
                         </div>
                       </div>
                       <Button
@@ -676,7 +740,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                         size="icon-sm"
                         className="text-muted-foreground hover:text-destructive shrink-0"
                         onClick={() => removeDrug(row.id)}
-                        aria-label={`Remove ${drug.name}`}
+                        aria-label={`Remove ${row.drugName}`}
                       >
                         <Trash2 className="size-4" />
                       </Button>
@@ -707,7 +771,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {drug.forms.map((f) => (
+                            {forms.map((f) => (
                               <SelectItem key={f} value={f} className="text-xs">
                                 {f}
                               </SelectItem>
@@ -739,9 +803,11 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                           )}
                         </div>
                         {/* Computed safe range */}
-                        <span className="text-[10px] text-muted-foreground">
-                          Max: {(drug.maxDosePerKg * patient.weight).toFixed(0)} mg/day ({drug.maxDosePerKg} {drug.unit})
-                        </span>
+                        {clinicalInfo?.maxDosePerKg && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Max: {(clinicalInfo.maxDosePerKg * (patientData?.weight || 10)).toFixed(0)} mg/day ({clinicalInfo.maxDosePerKg} {clinicalInfo.unit})
+                          </span>
+                        )}
                       </div>
 
                       {/* Frequency */}
@@ -757,7 +823,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {drug.frequencies.map((f) => (
+                            {(clinicalInfo?.frequencies || ["OD (once daily)", "BID (12-hourly)", "TID (8-hourly)", "QID (6-hourly)", "PRN (as needed)"]).map((f) => (
                               <SelectItem key={f} value={f} className="text-xs">
                                 {f}
                               </SelectItem>
@@ -816,7 +882,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                           <span className="text-xs font-bold text-destructive">OVERDOSE WARNING</span>
                           <span className="text-xs text-foreground leading-relaxed">
                             Entered dose ({overdose.entered} mg) exceeds the maximum safe dose for this patient
-                            ({overdose.max.toFixed(0)} mg/day based on {patient.weight} kg x {overdose.maxPerKg} {overdose.unit}).
+                            ({overdose.max.toFixed(0)} mg/day based on {patientData?.weight || 10} kg x {overdose.maxPerKg} {overdose.unit}).
                             Please review and correct the dosage.
                           </span>
                         </div>
@@ -824,10 +890,12 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                     )}
 
                     {/* Drug notes */}
-                    <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-                      <Info className="size-3 shrink-0 mt-0.5" />
-                      <span>{drug.notes}</span>
-                    </div>
+                    {clinicalInfo?.notes && (
+                      <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+                        <Info className="size-3 shrink-0 mt-0.5" />
+                        <span>{clinicalInfo.notes}</span>
+                      </div>
+                    )}
 
                     {/* Instructions */}
                     <div className="mt-3">
@@ -852,28 +920,32 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
 
       {/* ─── Action Footer ───────────────────────────────────── */}
       {prescriptions.length > 0 && !submitted && (
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Info className="size-3.5" />
-            <span>All doses are validated against patient weight ({patient.weight} kg). Review drug notes before signing.</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-              <Printer className="size-3.5" />
-              Preview
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-              <Download className="size-3.5" />
-              Save Draft
-            </Button>
-            <Button
-              size="sm"
-              className="gap-1.5 text-xs"
-              onClick={handleSubmit}
-            >
-              <CheckCircle2 className="size-3.5" />
-              Submit Prescription
-            </Button>
+        <div className="sticky bottom-0 z-[100] bg-background/95 backdrop-blur-sm border-t border-border -mx-4 lg:-mx-6 px-4 lg:px-6 py-4 mt-auto">
+          <div className="flex items-center justify-between flex-wrap gap-3 max-w-[1200px] mx-auto">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Info className="size-3.5" />
+              <span>All doses are validated against patient weight ({patientData?.weight || 10} kg). Review drug notes before signing.</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <Printer className="size-3.5" />
+                Preview
+              </Button>
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                <Download className="size-3.5" />
+                Save Draft
+              </Button>
+              <Button
+                size="sm"
+                className="gap-1.5 text-xs shadow-md"
+                onClick={() => handleSubmit(false)}
+                disabled={isSubmitting}
+                type="button"
+              >
+                {isSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
+                {isSubmitting ? "Submitting..." : "Submit Prescription"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -885,7 +957,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-bold text-[#1a7f5a]">Prescription Submitted Successfully</span>
             <span className="text-xs text-foreground">
-              {prescriptions.length} medication{prescriptions.length !== 1 ? "s" : ""} prescribed for {patient.name} ({patient.id}).
+              {prescriptions.length} medication{prescriptions.length !== 1 ? "s" : ""} prescribed for {patientData?.name} ({patientData?.id}).
               Sent to pharmacy for dispensing.
             </span>
           </div>
@@ -923,7 +995,10 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
             <Button variant="outline" size="sm" onClick={() => setInteractionDialogOpen(false)}>
               Review Prescription
             </Button>
-            <Button variant="destructive" size="sm" onClick={() => setInteractionDialogOpen(false)}>
+            <Button variant="destructive" size="sm" onClick={() => {
+              setInteractionDialogOpen(false);
+              handleSubmit(true);
+            }}>
               Acknowledge & Continue
             </Button>
           </DialogFooter>
@@ -967,7 +1042,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
       {/* Click-away overlay for drug search */}
       {showDrugSearch && (
         <div
-          className="fixed inset-0 z-40"
+          className="fixed inset-0 z-40 bg-transparent"
           onClick={() => {
             setShowDrugSearch(false)
             setDrugSearchQuery("")

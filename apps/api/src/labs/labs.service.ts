@@ -26,12 +26,23 @@ export class LabsService {
     }
 
     async createOrder(dto: CreateLabOrderDto, doctorId: string) {
+        if (!dto.admissionId && !dto.appointmentId) {
+            throw new Error('A lab order must be linked to either an admission or an appointment.');
+        }
+        if (dto.admissionId && dto.appointmentId) {
+            throw new Error('A lab order cannot be linked to both an admission and an appointment.');
+        }
+
+        const patientType = dto.admissionId ? 'INPATIENT' : 'OUTPATIENT';
         const orderNumber = await this.generateOrderNumber();
 
         return prisma.labOrder.create({
             data: {
                 orderNumber,
                 patientId: dto.patientId,
+                admissionId: dto.admissionId,
+                appointmentId: dto.appointmentId,
+                patientType,
                 doctorId,
                 technicianNotes: dto.technicianNotes,
                 panels: {
@@ -51,7 +62,9 @@ export class LabsService {
             where: { patientId },
             include: {
                 doctor: { select: { id: true, name: true } },
-                panels: { include: { items: true } }
+                panels: { include: { items: true } },
+                admission: true,
+                appointment: { include: { doctor: { select: { name: true } } } }
             },
             orderBy: { orderDate: 'desc' }
         });
@@ -62,7 +75,9 @@ export class LabsService {
             include: {
                 doctor: { select: { id: true, name: true } },
                 patient: { select: { id: true, firstName: true, lastName: true, uhid: true } },
-                panels: true
+                panels: true,
+                admission: true,
+                appointment: { include: { doctor: { select: { name: true } } } }
             },
             orderBy: { orderDate: 'desc' }
         });
@@ -74,11 +89,25 @@ export class LabsService {
             include: {
                 doctor: { select: { id: true, name: true } },
                 patient: { select: { id: true, firstName: true, lastName: true, uhid: true } },
-                panels: { include: { items: true } }
+                panels: { include: { items: true } },
+                admission: true,
+                appointment: { include: { doctor: { select: { name: true } } } }
             }
         });
         if (!order) throw new NotFoundException(`Lab order ${id} not found`);
         return order;
+    }
+
+    async findByAdmission(admissionId: string) {
+        return prisma.labOrder.findMany({
+            where: { admissionId },
+            include: {
+                doctor: { select: { id: true, name: true } },
+                panels: { include: { items: true } },
+                admission: true
+            },
+            orderBy: { orderDate: 'desc' }
+        });
     }
 
     async updatePanelResults(panelId: string, dto: UpdateLabPanelResultsDto) {

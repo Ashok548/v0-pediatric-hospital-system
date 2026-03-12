@@ -23,7 +23,7 @@ import { useDebounce } from "@/hooks/use-debounce"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ServiceCategory = "CONSULTATION" | "LAB" | "PROCEDURE" | "ROOM" | "MISC"
+type ServiceCategory = "CONSULTATION" | "LAB" | "PROCEDURE" | "ROOM" | "MISC" | "RESPIRATORY" | "MONITORING" | "THERAPY" | "INFUSION" | "FEEDING" | "IMAGING"
 
 interface MasterService {
     id: string
@@ -44,9 +44,9 @@ interface ApiListResponse<T> {
     categoryCounts?: Record<string, number>
 }
 
-const CATEGORIES: ServiceCategory[] = ["CONSULTATION", "LAB", "PROCEDURE", "ROOM", "MISC"]
+const CATEGORIES: ServiceCategory[] = ["CONSULTATION", "LAB", "PROCEDURE", "ROOM", "MISC", "RESPIRATORY", "MONITORING", "THERAPY", "INFUSION", "FEEDING", "IMAGING"]
 const CATEGORY_LABELS: Record<ServiceCategory, string> = {
-    CONSULTATION: "Consultation", LAB: "Lab", PROCEDURE: "Procedure", ROOM: "Room", MISC: "Misc"
+    CONSULTATION: "Consultation", LAB: "Lab", PROCEDURE: "Procedure", ROOM: "Room", MISC: "Misc", RESPIRATORY: "Respiratory", MONITORING: "Monitoring", THERAPY: "Therapy", INFUSION: "Infusion", FEEDING: "Feeding", IMAGING: "Imaging"
 }
 const CATEGORY_COLORS: Record<ServiceCategory, string> = {
     CONSULTATION: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300",
@@ -54,6 +54,12 @@ const CATEGORY_COLORS: Record<ServiceCategory, string> = {
     PROCEDURE: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300",
     ROOM: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300",
     MISC: "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-900/30 dark:text-gray-300",
+    RESPIRATORY: "bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300",
+    MONITORING: "bg-indigo-100 text-indigo-700 border-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-300",
+    THERAPY: "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300",
+    INFUSION: "bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-300",
+    FEEDING: "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300",
+    IMAGING: "bg-teal-100 text-teal-700 border-teal-200 dark:bg-teal-900/30 dark:text-teal-300",
 }
 
 type FormState = {
@@ -80,6 +86,7 @@ export function MasterServicesContent() {
     const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL")
     const [page, setPage] = useState(1)
     const [dialogOpen, setDialogOpen] = useState(false)
+    const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
     const [editTarget, setEditTarget] = useState<MasterService | null>(null)
     const [form, setForm] = useState<FormState>(EMPTY_FORM)
     const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
@@ -103,6 +110,16 @@ export function MasterServicesContent() {
         "/master/services", "POST", {
         successMessage: "Service created successfully",
         onSuccess: () => { mutate(); setDialogOpen(false) },
+    })
+
+    const { trigger: seedTemplate, isMutating: isSeeding } = useMutation<{ created: number, skipped: number, total: number }, any>(
+        "/master/services/seed-template", "POST", {
+        successMessage: "Template seeded successfully",
+        onSuccess: (res) => {
+            mutate();
+            setTemplateDialogOpen(false);
+            alert(`Template complete: ${res?.created || 0} services added, ${res?.skipped || 0} skipped.`);
+        },
     })
 
     const { trigger: updateService, isMutating: isUpdating } = useMutation<MasterService, any>(
@@ -202,9 +219,14 @@ export function MasterServicesContent() {
                         </SelectContent>
                     </Select>
                 </div>
-                <Button id="services-create-btn" onClick={openCreate} className="gap-2 shrink-0">
-                    <Plus className="w-4 h-4" /> Add Service
-                </Button>
+                <div className="flex gap-2 shrink-0">
+                    <Button variant="outline" id="services-seed-btn" onClick={() => setTemplateDialogOpen(true)} className="gap-2">
+                        <Plus className="w-4 h-4" /> Load Standard Template
+                    </Button>
+                    <Button id="services-create-btn" onClick={openCreate} className="gap-2">
+                        <Plus className="w-4 h-4" /> Add Service
+                    </Button>
+                </div>
             </div>
 
             {/* Table */}
@@ -344,6 +366,30 @@ export function MasterServicesContent() {
                         <Button onClick={handleSave} disabled={isSaving}>
                             {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                             {editTarget ? "Save Changes" : "Create"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Template Seed Dialog */}
+            <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Load Standard Template</DialogTitle>
+                    </DialogHeader>
+                    <div className="py-4">
+                        <p className="text-sm text-muted-foreground leading-relaxed">
+                            This will automatically load a carefully curated template of <strong>~80 standard pediatric hospital services</strong> covering consultations, labs, procedures, room charges, and miscellaneous fees.
+                        </p>
+                        <p className="text-sm text-foreground font-medium mt-4">
+                            Don't worry: any existing services with matching codes will be safely skipped to prevent duplicates.
+                        </p>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setTemplateDialogOpen(false)} disabled={isSeeding}>Cancel</Button>
+                        <Button onClick={() => seedTemplate({})} disabled={isSeeding}>
+                            {isSeeding && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                            Load Template
                         </Button>
                     </DialogFooter>
                 </DialogContent>

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { prisma, PrescriptionStatus } from '@carenest/database';
-import { CreatePrescriptionDto, DispensePrescriptionDto } from './dto/pharmacy.dto';
+import { prisma, PrescriptionStatus, MasterStatus } from '@carenest/database';
+import { CreatePrescriptionDto, DispensePrescriptionDto, CreateMedicationDto, BulkCreateMedicationsDto, UpdateMedicationDto } from './dto/pharmacy.dto';
 
 @Injectable()
 export class PharmacyService {
@@ -14,10 +14,60 @@ export class PharmacyService {
         });
     }
 
-    async getPrescriptions(query: { status?: PrescriptionStatus; search?: string; admissionId?: string }) {
+    async createMedication(dto: CreateMedicationDto) {
+        // Build generic code for standard unique identification if needed. For now, rely on UUID.
+        return this.prisma.medication.create({
+            data: {
+                ...dto,
+                status: 'ACTIVE',
+            }
+        });
+    }
+
+    async bulkCreateMedications(dto: BulkCreateMedicationsDto) {
+        const data = dto.medications.map(med => ({
+            ...med,
+            status: 'ACTIVE' as const,
+        }));
+        
+        // Use createMany to insert. Prisma doesn't return the full objects from createMany, 
+        // just the count. The user can refresh the inventory using getInventory.
+        const result = await this.prisma.medication.createMany({
+            data,
+            skipDuplicates: true, // Safety measure if unique constraints are added later
+        });
+        
+        return { success: true, count: result.count };
+    }
+
+    async updateMedication(id: string, dto: UpdateMedicationDto) {
+        try {
+            return await this.prisma.medication.update({
+                where: { id },
+                data: dto,
+            });
+        } catch (error) {
+            throw new NotFoundException('Medication not found');
+        }
+    }
+
+    async deactivateMedication(id: string) {
+        try {
+            return await this.prisma.medication.update({
+                where: { id },
+                data: { status: 'INACTIVE' },
+            });
+        } catch (error) {
+            throw new NotFoundException('Medication not found');
+        }
+    }
+
+
+    async getPrescriptions(query: { status?: PrescriptionStatus; search?: string; admissionId?: string; patientId?: string }) {
         const where: any = {};
         if (query.status) where.status = query.status;
         if (query.admissionId) where.admissionId = query.admissionId;
+        if (query.patientId) where.patientId = query.patientId;
 
         if (query.search) {
             where.OR = [
@@ -81,6 +131,10 @@ export class PharmacyService {
                         create: dto.items.map(item => ({
                             medicationId: item.medicationId,
                             prescribedQty: item.prescribedQty,
+                            dose: item.dose,
+                            frequency: item.frequency,
+                            duration: item.duration,
+                            instructions: item.instructions,
                         }))
                     }
                 },

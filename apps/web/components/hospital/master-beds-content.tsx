@@ -72,7 +72,15 @@ type FormState = {
     status: BedStatus
 }
 
+type BatchFormState = {
+    wardId: string
+    prefix: string
+    startNumber: string
+    endNumber: string
+}
+
 const EMPTY_FORM: FormState = { wardId: "", bedNumber: "", status: "AVAILABLE" }
+const EMPTY_BATCH_FORM: BatchFormState = { wardId: "", prefix: "", startNumber: "1", endNumber: "10" }
 const PAGE_SIZE = 10
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -84,9 +92,11 @@ export function MasterBedsContent() {
     const [statusFilter, setStatusFilter] = useState<"ALL" | BedStatus>("ALL")
     const [page, setPage] = useState(1)
     const [dialogOpen, setDialogOpen] = useState(false)
+    const [batchDialogOpen, setBatchDialogOpen] = useState(false)
     const [editTarget, setEditTarget] = useState<Bed | null>(null)
     const [form, setForm] = useState<FormState>(EMPTY_FORM)
-    const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({})
+    const [batchForm, setBatchForm] = useState<BatchFormState>(EMPTY_BATCH_FORM)
+    const [errors, setErrors] = useState<Partial<Record<keyof FormState | keyof BatchFormState, string>>>({})
 
     const debouncedSearch = useDebounce(search, 300)
 
@@ -118,6 +128,17 @@ export function MasterBedsContent() {
         onSuccess: () => { mutate(); setDialogOpen(false) },
     })
 
+    const { trigger: batchCreateBeds, isMutating: isBatchCreating } = useMutation<{ created: number, skipped: number, total: number }, any>(
+        "/master/beds/batch", "POST", {
+        successMessage: "Batch beds creation finished",
+        onSuccess: (res) => {
+            mutate();
+            setBatchDialogOpen(false);
+            // Replace generic message with specific results via native toast or alert if desired
+            alert(`Batch complete: ${res?.created || 0} created, ${res?.skipped || 0} skipped.`);
+        },
+    })
+
     const { trigger: updateBed, isMutating: isUpdating } = useMutation<Bed, any>(
         () => `/master/beds/${editTarget?.id}`, "PATCH", {
         successMessage: "Bed updated successfully",
@@ -135,6 +156,10 @@ export function MasterBedsContent() {
         setEditTarget(null); setForm(EMPTY_FORM); setErrors({}); setDialogOpen(true)
     }
 
+    function openBatchCreate() {
+        setBatchForm(EMPTY_BATCH_FORM); setErrors({}); setBatchDialogOpen(true)
+    }
+
     function openEdit(bed: Bed) {
         setEditTarget(bed)
         setForm({ wardId: bed.wardId, bedNumber: bed.bedNumber, status: bed.status })
@@ -148,9 +173,26 @@ export function MasterBedsContent() {
     }
 
     function validate(): boolean {
-        const e: Partial<Record<keyof FormState, string>> = {}
+        const e: Partial<Record<keyof FormState | keyof BatchFormState, string>> = {}
         if (!form.wardId) e.wardId = "Ward is required"
         if (!form.bedNumber.trim()) e.bedNumber = "Bed number is required"
+        setErrors(e)
+        return Object.keys(e).length === 0
+    }
+
+    function validateBatch(): boolean {
+        const e: Partial<Record<keyof FormState | keyof BatchFormState, string>> = {}
+        if (!batchForm.wardId) e.wardId = "Ward is required"
+        if (!batchForm.prefix.trim()) e.prefix = "Prefix is required"
+        
+        const start = parseInt(batchForm.startNumber)
+        const end = parseInt(batchForm.endNumber)
+        
+        if (isNaN(start) || start < 1) e.startNumber = "Must be ≥ 1"
+        if (isNaN(end) || end < 1) e.endNumber = "Must be ≥ 1"
+        if (start > end) e.startNumber = "Start cannot be > end"
+        if (end - start + 1 > 100) e.endNumber = "Max 100 beds per batch"
+        
         setErrors(e)
         return Object.keys(e).length === 0
     }
@@ -160,6 +202,17 @@ export function MasterBedsContent() {
         const payload = { wardId: form.wardId, bedNumber: form.bedNumber.trim(), status: form.status }
         if (editTarget) await updateBed(payload)
         else await createBed(payload)
+    }
+
+    async function handleBatchSave() {
+        if (!validateBatch()) return
+        const payload = {
+            wardId: batchForm.wardId,
+            prefix: batchForm.prefix.trim(),
+            startNumber: parseInt(batchForm.startNumber),
+            endNumber: parseInt(batchForm.endNumber),
+        }
+        await batchCreateBeds(payload)
     }
 
     async function handleToggleMaintenance(bed: Bed) {
@@ -212,9 +265,14 @@ export function MasterBedsContent() {
                         </SelectContent>
                     </Select>
                 </div>
-                <Button id="beds-create-btn" onClick={openCreate} className="gap-2 shrink-0">
-                    <Plus className="w-4 h-4" /> Add Bed
-                </Button>
+                <div className="flex gap-2 shrink-0">
+                    <Button variant="outline" id="beds-batch-create-btn" onClick={openBatchCreate} className="gap-2">
+                        <BedDouble className="w-4 h-4" /> Batch Create
+                    </Button>
+                    <Button id="beds-create-btn" onClick={openCreate} className="gap-2">
+                        <Plus className="w-4 h-4" /> Add Bed
+                    </Button>
+                </div>
             </div>
 
             {/* Table */}
@@ -326,6 +384,70 @@ export function MasterBedsContent() {
                         <Button onClick={handleSave} disabled={isSaving}>
                             {isSaving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
                             {editTarget ? "Save Changes" : "Create"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Batch Create Dialog */}
+            <Dialog open={batchDialogOpen} onOpenChange={setBatchDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Batch Create Beds</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-2">
+                        <div className="space-y-1.5">
+                            <Label htmlFor="batch-ward">Ward <span className="text-destructive">*</span></Label>
+                            <Select value={batchForm.wardId} onValueChange={(v) => setBatchForm((f) => ({ ...f, wardId: v }))}>
+                                <SelectTrigger id="batch-ward"><SelectValue placeholder="Select ward" /></SelectTrigger>
+                                <SelectContent>
+                                    {wards.map((w) => (
+                                        <SelectItem key={w.id} value={w.id}>
+                                            {w.name}{w.floor ? ` — ${w.floor.name}` : ""}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {errors.wardId && <p className="text-xs text-destructive">{errors.wardId}</p>}
+                        </div>
+                        <div className="space-y-1.5">
+                            <Label htmlFor="batch-prefix">Prefix <span className="text-destructive">*</span></Label>
+                            <Input id="batch-prefix" placeholder="e.g. NICU" value={batchForm.prefix}
+                                onChange={(e) => setBatchForm((f) => ({ ...f, prefix: e.target.value }))} />
+                            {errors.prefix && <p className="text-xs text-destructive">{errors.prefix}</p>}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                                <Label htmlFor="batch-start">Start Number <span className="text-destructive">*</span></Label>
+                                <Input id="batch-start" type="number" min={1} value={batchForm.startNumber}
+                                    onChange={(e) => setBatchForm((f) => ({ ...f, startNumber: e.target.value }))} />
+                                {errors.startNumber && <p className="text-xs text-destructive">{errors.startNumber}</p>}
+                            </div>
+                            <div className="space-y-1.5">
+                                <Label htmlFor="batch-end">End Number <span className="text-destructive">*</span></Label>
+                                <Input id="batch-end" type="number" min={1} value={batchForm.endNumber}
+                                    onChange={(e) => setBatchForm((f) => ({ ...f, endNumber: e.target.value }))} />
+                                {errors.endNumber && <p className="text-xs text-destructive">{errors.endNumber}</p>}
+                            </div>
+                        </div>
+                        {batchForm.prefix && batchForm.startNumber && batchForm.endNumber && !errors.startNumber && !errors.endNumber && (
+                            <div className="rounded-md bg-muted p-3 text-sm">
+                                <p className="text-muted-foreground">Preview:</p>
+                                <p className="font-medium mt-1">
+                                    Will create {parseInt(batchForm.endNumber) - parseInt(batchForm.startNumber) + 1} beds:
+                                    <br />
+                                    {batchForm.prefix}-{parseInt(batchForm.startNumber) < 10 ? `0${parseInt(batchForm.startNumber)}` : batchForm.startNumber} 
+                                    {" "}through{" "} 
+                                    {batchForm.prefix}-{parseInt(batchForm.endNumber) < 10 ? `0${parseInt(batchForm.endNumber)}` : batchForm.endNumber}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setBatchDialogOpen(false)} disabled={isBatchCreating}>Cancel</Button>
+                        <Button onClick={handleBatchSave} disabled={isBatchCreating}>
+                            {isBatchCreating && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+                            Batch Create
                         </Button>
                     </DialogFooter>
                 </DialogContent>

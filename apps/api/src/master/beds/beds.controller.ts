@@ -7,6 +7,7 @@ import { BedsService } from "./beds.service";
 import { CreateBedDto } from "./dto/create-bed.dto";
 import { UpdateBedDto } from "./dto/update-bed.dto";
 import { QueryBedsDto } from "./dto/query-beds.dto";
+import { BatchCreateBedsDto } from "./dto/batch-create-beds.dto";
 import { JwtAuthGuard } from "../../auth/guards/jwt-auth.guard";
 import { RolesGuard } from "../../auth/guards/roles.guard";
 import { Roles } from "../../auth/decorators/roles.decorator";
@@ -21,6 +22,12 @@ export class BedsController {
     @HttpCode(HttpStatus.CREATED)
     create(@Body() dto: CreateBedDto) {
         return this.bedsService.create(dto);
+    }
+
+    @Post("batch")
+    @HttpCode(HttpStatus.CREATED)
+    batchCreate(@Body() dto: BatchCreateBedsDto) {
+        return this.bedsService.batchCreate(dto);
     }
 
     @Get()
