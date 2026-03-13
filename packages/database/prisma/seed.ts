@@ -85,6 +85,36 @@ async function main() {
     const { seedMedications } = await import("./seed-data/medications.js");
     await seedMedications(prisma);
 
+    // 5. Seed Lab Master Data
+    console.log("🧪 Seeding Lab Master Data...");
+    const { labMasterData } = await import("./seed-data/lab-master.js");
+    
+    // Clear existing to avoid duplicates if needed, or use upsert
+    // For profiles and parameters, we'll clear and recreate for simplicity in seed
+    await prisma.labTestParameter.deleteMany({});
+    await prisma.labTestProfile.deleteMany({});
+
+    for (const profile of labMasterData) {
+        await prisma.labTestProfile.create({
+            data: {
+                panelName: profile.panelName,
+                category: profile.category,
+                sampleType: profile.sampleType,
+                parameters: {
+                    create: profile.parameters.map((p, index) => ({
+                        parameterName: p.parameterName,
+                        unit: p.unit,
+                        refDisplay: p.refDisplay,
+                        refMin: p.refMin,
+                        refMax: p.refMax,
+                        displayOrder: index
+                    }))
+                }
+            }
+        });
+        console.log(`✅ Lab Profile: ${profile.panelName}`);
+    }
+
     console.log("✨ Seed complete.");
 }
 

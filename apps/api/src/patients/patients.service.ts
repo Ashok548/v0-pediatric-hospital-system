@@ -25,6 +25,7 @@ const PATIENT_SELECT = {
     city: true,
     state: true,
     pincode: true,
+    allergies: true,
     status: true,
     createdAt: true,
     updatedAt: true,

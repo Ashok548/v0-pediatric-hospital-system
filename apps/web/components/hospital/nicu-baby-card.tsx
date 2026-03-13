@@ -84,9 +84,12 @@ function daysInNicu(admissionDate: string): number {
 interface NicuBabyCardProps {
   admission: ApiNicuAdmission
   onViewDetails?: () => void
+  onOrderLab?: () => void
+  onOrderMedication?: () => void
+  onOrderService?: () => void
 }
 
-export function NicuBabyCard({ admission, onViewDetails }: NicuBabyCardProps) {
+export function NicuBabyCard({ admission, onViewDetails, onOrderLab, onOrderMedication, onOrderService }: NicuBabyCardProps) {
   const latestVitals = admission.vitalsRecords?.[0] ?? null
   const status = deriveNicuStatus(latestVitals, admission.nicuRiskLevel)
   const cfg = statusConfig[status]
@@ -157,13 +160,25 @@ export function NicuBabyCard({ admission, onViewDetails }: NicuBabyCardProps) {
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-1 border-t border-border/40">
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
             {admission.admittingDoctor ? `Dr. ${admission.admittingDoctor.name}` : "—"}
           </span>
-          <Button variant="ghost" size="sm" className="text-xs h-7 px-2.5 text-primary hover:text-primary gap-1.5" onClick={onViewDetails}>
-            <Eye className="size-3" />
-            View Details
-          </Button>
+          <div className="flex items-center gap-0.5">
+            <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" onClick={onOrderLab || onViewDetails} title="Order Lab Test">
+              <span className="text-sm">🧪</span>
+            </Button>
+            <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" onClick={onOrderMedication || onViewDetails} title="Order Medication">
+              <span className="text-sm">💊</span>
+            </Button>
+            <Button variant="ghost" size="icon" className="size-7 text-muted-foreground hover:text-foreground" onClick={onOrderService || onViewDetails} title="Order Service">
+              <span className="text-sm">⚕️</span>
+            </Button>
+            <div className="w-px h-3 bg-border mx-1" />
+            <Button variant="ghost" size="sm" className="text-xs h-7 px-2.5 text-primary hover:text-primary gap-1.5" onClick={onViewDetails}>
+              <Eye className="size-3" />
+              View
+            </Button>
+          </div>
         </div>
       </CardContent>
     </Card>

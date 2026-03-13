@@ -55,17 +55,24 @@ export class NicuService {
             prisma.admission.count({ where }),
         ])
 
-        return { data: admissions, total, page, limit, totalPages: Math.ceil(total / limit) }
+        // Map latest vitals if present
+        const data = admissions.map((a: any) => ({
+            ...a,
+            vitalsRecords: a.vitalsRecords.map((v: any) => this.mapToApi(v))
+        }))
+
+        return { data, total, page, limit, totalPages: Math.ceil(total / limit) }
     }
 
     /** Get full vitals history for one NICU admission */
     async findVitals(admissionId: string) {
         const admission = await prisma.admission.findUnique({ where: { id: admissionId } })
         if (!admission) throw new NotFoundException(`Admission ${admissionId} not found`)
-        return prisma.nicuVitals.findMany({
+        const records = await prisma.nicuVitals.findMany({
             where: { admissionId },
             orderBy: { recordedAt: "desc" },
         })
+        return records.map((v: any) => this.mapToApi(v))
     }
 
     /** Record new vitals for a NICU patient */
@@ -73,22 +80,24 @@ export class NicuService {
         const admission = await prisma.admission.findUnique({ where: { id: admissionId } })
         if (!admission) throw new NotFoundException(`Admission ${admissionId} not found`)
 
-        return prisma.nicuVitals.create({
+        const record = await prisma.nicuVitals.create({
             data: {
                 admissionId,
                 recordedBy: dto.recordedBy ?? recordedBy ?? null,
                 heartRate: dto.heartRate ?? null,
                 spo2: dto.spo2 ?? null,
                 temperature: dto.temperature != null ? dto.temperature : null,
-                respRate: dto.respRate ?? null,
-                bpSystolic: dto.bpSystolic ?? null,
-                bpDiastolic: dto.bpDiastolic ?? null,
+                respRate: dto.respiratoryRate ?? null,
+                bpSystolic: dto.bloodPressureSystolic ?? null,
+                bpDiastolic: dto.bloodPressureDiastolic ?? null,
                 weight: dto.weight != null ? dto.weight : null,
                 notes: dto.notes ?? null,
                 isCritical: dto.isCritical ?? false,
                 alertMessage: dto.alertMessage ?? null,
             },
         })
+
+        return this.mapToApi(record)
     }
 
     /** Delete a single vitals record */
@@ -161,13 +170,25 @@ export class NicuService {
                     currentBed: a.currentBed,
                     severity: isCritical ? 'CRITICAL' : 'WARNING',
                     alertMessage: v.alertMessage || defaultMessage,
-                    vitals: v,
+                    vitals: this.mapToApi(v),
                     recordedAt: v.recordedAt,
                 });
             }
         }
 
         return activeAlerts.sort((a, b) => b.recordedAt.getTime() - a.recordedAt.getTime());
+    }
+
+    /** Helper to map database fields to API names */
+    private mapToApi(v: any) {
+        if (!v) return v
+        const { respRate, bpSystolic, bpDiastolic, ...rest } = v
+        return {
+            ...rest,
+            respiratoryRate: respRate,
+            bloodPressureSystolic: bpSystolic,
+            bloodPressureDiastolic: bpDiastolic
+        }
     }
 
     /** Acknowledge a critical NICU alert */

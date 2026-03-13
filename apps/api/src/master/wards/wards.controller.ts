@@ -12,12 +12,12 @@ import { RolesGuard } from "../../auth/guards/roles.guard";
 import { Roles } from "../../auth/decorators/roles.decorator";
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN")
 @Controller("master/wards")
 export class WardsController {
     constructor(private wardsService: WardsService) { }
 
     @Post()
+    @Roles("ADMIN")
     @HttpCode(HttpStatus.CREATED)
     create(@Body() dto: CreateWardDto) {
         return this.wardsService.create(dto);
@@ -34,6 +34,7 @@ export class WardsController {
     }
 
     @Patch(":id")
+    @Roles("ADMIN")
     update(
         @Param("id", ParseUUIDPipe) id: string,
         @Body() dto: UpdateWardDto,
@@ -42,6 +43,7 @@ export class WardsController {
     }
 
     @Delete(":id")
+    @Roles("ADMIN")
     @HttpCode(HttpStatus.OK)
     softDelete(@Param("id", ParseUUIDPipe) id: string) {
         return this.wardsService.softDelete(id);

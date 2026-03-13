@@ -23,6 +23,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { useLabOrder, updateLabPanelResults, finalizeLabOrder } from "@/lib/api/labs"
+import { useAuth } from "@/hooks/use-auth"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -145,7 +146,8 @@ function TrendIcon({ status }: { status: StatusType }) {
 
 // ─── Component ──────────────────────────────────────────────────
 export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
-  const { order, isLoading, mutate } = useLabOrder(orderId || "")
+  const { user } = useAuth()
+  const { order, isLoading, mutate } = useLabOrder(orderId ?? null)
   const { toast } = useToast()
 
   const [isSaving, setIsSaving] = useState(false)
@@ -177,7 +179,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
   const [selectedPanelId, setSelectedPanelId] = useState<string>("")
   const [panelValues, setPanelValues] = useState<Record<string, Record<string, string>>>({})
   const [savedDraft, setSavedDraft] = useState(false)
-  const [finalized, setFinalized] = useState(false)
+  const isLocked = order?.status === 'FINALIZED'
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false)
   const [technicianNotes, setTechnicianNotes] = useState("")
 
@@ -208,16 +210,9 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
       },
     }))
     setSavedDraft(false)
-    setFinalized(false)
   }
 
-  if (isLoading) {
-    return (
-      <div className="p-4 flex items-center justify-center min-h-[400px]">
-        <div className="text-muted-foreground animate-pulse">Loading lab order details...</div>
-      </div>
-    )
-  }
+  // (Early return moved below to follow Rules of Hooks)
 
   const patient = order?.patient || {
     uhid: "—",
@@ -238,7 +233,6 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
       [selectedPanelId]: original,
     }))
     setSavedDraft(false)
-    setFinalized(false)
   }
 
   // Compute summary counts
@@ -275,6 +269,14 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
     return { totalAbnormal, totalCritical }
   }, [panelValues])
 
+  if (isLoading) {
+    return (
+      <div className="p-4 flex items-center justify-center min-h-[400px]">
+        <div className="text-muted-foreground animate-pulse">Loading lab order details...</div>
+      </div>
+    )
+  }
+
   const handleSaveDraft = async () => {
     if (!orderId || !selectedPanelId) return
     setIsSaving(true)
@@ -299,7 +301,6 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
       await mutate() // Refresh order state from backend
 
       setSavedDraft(true)
-      setFinalized(false)
       toast({
         title: "Draft Saved",
         description: "Your results have been saved to the database successfully."
@@ -325,7 +326,6 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
       await mutate()
 
       setFinalizeDialogOpen(false)
-      setFinalized(true)
       setSavedDraft(false)
 
       toast({
@@ -573,7 +573,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                               }
                             }
                           }}
-                          disabled={finalized || isSaving || isFinalizing}
+                          disabled={isLocked || isSaving || isFinalizing}
                           className={cn(
                             "h-8 text-sm font-mono w-full transition-all",
                             isCritical && "border-red-400 bg-red-50 text-red-800 font-bold focus-visible:border-red-500 focus-visible:ring-red-500/30",
@@ -617,7 +617,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                 placeholder="Add notes about the sample, test conditions, or any observations..."
                 value={technicianNotes}
                 onChange={(e) => setTechnicianNotes(e.target.value)}
-                disabled={finalized}
+                disabled={isLocked}
                 aria-label="Technician notes"
               />
             </CardContent>
@@ -632,10 +632,10 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                   Draft saved successfully
                 </div>
               )}
-              {finalized && (
+              {order?.status === 'FINALIZED' && (
                 <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
                   <FileCheck2 className="size-4" />
-                  Report Finalized &amp; Verified
+                  Report Finalized &amp; Verified by {order.verifiedBy?.name || "Lab Technician"}
                 </div>
               )}
             </div>
@@ -646,7 +646,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                 size="sm"
                 className="gap-1.5 text-xs"
                 onClick={resetToOriginal}
-                disabled={finalized}
+                disabled={isLocked}
               >
                 <RotateCcw className="size-3.5" />
                 Reset Values
@@ -655,7 +655,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                 variant="outline"
                 size="sm"
                 className="gap-1.5 text-xs"
-                disabled={finalized}
+                disabled={isLocked}
               >
                 <Printer className="size-3.5" />
                 Print
@@ -665,7 +665,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                 size="sm"
                 className="gap-1.5 text-xs"
                 onClick={handleSaveDraft}
-                disabled={finalized || isSaving || isFinalizing}
+                disabled={isLocked || isSaving || isFinalizing}
               >
                 {isSaving ? <RotateCcw className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
                 {isSaving ? "Saving..." : "Save Draft"}
@@ -674,7 +674,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                 size="sm"
                 className="gap-1.5 text-xs"
                 onClick={() => setFinalizeDialogOpen(true)}
-                disabled={finalized}
+                disabled={isLocked}
               >
                 <FileCheck2 className="size-3.5" />
                 Finalize Report
@@ -721,8 +721,8 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                   <User2 className="size-3.5 text-primary" />
                 </div>
                 <div className="flex flex-col">
-                  <span className="text-sm font-medium text-foreground">Sunita Rao, MLT</span>
-                  <span className="text-[10px] text-muted-foreground">Reg. No: MLT/KA/2019/4829</span>
+                  <span className="text-sm font-medium text-foreground">{user?.name || "Computing..."}</span>
+                  <span className="text-[10px] text-muted-foreground">{user?.role?.name || "Staff Member"}</span>
                 </div>
               </div>
             </div>

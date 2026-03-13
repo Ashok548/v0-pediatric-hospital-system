@@ -22,9 +22,10 @@ import { ConsultationsModule } from './consultations/consultations.module';
 import { LabsModule } from './labs/labs.module';
 import { VaccinationsModule } from './vaccinations/vaccinations.module';
 import { SettingsModule } from './settings/settings.module';
+import { ServiceOrdersModule } from './service-orders/service-orders.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule, ConsultationsModule, LabsModule, VaccinationsModule, SettingsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule, ConsultationsModule, LabsModule, VaccinationsModule, SettingsModule, ServiceOrdersModule],
 
   controllers: [AppController],
   providers: [

@@ -13,18 +13,19 @@ import { RolesGuard } from "../../auth/guards/roles.guard";
 import { Roles } from "../../auth/decorators/roles.decorator";
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN")
 @Controller("master/beds")
 export class BedsController {
     constructor(private bedsService: BedsService) { }
 
     @Post()
+    @Roles("ADMIN")
     @HttpCode(HttpStatus.CREATED)
     create(@Body() dto: CreateBedDto) {
         return this.bedsService.create(dto);
     }
 
     @Post("batch")
+    @Roles("ADMIN")
     @HttpCode(HttpStatus.CREATED)
     batchCreate(@Body() dto: BatchCreateBedsDto) {
         return this.bedsService.batchCreate(dto);
@@ -50,6 +51,7 @@ export class BedsController {
     }
 
     @Delete(":id")
+    @Roles("ADMIN")
     @HttpCode(HttpStatus.OK)
     softDelete(@Param("id", ParseUUIDPipe) id: string) {
         return this.bedsService.softDelete(id);

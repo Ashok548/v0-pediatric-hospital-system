@@ -22,17 +22,17 @@ export class CreateVitalsDto {
     @IsInt()
     @Min(0) @Max(100)
     @Type(() => Number)
-    respRate?: number
+    respiratoryRate?: number
 
     @IsOptional()
     @IsInt()
     @Type(() => Number)
-    bpSystolic?: number
+    bloodPressureSystolic?: number
 
     @IsOptional()
     @IsInt()
     @Type(() => Number)
-    bpDiastolic?: number
+    bloodPressureDiastolic?: number
 
     @IsOptional()
     @Type(() => Number)

@@ -36,7 +36,8 @@ export class LabsService {
         const patientType = dto.admissionId ? 'INPATIENT' : 'OUTPATIENT';
         const orderNumber = await this.generateOrderNumber();
 
-        return prisma.labOrder.create({
+        // Create the order with panels and auto-populated items from master data
+        const order = await prisma.labOrder.create({
             data: {
                 orderNumber,
                 patientId: dto.patientId,
@@ -46,15 +47,46 @@ export class LabsService {
                 doctorId,
                 technicianNotes: dto.technicianNotes,
                 panels: {
-                    create: dto.panels.map(p => ({
-                        panelName: p.panelName,
-                        category: p.category,
-                        sampleType: p.sampleType,
+                    create: await Promise.all(dto.panels.map(async p => {
+                        // Fetch master parameters if testProfileId is provided
+                        let parameters: any[] = [];
+                        if (p.testProfileId) {
+                            parameters = await prisma.labTestParameter.findMany({
+                                where: { profileId: p.testProfileId, isActive: true },
+                                orderBy: { displayOrder: 'asc' }
+                            });
+                        }
+
+                        return {
+                            panelName: p.panelName,
+                            category: p.category,
+                            sampleType: p.sampleType,
+                            testProfileId: p.testProfileId,
+                            status: 'PENDING',
+                            items: {
+                                create: parameters.map(param => ({
+                                    testParameterId: param.id,
+                                    parameterName: param.parameterName,
+                                    unit: param.unit,
+                                    refDisplay: param.refDisplay,
+                                    refMin: param.refMin,
+                                    refMax: param.refMax,
+                                    criticalMin: param.criticalMin,
+                                    criticalMax: param.criticalMax,
+                                }))
+                            }
+                        };
                     }))
                 }
             },
-            include: { panels: true }
+            include: {
+                panels: {
+                    include: { items: true }
+                }
+            }
         });
+
+        return order;
     }
 
     async findByPatient(patientId: string) {
@@ -91,7 +123,8 @@ export class LabsService {
                 patient: { select: { id: true, firstName: true, lastName: true, uhid: true } },
                 panels: { include: { items: true } },
                 admission: true,
-                appointment: { include: { doctor: { select: { name: true } } } }
+                appointment: { include: { doctor: { select: { name: true } } } },
+                verifiedBy: { select: { id: true, name: true } }
             }
         });
         if (!order) throw new NotFoundException(`Lab order ${id} not found`);
@@ -148,14 +181,16 @@ export class LabsService {
     }
 
     async finalizeOrder(id: string, userId: string) {
-        const user = await prisma.user.findUnique({ where: { id: userId } });
         return prisma.labOrder.update({
             where: { id },
             data: {
                 status: 'FINALIZED',
-                verifiedBy: user?.name || 'Lab Technician',
+                verifiedById: userId,
             },
-            include: { panels: { include: { items: true } } }
+            include: { 
+                panels: { include: { items: true } },
+                verifiedBy: { select: { id: true, name: true } }
+            }
         });
     }
 

@@ -3,6 +3,14 @@ import { apiClient } from "@/lib/api-client";
 
 const fetcher = (url: string) => apiClient(url) as Promise<any>;
 
+export function useLabMasterProfiles() {
+    const { data, error, isLoading, mutate } = useSWR(
+        '/master/lab-profiles',
+        fetcher
+    );
+    return { profiles: data ?? [], isLoading, error, mutate };
+}
+
 export function usePatientLabOrders(patientId: string | null) {
     const { data, error, isLoading, mutate } = useSWR(
         patientId ? `/labs/orders/patient/${patientId}` : null,

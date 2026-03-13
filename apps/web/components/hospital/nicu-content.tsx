@@ -5,10 +5,10 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import {
   Baby, HeartPulse, AlertTriangle, CheckCircle2, Search, RefreshCw,
-  ArrowRight, Stethoscope, Clock, Activity, Thermometer, Droplets, Wind,
+  ArrowRight, Clock, Activity, Thermometer, Droplets, Wind, Plus
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { NicuBabyCard } from "./nicu-baby-card"
@@ -18,6 +18,8 @@ import { deriveNicuStatus, getVitalLevel } from "@/lib/utils/vitals"
 import type { ApiNicuAdmission, CreateVitalsPayload } from "@/lib/types/nicu"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { usePrecriptions } from "@/lib/api/pharmacy" // (assuming used elsewhere if needed, else delete soon)
+import { NicuBabyDetailModal } from "./nicu-baby-detail-modal"
 
 type FilterOption = "all" | "stable" | "warning" | "critical"
 
@@ -42,191 +44,19 @@ function SummaryCard({ label, value, icon: Icon, iconClass, bgClass, active, onC
   )
 }
 
-// ─── Vitals Recording Form ────────────────────────────────────────────────────
-function VitalsForm({ admissionId, onSuccess }: { admissionId: string; onSuccess: () => void }) {
-  const recordVitals = useRecordVitals()
-  const [loading, setLoading] = useState(false)
-  const [form, setForm] = useState<Partial<CreateVitalsPayload>>({})
-
-  function setField(key: keyof CreateVitalsPayload, raw: string) {
-    const num = raw === "" ? undefined : Number(raw)
-    setForm(prev => ({ ...prev, [key]: num }))
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    const payload: Partial<CreateVitalsPayload> = {}
-    if (form.heartRate != null) payload.heartRate = form.heartRate
-    if (form.spo2 != null) payload.spo2 = form.spo2
-    if (form.temperature != null) payload.temperature = form.temperature
-    if (form.respiratoryRate != null) payload.respiratoryRate = form.respiratoryRate
-    if (form.bloodPressureSystolic != null) payload.bloodPressureSystolic = form.bloodPressureSystolic
-    if (form.bloodPressureDiastolic != null) payload.bloodPressureDiastolic = form.bloodPressureDiastolic
-    if (form.weight != null) payload.weight = form.weight
-
-    if (Object.keys(payload).length === 0) {
-      toast.error("Enter at least one vitals value")
-      return
-    }
-    setLoading(true)
-    try {
-      await recordVitals(admissionId, payload as CreateVitalsPayload)
-      toast.success("Vitals recorded successfully")
-      setForm({})
-      onSuccess()
-    } catch {
-      toast.error("Failed to record vitals")
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const inputCls = "h-9 text-sm"
-  return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><HeartPulse className="size-3.5" />Heart Rate (bpm)</label>
-          <Input className={inputCls} type="number" placeholder="e.g. 145" value={form.heartRate ?? ""} onChange={e => setField("heartRate", e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Droplets className="size-3.5" />SpO₂ (%)</label>
-          <Input className={inputCls} type="number" placeholder="e.g. 96" value={form.spo2 ?? ""} onChange={e => setField("spo2", e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Thermometer className="size-3.5" />Temperature (°C)</label>
-          <Input className={inputCls} type="number" step="0.1" placeholder="e.g. 36.8" value={form.temperature ?? ""} onChange={e => setField("temperature", e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Wind className="size-3.5" />Resp. Rate (/min)</label>
-          <Input className={inputCls} type="number" placeholder="e.g. 42" value={form.respiratoryRate ?? ""} onChange={e => setField("respiratoryRate", e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">BP Systolic</label>
-          <Input className={inputCls} type="number" placeholder="e.g. 90" value={form.bloodPressureSystolic ?? ""} onChange={e => setField("bloodPressureSystolic", e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <label className="text-xs font-medium text-muted-foreground">BP Diastolic</label>
-          <Input className={inputCls} type="number" placeholder="e.g. 60" value={form.bloodPressureDiastolic ?? ""} onChange={e => setField("bloodPressureDiastolic", e.target.value)} />
-        </div>
-        <div className="flex flex-col gap-1.5 col-span-2">
-          <label className="text-xs font-medium text-muted-foreground">Weight (kg)</label>
-          <Input className={inputCls} type="number" step="0.001" placeholder="e.g. 1.820" value={form.weight ?? ""} onChange={e => setField("weight", e.target.value)} />
-        </div>
-      </div>
-      <Button type="submit" disabled={loading} className="w-full gap-2">
-        <Activity className="size-4" />
-        {loading ? "Saving…" : "Record Vitals"}
-      </Button>
-    </form>
-  )
-}
-
-// ─── Baby Detail Sheet (with vitals history + recording form) ─────────────────
-function BabyDetailSheet({ admission, onClose }: { admission: ApiNicuAdmission; onClose: () => void }) {
-  const router = useRouter()
-  const { vitals, isLoading: vitalsLoading, mutate: mutateVitals } = useAdmissionVitals(admission.id)
-  const [activeTab, setActiveTab] = useState<"details" | "vitals" | "record">("details")
-  const status = deriveNicuStatus(admission.vitalsRecords?.[0] ?? null, admission.nicuRiskLevel)
-  const statusColor = { stable: "text-success bg-success/10 border-success/20", warning: "text-warning-foreground bg-warning/10 border-warning/30", critical: "text-destructive bg-destructive/10 border-destructive/30" }
-  const los = Math.max(0, Math.floor((Date.now() - new Date(admission.admissionDate).getTime()) / 86_400_000))
-
-  return (
-    <div className="flex flex-col gap-4 p-1">
-      {/* Status row */}
-      <div className="flex items-center justify-between">
-        <Badge variant="outline" className={cn("text-xs font-semibold px-3 py-1 rounded-full capitalize", statusColor[status])}>
-          ● {status}
-        </Badge>
-        <span className="text-xs text-muted-foreground">Day <span className="font-bold text-foreground">{los}</span> in NICU</span>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 rounded-lg bg-muted p-1">
-        {(["details", "vitals", "record"] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className={cn("flex-1 text-xs py-1.5 rounded-md font-medium capitalize transition-all",
-              activeTab === tab ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground")}>
-            {tab === "record" ? "Record Vitals" : tab.charAt(0).toUpperCase() + tab.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {/* Details tab */}
-      {activeTab === "details" && (
-        <div className="flex flex-col gap-3">
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            {[
-              ["Admission #", admission.admissionNumber],
-              ["Department", admission.department],
-              ["Gestational Age", admission.gestationalAge ?? "—"],
-              ["Risk Level", admission.nicuRiskLevel ?? "—"],
-              ["Admitted", new Date(admission.admissionDate).toLocaleDateString()],
-              ["Attending", admission.admittingDoctor ? `Dr. ${admission.admittingDoctor.name}` : "—"],
-            ].map(([label, value]) => (
-              <div key={label} className="flex flex-col gap-0.5 rounded-lg bg-muted/40 border border-border p-2.5">
-                <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
-                <span className="font-medium text-foreground">{value}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-col gap-2 pt-2 border-t border-border">
-            <Button className="gap-2 w-full" variant="outline" onClick={() => router.push(`/admissions/${admission.id}/transfer`)}>
-              <ArrowRight className="size-4" />
-              Transfer to General Ward
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Vitals history tab */}
-      {activeTab === "vitals" && (
-        <div className="flex flex-col gap-2">
-          {vitalsLoading ? (
-            Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)
-          ) : vitals.length === 0 ? (
-            <div className="flex flex-col items-center py-8 gap-2">
-              <Activity className="size-8 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">No vitals recorded yet</p>
-            </div>
-          ) : vitals.map(v => {
-            const ts = deriveNicuStatus(v, null)
-            return (
-              <div key={v.id} className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-1"><Clock className="size-3" />{new Date(v.recordedAt).toLocaleString()}</span>
-                  <Badge variant="outline" className={cn("text-[10px]", statusColor[ts])}>● {ts}</Badge>
-                </div>
-                <div className="flex flex-wrap gap-2 text-xs">
-                  {v.heartRate != null && <span className={cn("px-2 py-0.5 rounded-md", getVitalLevel("heartRate", v.heartRate) === "critical" ? "bg-destructive/10 text-destructive" : getVitalLevel("heartRate", v.heartRate) === "warning" ? "bg-warning/10 text-warning-foreground" : "bg-muted")}>HR: {v.heartRate}</span>}
-                  {v.spo2 != null && <span className={cn("px-2 py-0.5 rounded-md", getVitalLevel("spo2", v.spo2) === "critical" ? "bg-destructive/10 text-destructive" : getVitalLevel("spo2", v.spo2) === "warning" ? "bg-warning/10 text-warning-foreground" : "bg-muted")}>SpO₂: {v.spo2}%</span>}
-                  {v.temperature != null && <span className={cn("px-2 py-0.5 rounded-md", getVitalLevel("temperature", Number(v.temperature)) !== "normal" ? "bg-warning/10 text-warning-foreground" : "bg-muted")}>T: {Number(v.temperature).toFixed(1)}°C</span>}
-                  {v.respiratoryRate != null && <span className="px-2 py-0.5 rounded-md bg-muted">RR: {v.respiratoryRate}</span>}
-                  {v.weight != null && <span className="px-2 py-0.5 rounded-md bg-muted">Wt: {v.weight} kg</span>}
-                </div>
-                {v.notes && <p className="text-[11px] text-muted-foreground italic">{v.notes}</p>}
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {/* Record tab */}
-      {activeTab === "record" && (
-        <VitalsForm admissionId={admission.id} onSuccess={() => { mutateVitals(); setActiveTab("vitals") }} />
-      )}
-
-      <Button variant="outline" onClick={onClose} className="w-full">Close</Button>
-    </div>
-  )
-}
-
+// (Old components removed, now using NicuBabyDetailModal)
 // ─── Main NicuContent ─────────────────────────────────────────────────────────
 export function NicuContent() {
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState<FilterOption>("all")
   const [selectedAdmission, setSelectedAdmission] = useState<ApiNicuAdmission | null>(null)
+  const [quickOrder, setQuickOrder] = useState<{ type: 'lab'|'med'|'service', adm: ApiNicuAdmission, key: number } | null>(null)
   const { admissions, isLoading, mutate } = useNicuAdmissions(search || undefined)
+
+  const triggerQuickOrder = (type: 'lab'|'med'|'service', adm: ApiNicuAdmission) => {
+    setQuickOrder(null)
+    setTimeout(() => setQuickOrder({ type, adm, key: Date.now() }), 10)
+  }
 
   // Derive status for each admission and apply filter
   const withStatus = admissions.map(adm => ({
@@ -284,30 +114,70 @@ export function NicuContent() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {filtered.map(({ adm }) => (
-                <NicuBabyCard key={adm.id} admission={adm} onViewDetails={() => setSelectedAdmission(adm)} />
+                <NicuBabyCard 
+                  key={adm.id} 
+                  admission={adm} 
+                  onViewDetails={() => setSelectedAdmission(adm)} 
+                  onOrderLab={() => triggerQuickOrder('lab', adm)}
+                  onOrderMedication={() => triggerQuickOrder('med', adm)}
+                  onOrderService={() => triggerQuickOrder('service', adm)}
+                />
               ))}
             </div>
           )}
         </div>
       </TooltipProvider>
 
-      {/* Detail Sheet */}
-      <Sheet open={!!selectedAdmission} onOpenChange={open => !open && setSelectedAdmission(null)}>
-        <SheetContent side="right" className="w-full sm:max-w-[420px] overflow-y-auto">
-          <SheetHeader className="pb-4 border-b border-border mb-5">
-            <SheetTitle className="flex items-center gap-2">
-              <Baby className="size-5 text-primary" />
-              {selectedAdmission && `${selectedAdmission.patient.firstName} ${selectedAdmission.patient.lastName}`}
-            </SheetTitle>
-            <SheetDescription>
-              {selectedAdmission?.gestationalAge ?? "NICU Patient"} · {selectedAdmission?.currentBed?.bedNumber ?? "—"}
-            </SheetDescription>
-          </SheetHeader>
+      {/* Patient Detail Modal */}
+      <Dialog open={!!selectedAdmission} onOpenChange={open => !open && setSelectedAdmission(null)}>
+        <DialogContent className="max-w-4xl lg:max-w-5xl h-[95vh] flex flex-col p-0 overflow-hidden shrink-0 border-0 shadow-2xl">
+          {/* We dropped the standard DialogHeader so that our custom rich header fits completely border-to-border */}
+          <DialogTitle className="sr-only">NICU Patient Overlay</DialogTitle> 
+          <DialogDescription className="sr-only">Detailed health record and workflow modal for NICU babies.</DialogDescription>
           {selectedAdmission && (
-            <BabyDetailSheet admission={selectedAdmission} onClose={() => setSelectedAdmission(null)} />
+            <NicuBabyDetailModal admission={selectedAdmission} onClose={() => setSelectedAdmission(null)} />
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Order Dialogs (mounted dynamically when triggered) */}
+      {quickOrder && <QuickOrderWrapper key={quickOrder.key} quickOrder={quickOrder} />}
     </>
+  )
+}
+
+function QuickOrderWrapper({ quickOrder }: { quickOrder: { type: 'lab'|'med'|'service', adm: ApiNicuAdmission } }) {
+  const ref = React.useRef<HTMLButtonElement>(null)
+  React.useEffect(() => {
+    // delay tick to ensure trigger is mounted before clicking
+    setTimeout(() => ref.current?.click(), 10)
+  }, [])
+
+  const trigger = <button ref={ref} className="hidden" aria-hidden="true" />
+
+  return (
+    <div>
+      {quickOrder.type === 'lab' && (
+        <CreateLabOrderDialog 
+          patientId={quickOrder.adm.patient.id} 
+          admissionId={quickOrder.adm.id} 
+          trigger={trigger}
+        />
+      )}
+      {quickOrder.type === 'med' && (
+        <CreateMedicationOrderDialog 
+          patientId={quickOrder.adm.patient.id} 
+          admissionId={quickOrder.adm.id} 
+          trigger={trigger}
+        />
+      )}
+      {quickOrder.type === 'service' && (
+        <CreateServiceOrderDialog 
+          patientId={quickOrder.adm.patient.id} 
+          admissionId={quickOrder.adm.id} 
+          trigger={trigger}
+        />
+      )}
+    </div>
   )
 }

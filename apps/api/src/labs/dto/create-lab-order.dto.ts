@@ -13,6 +13,10 @@ export class CreateLabPanelDto {
     @IsString()
     @IsNotEmpty()
     sampleType: string;
+
+    @IsUUID()
+    @IsOptional()
+    testProfileId?: string;
 }
 
 export class CreateLabOrderDto {

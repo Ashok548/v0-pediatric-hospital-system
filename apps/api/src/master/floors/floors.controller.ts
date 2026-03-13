@@ -25,12 +25,12 @@ export class BedsHierarchyController {
 
 // ─── Admin-only master CRUD ───────────────────────────────────────────────────
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles("ADMIN")
 @Controller("master/floors")
 export class FloorsController {
     constructor(private floorsService: FloorsService) { }
 
     @Post()
+    @Roles("ADMIN")
     @HttpCode(HttpStatus.CREATED)
     create(@Body() dto: CreateFloorDto) {
         return this.floorsService.create(dto);
@@ -47,6 +47,7 @@ export class FloorsController {
     }
 
     @Patch(":id")
+    @Roles("ADMIN")
     update(
         @Param("id", ParseUUIDPipe) id: string,
         @Body() dto: UpdateFloorDto,
@@ -55,6 +56,7 @@ export class FloorsController {
     }
 
     @Delete(":id")
+    @Roles("ADMIN")
     @HttpCode(HttpStatus.OK)
     softDelete(@Param("id", ParseUUIDPipe) id: string) {
         return this.floorsService.softDelete(id);

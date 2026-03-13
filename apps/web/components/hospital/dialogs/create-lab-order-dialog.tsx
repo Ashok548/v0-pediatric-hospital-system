@@ -15,16 +15,9 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Plus, X, Stethoscope, Building2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { createLabOrder } from "@/lib/api/labs"
+import { createLabOrder, useLabMasterProfiles } from "@/lib/api/labs"
 
-// Dummy panel list for now (should ideally come from an API)
-const AVAILABLE_PANELS = [
-    { id: "p1", name: "Complete Blood Count (CBC)", category: "HEMATOLOGY", sampleType: "BLOOD" },
-    { id: "p2", name: "Comprehensive Metabolic Panel", category: "BIOCHEMISTRY", sampleType: "BLOOD" },
-    { id: "p3", name: "Lipid Profile", category: "BIOCHEMISTRY", sampleType: "BLOOD" },
-    { id: "p4", name: "Urinalysis", category: "CLINICAL_PATHOLOGY", sampleType: "URINE" },
-    { id: "p5", name: "Thyroid Profile", category: "IMMUNOLOGY", sampleType: "BLOOD" },
-]
+// Removed hardcoded AVAILABLE_PANELS
 
 interface CreateLabOrderDialogProps {
     patientId: string
@@ -41,9 +34,10 @@ export function CreateLabOrderDialog({
     trigger,
     onSuccess,
 }: CreateLabOrderDialogProps) {
+    const { profiles, isLoading: isLoadingProfiles } = useLabMasterProfiles()
     const [open, setOpen] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const [selectedPanels, setSelectedPanels] = useState<typeof AVAILABLE_PANELS>([])
+    const [selectedPanels, setSelectedPanels] = useState<any[]>([])
     const [notes, setNotes] = useState("")
 
     const { mutate } = useSWRConfig()
@@ -69,9 +63,10 @@ export function CreateLabOrderDialog({
                 appointmentId: appointmentId || undefined,
                 technicianNotes: notes || undefined,
                 panels: selectedPanels.map(p => ({
-                    panelName: p.name,
+                    panelName: p.panelName,
                     category: p.category,
                     sampleType: p.sampleType,
+                    testProfileId: p.id
                 })),
             })
 
@@ -93,7 +88,7 @@ export function CreateLabOrderDialog({
         }
     }
 
-    const togglePanel = (panel: typeof AVAILABLE_PANELS[0]) => {
+    const togglePanel = (panel: any) => {
         if (selectedPanels.find(p => p.id === panel.id)) {
             setSelectedPanels(prev => prev.filter(p => p.id !== panel.id))
         } else {
@@ -130,28 +125,34 @@ export function CreateLabOrderDialog({
                     {/* Panel Selection */}
                     <div className="flex flex-col gap-3">
                         <label className="text-sm font-medium">Select Test Panels</label>
-                        <div className="grid grid-cols-2 gap-2">
-                            {AVAILABLE_PANELS.map(panel => {
-                                const isSelected = selectedPanels.some(p => p.id === panel.id)
-                                return (
-                                    <div
-                                        key={panel.id}
-                                        onClick={() => togglePanel(panel)}
-                                        className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
-                                    >
-                                        <div className={`mt-0.5 size-4 rounded text-white flex items-center justify-center ${isSelected ? "bg-primary" : "border border-muted-foreground/30"}`}>
-                                            {isSelected && <X className="size-3.5" style={{ transform: "rotate(45deg)" }} />}
+                        {isLoadingProfiles ? (
+                            <div className="flex items-center justify-center p-8 border rounded-lg bg-muted/20">
+                                <Loader2 className="size-6 text-muted-foreground animate-spin" />
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 gap-2 max-h-[300px] overflow-y-auto pr-1">
+                                {profiles.map((panel: any) => {
+                                    const isSelected = selectedPanels.some(p => p.id === panel.id)
+                                    return (
+                                        <div
+                                            key={panel.id}
+                                            onClick={() => togglePanel(panel)}
+                                            className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${isSelected ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                                        >
+                                            <div className={`mt-0.5 size-4 rounded text-white flex items-center justify-center ${isSelected ? "bg-primary" : "border border-muted-foreground/30"}`}>
+                                                {isSelected && <X className="size-3.5" style={{ transform: "rotate(45deg)" }} />}
+                                            </div>
+                                            <div className="flex flex-col gap-0.5">
+                                                <span className="text-sm font-medium">{panel.panelName}</span>
+                                                <span className="text-[10px] text-muted-foreground">
+                                                    {panel.category} • {panel.sampleType}
+                                                </span>
+                                            </div>
                                         </div>
-                                        <div className="flex flex-col gap-0.5">
-                                            <span className="text-sm font-medium">{panel.name}</span>
-                                            <span className="text-[10px] text-muted-foreground">
-                                                {panel.category} • {panel.sampleType}
-                                            </span>
-                                        </div>
-                                    </div>
-                                )
-                            })}
-                        </div>
+                                    )
+                                })}
+                            </div>
+                        )}
                     </div>
 
                     {/* Selected Summary */}
@@ -159,7 +160,7 @@ export function CreateLabOrderDialog({
                         <div className="flex flex-wrap gap-2 p-3 bg-muted/50 rounded-lg">
                             {selectedPanels.map(p => (
                                 <Badge key={p.id} variant="secondary" className="text-xs font-normal">
-                                    {p.name}
+                                    {p.panelName}
                                 </Badge>
                             ))}
                         </div>

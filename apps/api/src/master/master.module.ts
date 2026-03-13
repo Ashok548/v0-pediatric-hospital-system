@@ -6,8 +6,9 @@ import { DepartmentsModule } from "./departments/departments.module";
 import { ServicesModule } from "./services/services.module";
 import { InsuranceModule } from "./insurance/insurance.module";
 import { TariffsModule } from "./tariffs/tariffs.module";
+import { LabsMasterModule } from "./labs/labs-master.module";
 
 @Module({
-    imports: [FloorsModule, WardsModule, BedsModule, DepartmentsModule, ServicesModule, InsuranceModule, TariffsModule],
+    imports: [FloorsModule, WardsModule, BedsModule, DepartmentsModule, ServicesModule, InsuranceModule, TariffsModule, LabsMasterModule],
 })
 export class MasterModule { }

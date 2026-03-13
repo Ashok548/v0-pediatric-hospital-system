@@ -12,7 +12,13 @@ export interface ApiPatient {
     lastName: string
     dateOfBirth: string
     gender: string
+    bloodGroup?: string
     phone?: string
+    guardianName?: string
+    guardianPhone?: string
+    guardianRelationship?: string
+    birthWeight?: number
+    allergies?: string[]
 }
 
 const fetcher = (url: string) => apiClient(url) as Promise<any>
