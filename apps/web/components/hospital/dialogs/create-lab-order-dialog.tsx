@@ -15,6 +15,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Plus, X, Stethoscope, Building2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import { createLabOrder, useLabMasterProfiles } from "@/lib/api/labs"
 
 // Removed hardcoded AVAILABLE_PANELS
@@ -175,6 +177,10 @@ export function CreateLabOrderDialog({
                             onChange={(e) => setNotes(e.target.value)}
                             className="resize-none"
                             rows={3}
+                        />
+                        <VoiceRecorder
+                            disabled={isSubmitting}
+                            onTextGenerated={(text) => setNotes((prev) => appendTranscript(prev, text))}
                         />
                     </div>
                 </div>

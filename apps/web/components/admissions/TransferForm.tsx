@@ -7,13 +7,31 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useAdmission, useBedHierarchy, transferBed } from "@/lib/api/admissions"
-import type { ApiWardWithBeds, ApiBed } from "@/lib/types/admission"
-import { BedDouble, ArrowRight, AlertCircle, Loader2, CheckCircle } from "lucide-react"
+import { appendTranscript } from "@/lib/utils/transcript"
+import type { ApiWardWithBeds, ApiBed, WardTypeType } from "@/lib/types/admission"
+import { BedDouble, ArrowRight, AlertCircle, Loader2, CheckCircle, AlertTriangle } from "lucide-react"
 import { toast } from "sonner"
 
 interface Props { admissionId: string }
+
+/** Human-readable label for a WardType enum value */
+function wardTypeLabel(type: WardTypeType): string {
+    const labels: Record<WardTypeType, string> = {
+        NICU: "NICU",
+        PICU: "PICU",
+        GENERAL: "General Ward",
+        PRIVATE: "Private Ward",
+        SURGICAL: "Surgical Ward",
+    }
+    return labels[type] ?? type
+}
+
+/** Order in which ward groups appear in the dropdown */
+const WARD_GROUP_ORDER: WardTypeType[] = ["NICU", "PICU", "SURGICAL", "GENERAL", "PRIVATE"]
 
 export function TransferForm({ admissionId }: Props) {
     const router = useRouter()
@@ -29,11 +47,27 @@ export function TransferForm({ admissionId }: Props) {
     const selectedWard: ApiWardWithBeds | undefined = allWards.find((w: ApiWardWithBeds) => w.id === selectedWardId)
     const availableBeds = selectedWard?.beds.filter((b: ApiBed) => b.status === "AVAILABLE" && b.id !== admission?.currentBedId) ?? []
 
+    // Detect cross-department transfer (current ward type vs selected ward type)
+    const currentWardType: WardTypeType | undefined = admission?.currentBed?.ward?.type as WardTypeType | undefined
+    const isCrossDepartment = !!(currentWardType && selectedWard && currentWardType !== selectedWard.type)
+    const reasonRequired = isCrossDepartment && !transferReason.trim()
+
+    // Group wards by type for the dropdown
+    const wardsByType = WARD_GROUP_ORDER.reduce<Record<string, ApiWardWithBeds[]>>((acc, type) => {
+        const group = allWards.filter((w: ApiWardWithBeds) => w.type === type)
+        if (group.length > 0) acc[type] = group
+        return acc
+    }, {})
+
     const handleConfirm = async () => {
         if (!selectedBedId) return
+        if (reasonRequired) {
+            toast.error("Please provide a reason for the department transfer")
+            return
+        }
         setSubmitting(true)
         try {
-            const result = await transferBed(admissionId, { toBedId: selectedBedId, reason: transferReason })
+            const result = await transferBed(admissionId, { toBedId: selectedBedId, reason: transferReason || undefined })
             toast.success(`Patient transferred to bed ${result.currentBed?.bedNumber ?? selectedBedId}`)
             router.push("/admissions")
         } catch (err: any) {
@@ -106,16 +140,43 @@ export function TransferForm({ admissionId }: Props) {
                     <div className="pl-10 space-y-2">
                         <Label>Target Ward</Label>
                         <Select value={selectedWardId} onValueChange={(val) => { setSelectedWardId(val); setSelectedBedId("") }}>
-                            <SelectTrigger className="sm:w-[280px]">
+                            <SelectTrigger className="sm:w-[320px]">
                                 <SelectValue placeholder="Choose a ward" />
                             </SelectTrigger>
                             <SelectContent>
-                                {allWards.map((w: ApiWardWithBeds) => (
-                                    <SelectItem key={w.id} value={w.id}>{w.name} — {w.type}</SelectItem>
+                                {WARD_GROUP_ORDER.filter(t => wardsByType[t]).map((type) => (
+                                    <div key={type}>
+                                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                            {wardTypeLabel(type as WardTypeType)}
+                                        </div>
+                                        {wardsByType[type].map((w: ApiWardWithBeds) => (
+                                            <SelectItem key={w.id} value={w.id}>
+                                                {w.name}
+                                                {currentWardType && currentWardType !== w.type && (
+                                                    <span className="ml-2 text-amber-600 text-xs font-medium">(step-down)</span>
+                                                )}
+                                            </SelectItem>
+                                        ))}
+                                    </div>
                                 ))}
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {isCrossDepartment && (
+                        <div className="pl-10">
+                            <Alert variant="destructive" className="border-amber-400 bg-amber-50 text-amber-900 dark:bg-amber-900/20 dark:text-amber-200 dark:border-amber-600">
+                                <AlertTriangle className="h-4 w-4 !text-amber-600" />
+                                <AlertDescription>
+                                    <strong>Department Transfer:</strong> This will move the patient from{" "}
+                                    <strong>{wardTypeLabel(currentWardType!)}</strong> to{" "}
+                                    <strong>{wardTypeLabel(selectedWard!.type as WardTypeType)}</strong>.
+                                    The admission record will be updated to reflect the new department.
+                                    A reason is required.
+                                </AlertDescription>
+                            </Alert>
+                        </div>
+                    )}
 
                     {selectedWard && (
                         <div className="pl-10 pt-2">
@@ -167,6 +228,10 @@ export function TransferForm({ admissionId }: Props) {
                             className="resize-none"
                             rows={3}
                         />
+                        <VoiceRecorder
+                            disabled={submitting}
+                            onTextGenerated={(text) => setTransferReason((prev) => appendTranscript(prev, text))}
+                        />
                     </div>
                 </div>
             </CardContent>
@@ -175,11 +240,14 @@ export function TransferForm({ admissionId }: Props) {
                 <Button variant="outline" onClick={() => router.back()}>Cancel</Button>
                 <Button
                     onClick={handleConfirm}
-                    disabled={!selectedBedId || submitting}
+                    disabled={!selectedBedId || submitting || reasonRequired}
+                    variant={isCrossDepartment ? "destructive" : "default"}
                 >
                     {submitting
                         ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Transferring...</>
-                        : <><ArrowRight className="mr-2 h-4 w-4" /> Execute Transfer</>
+                        : isCrossDepartment
+                            ? <><ArrowRight className="mr-2 h-4 w-4" /> Confirm Step-Down Transfer</>
+                            : <><ArrowRight className="mr-2 h-4 w-4" /> Execute Transfer</>
                     }
                 </Button>
             </CardFooter>

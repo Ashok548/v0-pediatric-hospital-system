@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
@@ -28,6 +29,7 @@ import {
 import Link from "next/link"
 import { toast } from "sonner"
 import { NotesPanel } from "./nursing/notes-panel"
+import { appendTranscript } from "@/lib/utils/transcript"
 
 const IO_ROUTES = ["Oral", "IV Fluid", "NG Tube", "Urine", "NG Aspirate", "Drain", "Other"]
 
@@ -253,6 +255,9 @@ export function VitalsChartContent({ admissionId }: Props) {
                                 <div className="col-span-2 space-y-1">
                                     <Label>Notes (optional)</Label>
                                     <Textarea value={vf.notes} onChange={e => setVf(p => ({ ...p, notes: e.target.value }))} rows={2} />
+                                    <VoiceRecorder
+                                        onTextGenerated={(text) => setVf(p => ({ ...p, notes: appendTranscript(p.notes, text) }))}
+                                    />
                                 </div>
                                 <div className="col-span-2 mt-2 pt-3 border-t">
                                     <div className="flex items-center space-x-2">

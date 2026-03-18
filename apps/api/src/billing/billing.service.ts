@@ -20,6 +20,17 @@ const BILL_INCLUDE = {
             id: true, admissionNumber: true, status: true, department: true
         }
     },
+    opVisit: {
+        select: {
+            id: true,
+            opNumber: true,
+            visitDate: true,
+            department: true,
+            doctor: {
+                select: { id: true, name: true, consultationFee: true }
+            }
+        }
+    },
     items: {
         orderBy: { createdAt: "asc" as const }
     },
@@ -56,6 +67,31 @@ export class BillingService {
         return `BILL-${year}-${String(seq!.lastValue).padStart(6, "0")}`;
     }
 
+    // ─── Atomic OP Number Generator ─────────────────────────────────────────────
+    private async generateOPNumber(): Promise<string> {
+        const year = new Date().getFullYear();
+
+        const updated = await prisma.$executeRaw`
+            UPDATE op_visit_sequences
+            SET last_value = last_value + 1, updated_at = NOW()
+            WHERE id = 1 AND year = ${year}
+        `;
+
+        if (updated === 0) {
+            await prisma.oPVisitSequence.upsert({
+                where: { id_year: { id: 1, year } },
+                update: { year, lastValue: 1 },
+                create: { id: 1, year, lastValue: 1 },
+            });
+        }
+
+        const seq = await prisma.oPVisitSequence.findUnique({
+            where: { id_year: { id: 1, year } },
+        });
+
+        return `OP-${year}-${String(seq!.lastValue).padStart(6, "0")}`;
+    }
+
     // ─── Create Bill ────────────────────────────────────────────────────────────
     async create(dto: CreateBillDto) {
         const patient = await prisma.patient.findUnique({ where: { id: dto.patientId } });
@@ -69,13 +105,44 @@ export class BillingService {
             }
         }
 
+        // Prevent duplicate bill per appointment
+        if (dto.appointmentId) {
+            const appt = await prisma.appointment.findUnique({ where: { id: dto.appointmentId } });
+            if (!appt) throw new NotFoundException(`Appointment ${dto.appointmentId} not found`);
+            const existingBill = await prisma.bill.findUnique({ where: { appointmentId: dto.appointmentId } });
+            if (existingBill && existingBill.status !== 'CANCELLED') {
+                throw new ConflictException(`A bill already exists for this appointment: ${existingBill.billNumber}`);
+            }
+        }
+
         const billNumber = await this.generateBillNumber();
+
+        // Auto-create OPVisit for OP bills when doctorId + department are provided
+        let resolvedOpVisitId = dto.opVisitId;
+        if (!dto.admissionId && !dto.opVisitId && dto.doctorId && dto.department) {
+            const visitDate = dto.visitDate ? new Date(dto.visitDate) : new Date();
+            const opNumber = await this.generateOPNumber();
+            const opVisit = await prisma.oPVisit.create({
+                data: {
+                    opNumber,
+                    patientId: dto.patientId,
+                    appointmentId: dto.appointmentId ?? null,
+                    doctorId: dto.doctorId,
+                    department: dto.department,
+                    visitDate,
+                    status: 'REGISTERED',
+                },
+            });
+            resolvedOpVisitId = opVisit.id;
+        }
 
         return prisma.bill.create({
             data: {
                 billNumber,
                 patientId: dto.patientId,
                 admissionId: dto.admissionId,
+                appointmentId: dto.appointmentId,
+                opVisitId: resolvedOpVisitId,
                 tariffPlanId: dto.tariffPlanId,
                 notes: dto.notes,
                 status: "DRAFT" as any,
@@ -100,6 +167,7 @@ export class BillingService {
         if (query.status) where.status = query.status;
         if (query.patientId) where.patientId = query.patientId;
         if (query.admissionId) where.admissionId = query.admissionId;
+        if (query.appointmentId) where.appointmentId = query.appointmentId;
 
         if (query.search) {
             where.OR = [
@@ -346,11 +414,13 @@ export class BillingService {
                 throw new BadRequestException(`Service ${service.name} is inactive`);
             }
 
-            // Price resolution logic
-            let unitPrice = parseFloat(service.basePrice.toString());
+            // Price resolution: DTO override → tariff override → service base price
+            let unitPrice = dto.unitPrice !== undefined
+                ? dto.unitPrice
+                : parseFloat(service.basePrice.toString());
             let discountPercent = dto.discountPercent ?? 0;
 
-            if (bill.tariffPlanId) {
+            if (!dto.unitPrice && bill.tariffPlanId) {
                 const tariffRate = await tx.tariffRate.findUnique({
                     where: { tariffPlanId_serviceId: { tariffPlanId: bill.tariffPlanId, serviceId: service.id } }
                 });

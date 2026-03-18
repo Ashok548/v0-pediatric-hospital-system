@@ -130,6 +130,14 @@ export async function finalizeDischarge(
     })
 }
 
+/** POST /admissions/:id/discharge/generate-summary — AI-generated summary draft */
+export async function generateDischargeSummary(id: string, dischargeType?: string): Promise<{ summary: string }> {
+    return apiClient<{ summary: string }>(`/admissions/${id}/discharge/generate-summary`, {
+        method: "POST",
+        body: JSON.stringify({ dischargeType }),
+    })
+}
+
 /** DELETE /admissions/:id — cancel admission */
 export async function cancelAdmission(id: string): Promise<ApiAdmission> {
     return apiClient<ApiAdmission>(`/admissions/${id}`, { method: "DELETE" })

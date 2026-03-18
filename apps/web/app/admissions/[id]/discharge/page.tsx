@@ -1,13 +1,15 @@
 "use client"
 
-import { use } from "react"
+import { use, useEffect } from "react"
 import { AppShell } from "@/components/hospital/app-shell"
 import { DischargeClearanceStepper } from "@/components/hospital/discharge-clearance-stepper"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { ArrowLeft, AlertCircle } from "lucide-react"
 import { useAdmission } from "@/lib/api/admissions"
+import { useAuth } from "@/hooks/use-auth"
 
 interface Props { params: Promise<{ id: string }> }
 
@@ -21,7 +23,26 @@ export default function DischargePage({ params }: Props) {
 }
 
 function DischargePageContent({ admissionId }: { admissionId: string }) {
+    const router = useRouter()
+    const { role, isLoading: authLoading } = useAuth()
     const { admission, isLoading, error } = useAdmission(admissionId)
+    const canInitiateDischarge = role === "DOCTOR" || role === "ADMIN"
+
+    useEffect(() => {
+        if (!authLoading && !canInitiateDischarge) {
+            router.replace("/unauthorized")
+        }
+    }, [authLoading, canInitiateDischarge, router])
+
+    if (authLoading || !canInitiateDischarge) {
+        return (
+            <div className="flex-1 space-y-4 p-6 pt-4 max-w-2xl mx-auto">
+                <Skeleton className="h-8 w-64" />
+                <Skeleton className="h-4 w-96" />
+                <Skeleton className="h-64 w-full" />
+            </div>
+        )
+    }
 
     return (
         <div className="flex-1 space-y-6 p-6 pt-4 max-w-2xl mx-auto">

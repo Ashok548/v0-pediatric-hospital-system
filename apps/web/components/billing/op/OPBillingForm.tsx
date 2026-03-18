@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { PatientVisitSelector, SelectedVisit } from "./PatientVisitSelector"
 import { PatientBillInfo } from "./PatientBillInfo"
 import { AddBillItemLine } from "./AddBillItemLine"
@@ -22,9 +22,17 @@ import { useBill, createBill, addBillItem, removeBillItem, recordPayment, cancel
 import { apiClient } from "@/lib/api-client"
 import { Trash2, FileText, CheckCircle, Save, XCircle, AlertTriangle, Loader2 } from "lucide-react"
 
-export function OPBillingForm() {
+interface OPBillingFormProps {
+    billId?: string
+}
+
+export function OPBillingForm({ billId: propBillId }: OPBillingFormProps = {}) {
     const router = useRouter()
-    const [activeBillId, setActiveBillId] = useState<string | null>(null)
+    const searchParams = useSearchParams()
+
+    // Allow pre-loading a bill from prop (URL path) or query param
+    const preloadedBillId = propBillId || searchParams.get("billId")
+    const [activeBillId, setActiveBillId] = useState<string | null>(preloadedBillId)
 
     // API Hook
     const { bill, isLoading, mutate } = useBill(activeBillId)
@@ -39,27 +47,56 @@ export function OPBillingForm() {
 
     const isClosed = bill?.status === 'PAID' || bill?.status === 'FINAL' || bill?.status === 'PARTIALLY_PAID'
     const isVoided = bill?.status === 'CANCELLED'
+    const canCollectPayment = bill?.status === 'FINAL' || bill?.status === 'PARTIALLY_PAID'
 
     // ─── Step 1: Patient selector ────────────────────────────────────────
     const handleVisitSelect = async (visit: SelectedVisit) => {
         setDuplicateWarning(null)
         setIsCreatingBill(true)
         try {
-            // Find patient by UHID
-            const res = await apiClient<{ data: any[] }>(`/patients?search=${visit.uhid}`)
-            const patient = res.data?.[0]
+            // For appointment-based: still look up patient by UHID to get ID
+            // For walk-in: patientId is already provided directly
+            let patientId = visit.patientId
 
-            if (!patient) {
-                setDuplicateWarning(`Patient with UHID ${visit.uhid} not found in database. Create patient first.`)
-                setIsCreatingBill(false)
-                return
+            if (!patientId) {
+                const res = await apiClient<{ data: any[] }>(`/patients?search=${visit.uhid}`)
+                const patient = res.data?.[0]
+                if (!patient) {
+                    setDuplicateWarning(`Patient with UHID ${visit.uhid} not found. Create patient first.`)
+                    setIsCreatingBill(false)
+                    return
+                }
+                patientId = patient.id
             }
 
-            // Create new OP bill for patient
+            // Create new OP bill — includes doctorId/department/visitDate so backend auto-creates OPVisit
             const newBill = await createBill({
-                patientId: patient.id,
-                notes: `OP Consultation: ${visit.department} (${visit.doctor})`
+                patientId,
+                appointmentId: visit.visitId,
+                doctorId: visit.doctorId || undefined,
+                department: visit.department || undefined,
+                visitDate: visit.visitDate || undefined,
+                notes: `OP Consultation: ${visit.department} (${visit.doctorName})`,
             })
+
+            // Auto-add consultation fee as a bill item if the doctor has one set
+            if (visit.consultationFee > 0) {
+                try {
+                    // Find a CONSULTATION category service to use as the line item
+                    const servicesRes = await apiClient<{ data: any[] }>(`/master/services?category=CONSULTATION&limit=1`)
+                    const consultationService = servicesRes?.data?.[0]
+                    if (consultationService) {
+                        await addBillItem(newBill.id, {
+                            serviceId: consultationService.id,
+                            quantity: 1,
+                            unitPrice: visit.consultationFee,
+                        })
+                    }
+                } catch (feeErr) {
+                    console.warn("Could not auto-add consultation fee:", feeErr)
+                }
+            }
+
             setActiveBillId(newBill.id)
         } catch (err: any) {
             console.error("Failed to create bill", err)
@@ -200,6 +237,9 @@ export function OPBillingForm() {
                             <h2 className="text-xl font-bold tracking-tight">Outpatient Billing</h2>
                             <p className="text-sm text-muted-foreground">
                                 Invoice: <span className="font-mono">{bill.billNumber}</span>
+                                {bill.opNumber && (
+                                    <span className="ml-3 font-mono text-primary font-semibold">· OP: {bill.opNumber}</span>
+                                )}
                             </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -316,7 +356,7 @@ export function OPBillingForm() {
                         </div>
                     )}
 
-                    {!isClosed && !isVoided && Number(bill.dueAmount) > 0 && Number(bill.totalAmount) > 0 && (
+                    {canCollectPayment && Number(bill.dueAmount) > 0 && (
                         <PaymentCollectionForm
                             balanceDue={Number(bill.dueAmount)}
                             onPaymentAdd={handlePayment}

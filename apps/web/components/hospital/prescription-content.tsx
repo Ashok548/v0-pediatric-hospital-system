@@ -28,6 +28,8 @@ import { cn } from "@/lib/utils"
 import { usePharmacyInventory, createPrescription } from "@/lib/api/pharmacy"
 import { usePatients, usePatient } from "@/lib/api/patients"
 import { useAuthStore } from "@/lib/store/auth-store"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -908,6 +910,18 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
                         value={row.instructions}
                         onChange={(e) => updateRow(row.id, "instructions", e.target.value)}
                         aria-label="Special instructions"
+                      />
+                      <VoiceRecorder
+                        disabled={isSubmitting || submitted}
+                        onTextGenerated={(text) => {
+                          setPrescriptions((prev) =>
+                            prev.map((item) =>
+                              item.id === row.id
+                                ? { ...item, instructions: appendTranscript(item.instructions, text) }
+                                : item
+                            )
+                          )
+                        }}
                       />
                     </div>
                   </div>

@@ -3,15 +3,16 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent } from "@/components/ui/card"
-import { CheckCircle, Circle, Clock, Stethoscope, Pill, CreditCard, LogOut, Loader2, AlertCircle } from "lucide-react"
+import { CheckCircle, Circle, Clock, Stethoscope, Pill, CreditCard, LogOut, Loader2, AlertCircle, Sparkles } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { appendTranscript } from "@/lib/utils/transcript"
 import { toast } from "sonner"
-import { updateDischargeClearance, finalizeDischarge, useAdmission } from "@/lib/api/admissions"
+import { updateDischargeClearance, finalizeDischarge, generateDischargeSummary, useAdmission } from "@/lib/api/admissions"
 import { usePharmacyClearance } from "@/lib/api/pharmacy"
 import type { ApiAdmission, DischargeType } from "@/lib/types/admission"
 
@@ -42,6 +43,8 @@ interface Props { admission: ApiAdmission; onDone?: () => void }
 export function DischargeClearanceStepper({ admission: initialAdmission, onDone }: Props) {
     const router = useRouter()
     const [submitting, setSubmitting] = useState(false)
+    const [isGeneratingSummary, setIsGeneratingSummary] = useState(false)
+    const [isAiGenerated, setIsAiGenerated] = useState(false)
 
     // Always fetch fresh data so the stepper reflects realtime state
     const { admission, mutate } = useAdmission(initialAdmission.id)
@@ -65,6 +68,20 @@ export function DischargeClearanceStepper({ admission: initialAdmission, onDone 
             toast.error(err.message ?? "Operation failed")
         } finally {
             setSubmitting(false)
+        }
+    }
+
+    const handleGenerateSummary = async () => {
+        setIsGeneratingSummary(true)
+        try {
+            const result = await generateDischargeSummary(adm.id, dischargeType)
+            setFinalSummary(result.summary)
+            setIsAiGenerated(true)
+            toast.success("Discharge summary generated")
+        } catch (err: any) {
+            toast.error(err.message ?? "Failed to generate discharge summary")
+        } finally {
+            setIsGeneratingSummary(false)
         }
     }
 
@@ -152,6 +169,10 @@ export function DischargeClearanceStepper({ admission: initialAdmission, onDone 
                                 onChange={e => setClinicalNote(e.target.value)}
                                 placeholder="Condition stable, treatment complete..."
                                 rows={3}
+                            />
+                            <VoiceRecorder
+                                disabled={submitting}
+                                onTextGenerated={(text) => setClinicalNote((prev) => appendTranscript(prev, text))}
                             />
                         </div>
                         <Button
@@ -259,16 +280,36 @@ export function DischargeClearanceStepper({ admission: initialAdmission, onDone 
                             </div>
                             <div className="space-y-1">
                                 <Label>Discharge Summary</Label>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    disabled={submitting || isGeneratingSummary}
+                                    onClick={handleGenerateSummary}
+                                    className="w-full justify-start gap-2"
+                                >
+                                    {isGeneratingSummary ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                                    {finalSummary.trim() ? "Regenerate Summary" : "Generate Discharge Summary"}
+                                </Button>
+                                {isAiGenerated && (
+                                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                                        <Sparkles className="h-3 w-3 shrink-0" />
+                                        AI-generated draft — please review and edit before finalizing
+                                    </p>
+                                )}
                                 <Textarea
                                     value={finalSummary}
                                     onChange={e => setFinalSummary(e.target.value)}
                                     placeholder="Final clinical summary for discharge..."
                                     rows={4}
                                 />
+                                <VoiceRecorder
+                                    disabled={submitting || isGeneratingSummary}
+                                    onTextGenerated={(text) => setFinalSummary((prev) => appendTranscript(prev, text))}
+                                />
                             </div>
                         </div>
                         <Button
-                            disabled={!finalSummary || submitting}
+                            disabled={!finalSummary || submitting || isGeneratingSummary}
                             variant="destructive"
                             onClick={() => runStep(async () => {
                                 await finalizeDischarge(adm.id, { dischargeType, dischargeSummary: finalSummary })

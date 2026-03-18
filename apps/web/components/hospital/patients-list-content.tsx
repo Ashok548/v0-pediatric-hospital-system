@@ -2,6 +2,7 @@
 
 import React, { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   Search,
   Plus,
@@ -12,22 +13,33 @@ import {
   Users,
   Baby,
   Stethoscope,
-  LogOut as LogOutIcon,
   ChevronLeft,
   ChevronRight,
   Loader2,
+  MoreHorizontal,
+  UserPlus,
+  CalendarPlus,
+  Receipt,
 } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { useQuery } from "@/hooks/use-query"
 import { useUrlQuery } from "@/hooks/use-url-query"
 import { useDebounce } from "@/hooks/use-debounce"
+import { createOPVisit } from "@/lib/api/op-visits"
+import { createBill } from "@/lib/api/billing"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-// Backend-aligned Patient shape returned from GET /patients
 interface ApiPatient {
   id: string
   uhid: string
@@ -41,7 +53,7 @@ interface ApiPatient {
   guardianName: string
   guardianPhone: string | null
   guardianRelationship: string | null
-  birthWeight: string | null  // Prisma Decimal serializes as string
+  birthWeight: string | null
   address: string | null
   city: string | null
   state: string | null
@@ -108,6 +120,111 @@ function PatientRowSkeleton() {
         </td>
       ))}
     </tr>
+  )
+}
+
+// ─── Row Action Dropdown ───────────────────────────────────────────────────────
+function PatientRowActions({ patient }: { patient: ApiPatient }) {
+  const router = useRouter()
+  const [opLoading, setOpLoading] = useState(false)
+
+  async function handleGenerateOP() {
+    setOpLoading(true)
+    try {
+      const opVisit = await createOPVisit({
+        patientId: patient.id,
+        department: "General OPD",
+      })
+      const bill = await createBill({
+        patientId: patient.id,
+        opVisitId: opVisit.id,
+      })
+      router.push(`/billing/op/new?billId=${bill.id}`)
+    } catch (err: any) {
+      alert(err?.message ?? "Failed to generate OP")
+    } finally {
+      setOpLoading(false)
+    }
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+          aria-label="Patient actions"
+        >
+          {opLoading
+            ? <Loader2 className="size-4 animate-spin" />
+            : <MoreHorizontal className="size-4" />
+          }
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        {/* View Details */}
+        <DropdownMenuItem asChild>
+          <Link href={`/patients/${patient.id}`} className="flex items-center gap-2 cursor-pointer">
+            <Eye className="size-3.5 text-muted-foreground" />
+            <span>View Details</span>
+          </Link>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        {/* Generate OP */}
+        <DropdownMenuItem
+          onClick={handleGenerateOP}
+          disabled={opLoading || patient.status !== "ACTIVE"}
+          className="flex items-center gap-2 cursor-pointer text-emerald-700 focus:text-emerald-700 focus:bg-emerald-50"
+        >
+          <Stethoscope className="size-3.5" />
+          <span>{opLoading ? "Generating..." : "Generate OP"}</span>
+        </DropdownMenuItem>
+
+        {/* Admit to Ward */}
+        <DropdownMenuItem asChild>
+          <Link
+            href={`/admissions/new?patientId=${patient.id}`}
+            className={cn(
+              "flex items-center gap-2 cursor-pointer",
+              patient.status !== "ACTIVE" && "pointer-events-none opacity-50"
+            )}
+          >
+            <UserPlus className="size-3.5 text-muted-foreground" />
+            <span>Admit to Ward</span>
+          </Link>
+        </DropdownMenuItem>
+
+        {/* Generate IP Bill */}
+        <DropdownMenuItem asChild>
+          <Link
+            href={`/billing/ip`}
+            className="flex items-center gap-2 cursor-pointer text-blue-700 focus:text-blue-700 focus:bg-blue-50"
+          >
+            <Receipt className="size-3.5" />
+            <span>Generate IP Bill</span>
+          </Link>
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+
+        {/* Book Appointment */}
+        <DropdownMenuItem asChild>
+          <Link
+            href={`/appointments?newFor=${patient.id}&name=${encodeURIComponent(`${patient.firstName} ${patient.lastName}`)}`}
+            className={cn(
+              "flex items-center gap-2 cursor-pointer",
+              patient.status !== "ACTIVE" && "pointer-events-none opacity-50"
+            )}
+          >
+            <CalendarPlus className="size-3.5 text-muted-foreground" />
+            <span>Book Appointment</span>
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
@@ -268,13 +385,12 @@ export function PatientsListContent() {
                     <SortHeader label="Registered" sortKeyVal="updatedAt" />
                   </th>
                   <th className="text-right px-4 py-3">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Action</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Actions</span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
-                  // Skeleton rows while loading
                   [...Array(limit)].map((_, i) => <PatientRowSkeleton key={i} />)
                 ) : patients.length === 0 ? (
                   <tr>
@@ -360,18 +476,9 @@ export function PatientsListContent() {
                           <span className="text-xs text-muted-foreground">{timeAgo(p.createdAt)}</span>
                         </td>
 
-                        {/* Action */}
+                        {/* Actions — Dropdown */}
                         <td className="px-4 py-3 text-right">
-                          <Link href={`/patients/${p.id}`}>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="gap-1.5 text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
-                            >
-                              <Eye className="size-3.5" />
-                              <span className="hidden sm:inline">View</span>
-                            </Button>
-                          </Link>
+                          <PatientRowActions patient={p} />
                         </td>
                       </tr>
                     )

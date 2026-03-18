@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useAdmissions } from "@/lib/api/admissions"
-import { BedDouble, Search, Activity, Heart, Wind, Thermometer, ChevronRight, Clock, Loader2, FileText, LogOut } from "lucide-react"
+import { BedDouble, Search, Activity, Heart, Wind, Thermometer, ChevronRight, Clock, Loader2, FileText } from "lucide-react"
 import { formatDistanceToNow } from "date-fns"
 import { HandoverSheet } from "./nursing/handover-sheet"
 
@@ -124,7 +124,6 @@ export function NursingContent() {
                         // If not, we just take the first one assuming it's ordered desc in the backend.
                         const latest = (adm as any).vitalsRecords?.[0]
                         const deptColor = DEPT_COLOR[adm.department] ?? "bg-gray-100 text-gray-700"
-                        const isDischargePending = (adm as any).dischargeStatus === "IN_PROGRESS"
                         return (
                             <Card key={adm.id} className="hover:shadow-md transition-shadow flex flex-col">
                                 <CardHeader className="pb-3">
@@ -141,15 +140,6 @@ export function NursingContent() {
                                         <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
                                             <BedDouble className="h-3.5 w-3.5" />
                                             {adm.currentBed.ward.name} / <strong>{adm.currentBed.bedNumber}</strong>
-                                        </div>
-                                    )}
-                                    {isDischargePending && (
-                                        <div className="mt-2">
-                                            <Link href={`/admissions/${adm.id}/discharge`}>
-                                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300 text-[10px] font-semibold px-2 py-0.5 hover:bg-amber-200 transition-colors">
-                                                    <LogOut className="h-3 w-3" /> Discharge Clearance Pending
-                                                </span>
-                                            </Link>
                                         </div>
                                     )}
                                 </CardHeader>

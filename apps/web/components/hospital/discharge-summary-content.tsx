@@ -26,6 +26,8 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import { usePatientAdmissions } from "@/lib/api/admissions"
 import { differenceInDays, format } from "date-fns"
 import type { ApiAdmission } from "@/lib/types/admission"
@@ -289,12 +291,18 @@ function DischargedView({ adm, patientId }: { adm: ApiAdmission; patientId: stri
         </CardHeader>
         <CardContent className="px-5 py-5">
           {isEditing && !isSigned ? (
-            <textarea
-              value={summaryText}
-              onChange={(e) => setSummaryText(e.target.value)}
-              className="w-full min-h-[300px] p-4 border border-input rounded-lg bg-card text-sm text-foreground font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
-              aria-label="Editable discharge summary"
-            />
+            <div className="space-y-2">
+              <textarea
+                value={summaryText}
+                onChange={(e) => setSummaryText(e.target.value)}
+                className="w-full min-h-[300px] p-4 border border-input rounded-lg bg-card text-sm text-foreground font-mono leading-relaxed resize-y focus:outline-none focus:ring-2 focus:ring-ring/40 focus:border-ring"
+                aria-label="Editable discharge summary"
+              />
+              <VoiceRecorder
+                disabled={isSigned}
+                onTextGenerated={(text) => setSummaryText((prev) => appendTranscript(prev, text))}
+              />
+            </div>
           ) : summaryText ? (
             <div className={cn("rounded-lg border p-5", isSigned ? "bg-muted/20 border-emerald-200 dark:border-emerald-800" : "bg-card border-border")}>
               <pre className="whitespace-pre-wrap text-sm text-foreground font-sans leading-relaxed">{summaryText}</pre>
@@ -424,11 +432,6 @@ function InProgressView({ adm, patientId }: { adm: ApiAdmission; patientId: stri
           <p className="text-sm text-amber-800 dark:text-amber-300">
             Discharge clearance is in progress. Please complete all department sign-offs on the discharge page.
           </p>
-          <Link href={`/admissions/${adm.id}/discharge`} className="mt-3 inline-block">
-            <Button size="sm" className="gap-2">
-              Go to Discharge Stepper
-            </Button>
-          </Link>
         </CardContent>
       </Card>
 

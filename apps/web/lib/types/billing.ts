@@ -52,6 +52,21 @@ export interface ApiBill {
         department: string;
     } | null;
 
+    appointmentId?: string | null;
+    opVisitId?: string | null;
+    opNumber?: string | null; // Populated via opVisit relation
+    opVisit?: {
+        id: string;
+        opNumber: string;
+        visitDate: string;
+        department: string;
+        doctor?: {
+            id: string;
+            name: string;
+            consultationFee: number;
+        } | null;
+    } | null;
+
     tariffPlanId?: string | null;
 
     totalAmount: number;     // Decimal
@@ -74,7 +89,12 @@ export interface ApiBill {
 export interface CreateBillDto {
     patientId: string;
     admissionId?: string;
+    appointmentId?: string;
+    opVisitId?: string;
     tariffPlanId?: string;
+    doctorId?: string;
+    department?: string;
+    visitDate?: string;
     notes?: string;
 }
 
@@ -82,6 +102,7 @@ export interface AddBillItemDto {
     serviceId: string;
     quantity?: number;
     discountPercent?: number;
+    unitPrice?: number;
 }
 
 export interface RecordPaymentDto {

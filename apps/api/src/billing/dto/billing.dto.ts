@@ -22,7 +22,27 @@ export class CreateBillDto {
 
     @IsOptional()
     @IsUUID()
+    appointmentId?: string;
+
+    @IsOptional()
+    @IsUUID()
+    opVisitId?: string;
+
+    @IsOptional()
+    @IsUUID()
     tariffPlanId?: string;
+
+    @IsOptional()
+    @IsString()
+    doctorId?: string;
+
+    @IsOptional()
+    @IsString()
+    department?: string;
+
+    @IsOptional()
+    @IsString()
+    visitDate?: string;
 
     @IsOptional()
     @IsString()
@@ -42,6 +62,11 @@ export class AddBillItemDto {
     @IsNumber()
     @Min(0)
     discountPercent?: number;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    unitPrice?: number;
 }
 
 export class RecordPaymentDto {
@@ -78,6 +103,10 @@ export class QueryBillsDto {
     @IsOptional()
     @IsUUID()
     admissionId?: string;
+
+    @IsOptional()
+    @IsUUID()
+    appointmentId?: string;
 
     @IsOptional()
     @IsNumberString()

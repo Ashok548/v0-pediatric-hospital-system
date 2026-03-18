@@ -44,3 +44,17 @@ export class UpdateAppointmentStatusDto {
     @IsNotEmpty()
     status: ApptStatus;
 }
+
+export class RescheduleAppointmentDto {
+    @IsDateString()
+    @IsNotEmpty()
+    appointmentDate: string;
+
+    @IsString()
+    @IsNotEmpty()
+    timeSlot: string;
+
+    @IsString()
+    @IsNotEmpty()
+    doctorId: string;
+}

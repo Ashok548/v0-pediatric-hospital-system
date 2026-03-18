@@ -15,6 +15,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Loader2, Plus, Building2, Stethoscope } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import { createServiceOrder } from "@/lib/api/service-orders"
 import { useServices } from "@/lib/api/services"
 import {
@@ -167,6 +169,10 @@ export function CreateServiceOrderDialog({
                             onChange={(e) => setNotes(e.target.value)}
                             className="resize-none"
                             rows={3}
+                        />
+                        <VoiceRecorder
+                            disabled={isSubmitting}
+                            onTextGenerated={(text) => setNotes((prev) => appendTranscript(prev, text))}
                         />
                     </div>
                 </div>

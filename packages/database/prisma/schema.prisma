@@ -74,12 +74,13 @@ model User {
   passwordHash String
   role         Role       @relation(fields: [roleId], references: [id])
   roleId       Int
-  status       UserStatus @default(ACTIVE)
-  lastLoginAt  DateTime?
-  failedLogins Int        @default(0)
-  lockedUntil  DateTime?
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  status           UserStatus @default(ACTIVE)
+  consultationFee  Decimal    @default(0) @map("consultation_fee") @db.Decimal(10, 2)
+  lastLoginAt      DateTime?
+  failedLogins     Int        @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   // Relations to other modules
   admissions           Admission[]
@@ -90,6 +91,7 @@ model User {
   labOrdersVerified    LabOrder[]       @relation("LabOrderVerifier")
   vaccinesAdministered PatientVaccine[] @relation("VaccineAdministeredBy")
   serviceOrdersOrdered ServiceOrder[]   @relation("ServiceOrderDoctor")
+  opVisits             OPVisit[]
 }
 
 // ─── Master Data Models ───────────────────────────────────────────────────────
@@ -290,6 +292,7 @@ model Patient {
   labOrders     LabOrder[]
   vaccines      PatientVaccine[]
   serviceOrders ServiceOrder[]
+  opVisits      OPVisit[]
 
   // Indexed for high-performance searching
   @@index([lastName, firstName])
@@ -407,13 +410,15 @@ model AdmissionSequence {
 
 // Full audit trail of every time a patient changes beds
 model BedTransfer {
-  id            String   @id @default(uuid())
-  admissionId   String   @map("admission_id")
-  fromBedId     String?  @map("from_bed_id") // null for initial assignment
-  toBedId       String?  @map("to_bed_id") // null for discharge vacancy
-  reason        String?  @db.VarChar(255)
-  transferDate  DateTime @default(now()) @map("transfer_date")
-  transferredBy String?  @map("transferred_by") // User ID string
+  id             String   @id @default(uuid())
+  admissionId    String   @map("admission_id")
+  fromBedId      String?  @map("from_bed_id") // null for initial assignment
+  toBedId        String?  @map("to_bed_id") // null for discharge vacancy
+  fromDepartment String?  @map("from_department") @db.VarChar(50) // ward type before transfer
+  toDepartment   String?  @map("to_department") @db.VarChar(50) // ward type after transfer
+  reason         String?  @db.VarChar(255)
+  transferDate   DateTime @default(now()) @map("transfer_date")
+  transferredBy  String?  @map("transferred_by") // User ID string
 
   admission Admission @relation(fields: [admissionId], references: [id])
   fromBed   Bed?      @relation("TransferFrom", fields: [fromBedId], references: [id])
@@ -557,6 +562,8 @@ model Appointment {
   updatedAt       DateTime      @updatedAt @map("updated_at")
   consultation    Consultation?
   labOrders       LabOrder[]
+  opVisit         OPVisit?
+  bill            Bill?
 
   @@unique([doctorId, appointmentDate, timeSlot])
   @@index([appointmentDate])
@@ -594,6 +601,13 @@ model Bill {
   admissionId String?    @map("admission_id")
   admission   Admission? @relation(fields: [admissionId], references: [id])
 
+  // OP visit link (null for IP bills)
+  appointmentId String?      @unique @map("appointment_id")
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+
+  opVisitId String?   @unique @map("op_visit_id")
+  opVisit   OPVisit? @relation(fields: [opVisitId], references: [id])
+
   tariffPlanId String? @map("tariff_plan_id")
 
   totalAmount    Decimal @default(0) @map("total_amount") @db.Decimal(12, 2)
@@ -614,6 +628,7 @@ model Bill {
 
   @@index([patientId])
   @@index([admissionId])
+  @@index([appointmentId])
   @@index([status])
   @@map("bills")
 }
@@ -655,6 +670,56 @@ model Payment {
 
   @@index([billId])
   @@map("payments")
+}
+
+// ─── OP Visit Models ──────────────────────────────────────────────────────────
+
+enum OPVisitStatus {
+  REGISTERED   // OP number generated, waiting for consultation
+  IN_PROGRESS  // Doctor is consulting
+  COMPLETED    // Consultation done
+  BILLED       // Bill finalized
+  CANCELLED
+}
+
+model OPVisitSequence {
+  id        Int      @id @default(1)
+  year      Int
+  lastValue Int      @default(0) @map("last_value")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([id, year])
+  @@map("op_visit_sequences")
+}
+
+model OPVisit {
+  id       String @id @default(uuid())
+  opNumber String @unique @map("op_number") @db.VarChar(20) // OP-2026-000001
+
+  patientId     String  @map("patient_id") @db.Uuid
+  patient       Patient @relation(fields: [patientId], references: [id])
+
+  appointmentId String?      @unique @map("appointment_id")
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+
+  doctorId   String? @map("doctor_id")
+  doctor     User?   @relation(fields: [doctorId], references: [id])
+  department String  @db.VarChar(100)
+
+  visitDate DateTime     @default(now()) @map("visit_date")
+  status    OPVisitStatus @default(REGISTERED)
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  bill Bill?
+
+  @@index([patientId])
+  @@index([visitDate])
+  @@index([status])
+  @@map("op_visits")
 }
 
 // ─── Pharmacy Data Models ──────────────────────────────────────────────────────

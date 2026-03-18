@@ -59,6 +59,7 @@ export interface PatientDetail {
 /** Single appointment */
 export interface Appointment {
     id: string
+    patientId: string     // DB patient UUID — used for OP visit creation
     patientName: string
     uhid: string
     age: string

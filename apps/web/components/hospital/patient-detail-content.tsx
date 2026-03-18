@@ -1,7 +1,8 @@
 "use client"
 
-import React from "react"
+import React, { useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
     Baby,
     CalendarDays,
@@ -21,7 +22,11 @@ import {
     Mail,
     BedDouble,
     ArrowRightLeft,
-    XCircle,
+    Stethoscope,
+    Receipt,
+    CalendarPlus,
+    Zap,
+    AlertCircle,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -34,6 +39,8 @@ import { usePatientLabOrders } from "@/lib/api/labs"
 import { usePatientVaccinations } from "@/lib/api/vaccinations"
 import { usePrescriptions } from "@/lib/api/pharmacy"
 import { CreateLabOrderDialog } from "./dialogs/create-lab-order-dialog"
+import { createOPVisit } from "@/lib/api/op-visits"
+import { createBill } from "@/lib/api/billing"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -151,11 +158,68 @@ function DetailSkeleton() {
 
 // ─── Component ────────────────────────────────────────────────────────
 export function PatientDetailContent({ patientId }: { patientId: string }) {
+    const router = useRouter()
     const { data: patient, isLoading, error } = useQuery<ApiPatient>(`/patients/${patientId}`)
     const { admissions: admissionHistory, isLoading: admLoading } = usePatientAdmissions(patient?.id ?? null)
     const { orders: labOrders } = usePatientLabOrders(patient?.id ?? null)
     const { schedule: vaccineSchedule } = usePatientVaccinations(patient?.id ?? null)
     const { prescriptions } = usePrescriptions({ patientId: patient?.id ?? undefined })
+
+    // ─── OP Generation state ──────────────────────────────────────────
+    const [opLoading, setOpLoading] = useState(false)
+    const [opError, setOpError] = useState<string | null>(null)
+
+    // ─── IP Bill Generation state ─────────────────────────────────────
+    const [ipLoading, setIpLoading] = useState(false)
+    const [ipError, setIpError] = useState<string | null>(null)
+
+    // Active admission (if any)
+    const activeAdmission = admissionHistory.find(
+        (a) => a.status === "ADMITTED" || a.status === "BED_ASSIGNED"
+    ) ?? null
+
+    // ─── Generate OP (Walk-in) ────────────────────────────────────────
+    async function handleGenerateOP() {
+        if (!patient) return
+        setOpLoading(true)
+        setOpError(null)
+        try {
+            // 1. Create OPVisit
+            const opVisit = await createOPVisit({
+                patientId: patient.id,
+                department: "General OPD",
+            })
+            // 2. Create DRAFT bill linked to OP visit
+            const bill = await createBill({
+                patientId: patient.id,
+                opVisitId: opVisit.id,
+            })
+            // 3. Navigate to billing form with bill pre-loaded
+            router.push(`/billing/op/new?billId=${bill.id}`)
+        } catch (err: any) {
+            setOpError(err?.message ?? "Failed to generate OP")
+        } finally {
+            setOpLoading(false)
+        }
+    }
+
+    // ─── Generate IP Bill (for active admission) ──────────────────────
+    async function handleGenerateIPBill() {
+        if (!patient || !activeAdmission) return
+        setIpLoading(true)
+        setIpError(null)
+        try {
+            const bill = await createBill({
+                patientId: patient.id,
+                admissionId: activeAdmission.id,
+            })
+            router.push(`/billing/ip?billId=${bill.id}`)
+        } catch (err: any) {
+            setIpError(err?.message ?? "Failed to generate IP bill")
+        } finally {
+            setIpLoading(false)
+        }
+    }
 
     // Loading state
     if (isLoading) return <DetailSkeleton />
@@ -225,6 +289,12 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                                         )}>
                                             {patient.status === "ACTIVE" ? "Active" : "Inactive"}
                                         </Badge>
+                                        {activeAdmission && (
+                                            <Badge className="text-[11px] bg-blue-50 text-blue-700 border-blue-200 font-semibold">
+                                                <BedDouble className="size-3 mr-1" />
+                                                Admitted
+                                            </Badge>
+                                        )}
                                     </div>
                                     <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
                                         <span className="flex items-center gap-1"><CalendarDays className="size-3" />DOB: {dob}</span>
@@ -305,6 +375,130 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                     </CardContent>
                 </Card>
 
+                {/* ── Quick Actions ───────────────────────────────────────────────── */}
+                {patient.status === "ACTIVE" && (
+                    <Card className="py-0">
+                        <CardHeader className="px-5 pt-4 pb-3 border-b border-border">
+                            <CardTitle className="flex items-center gap-2 text-sm font-semibold">
+                                <Zap className="size-4 text-amber-500" />
+                                Quick Actions
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="px-5 py-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                                {/* Generate OP */}
+                                <div className="flex flex-col gap-2">
+                                    <button
+                                        onClick={handleGenerateOP}
+                                        disabled={opLoading || ipLoading}
+                                        className={cn(
+                                            "flex items-center gap-4 rounded-xl border px-4 py-4 text-left transition-all group",
+                                            "border-emerald-200 bg-emerald-50/50 hover:bg-emerald-50 hover:border-emerald-400 hover:shadow-sm",
+                                            (opLoading || ipLoading) && "opacity-60 cursor-not-allowed"
+                                        )}
+                                    >
+                                        <div className="flex items-center justify-center size-11 rounded-xl shrink-0 bg-emerald-100">
+                                            {opLoading
+                                                ? <Loader2 className="size-5 text-emerald-700 animate-spin" />
+                                                : <Stethoscope className="size-5 text-emerald-700" />
+                                            }
+                                        </div>
+                                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                            <span className="text-sm font-semibold text-emerald-900 group-hover:text-emerald-700 transition-colors">
+                                                Generate OP
+                                            </span>
+                                            <span className="text-[11px] text-emerald-700/70 leading-relaxed">
+                                                Walk-in outpatient visit + draft bill
+                                            </span>
+                                        </div>
+                                        {!opLoading && <ChevronRight className="size-4 text-emerald-400 group-hover:text-emerald-600 group-hover:translate-x-0.5 transition-all shrink-0" />}
+                                    </button>
+                                    {opError && (
+                                        <div className="flex items-start gap-1.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2">
+                                            <AlertCircle className="size-3.5 text-destructive shrink-0 mt-0.5" />
+                                            <p className="text-[11px] text-destructive leading-relaxed">{opError}</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Generate IP Bill */}
+                                <div className="flex flex-col gap-2">
+                                    <button
+                                        onClick={handleGenerateIPBill}
+                                        disabled={!activeAdmission || opLoading || ipLoading}
+                                        className={cn(
+                                            "flex items-center gap-4 rounded-xl border px-4 py-4 text-left transition-all group",
+                                            activeAdmission
+                                                ? "border-blue-200 bg-blue-50/50 hover:bg-blue-50 hover:border-blue-400 hover:shadow-sm"
+                                                : "border-border bg-muted/30 cursor-not-allowed opacity-50",
+                                            (opLoading || ipLoading) && "opacity-60 cursor-not-allowed"
+                                        )}
+                                    >
+                                        <div className={cn(
+                                            "flex items-center justify-center size-11 rounded-xl shrink-0",
+                                            activeAdmission ? "bg-blue-100" : "bg-muted"
+                                        )}>
+                                            {ipLoading
+                                                ? <Loader2 className="size-5 text-blue-700 animate-spin" />
+                                                : <Receipt className={cn("size-5", activeAdmission ? "text-blue-700" : "text-muted-foreground")} />
+                                            }
+                                        </div>
+                                        <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                            <span className={cn(
+                                                "text-sm font-semibold transition-colors",
+                                                activeAdmission ? "text-blue-900 group-hover:text-blue-700" : "text-muted-foreground"
+                                            )}>
+                                                Generate IP Bill
+                                            </span>
+                                            <span className={cn(
+                                                "text-[11px] leading-relaxed",
+                                                activeAdmission ? "text-blue-700/70" : "text-muted-foreground/60"
+                                            )}>
+                                                {activeAdmission
+                                                    ? `Admission: ${activeAdmission.admissionNumber}`
+                                                    : "No active admission"
+                                                }
+                                            </span>
+                                        </div>
+                                        {activeAdmission && !ipLoading && (
+                                            <ChevronRight className="size-4 text-blue-400 group-hover:text-blue-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                                        )}
+                                    </button>
+                                    {ipError && (
+                                        <div className="flex items-start gap-1.5 rounded-lg bg-destructive/10 border border-destructive/20 px-3 py-2">
+                                            <AlertCircle className="size-3.5 text-destructive shrink-0 mt-0.5" />
+                                            <p className="text-[11px] text-destructive leading-relaxed">{ipError}</p>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Book Appointment */}
+                                <Link
+                                    href={`/appointments?newFor=${patient.id}&name=${encodeURIComponent(fullName)}`}
+                                    className={cn(
+                                        "flex items-center gap-4 rounded-xl border px-4 py-4 text-left transition-all group",
+                                        "border-violet-200 bg-violet-50/50 hover:bg-violet-50 hover:border-violet-400 hover:shadow-sm"
+                                    )}
+                                >
+                                    <div className="flex items-center justify-center size-11 rounded-xl shrink-0 bg-violet-100">
+                                        <CalendarPlus className="size-5 text-violet-700" />
+                                    </div>
+                                    <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                                        <span className="text-sm font-semibold text-violet-900 group-hover:text-violet-700 transition-colors">
+                                            Book Appointment
+                                        </span>
+                                        <span className="text-[11px] text-violet-700/70 leading-relaxed">
+                                            Schedule OPD visit or follow-up
+                                        </span>
+                                    </div>
+                                    <ChevronRight className="size-4 text-violet-400 group-hover:text-violet-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+                                </Link>
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
+
                 {/* ── Clinical Actions ───────────────────────────────────────────── */}
                 <Card className="py-0">
                     <CardHeader className="px-5 pt-4 pb-3 border-b border-border">
@@ -383,13 +577,6 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
                                         <Link href={`/admissions/${a.id}/transfer`}>
                                             <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1">
                                                 <ArrowRightLeft className="size-3" />
-                                            </Button>
-                                        </Link>
-                                    )}
-                                    {(a.status === "ADMITTED" || a.status === "BED_ASSIGNED") && (
-                                        <Link href={`/admissions/${a.id}/discharge`}>
-                                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-destructive gap-1">
-                                                <XCircle className="size-3" />
                                             </Button>
                                         </Link>
                                     )}

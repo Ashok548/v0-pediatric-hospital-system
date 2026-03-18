@@ -16,7 +16,7 @@ import {
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 interface Role { id: number; name: string; description: string | null }
-interface User { id: string; name: string; email: string; phone: string; status: "ACTIVE" | "INACTIVE"; role: Role }
+interface User { id: string; name: string; email: string; phone: string; status: "ACTIVE" | "INACTIVE"; role: Role; consultationFee?: number }
 
 export default function EditUserPage() {
     const router = useRouter();
@@ -35,6 +35,7 @@ export default function EditUserPage() {
     const [phone, setPhone] = useState("");
     const [roleId, setRoleId] = useState("");
     const [status, setStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
+    const [consultationFee, setConsultationFee] = useState<number>(0);
 
     useEffect(() => {
         Promise.all([
@@ -47,6 +48,7 @@ export default function EditUserPage() {
             setPhone(u.phone);
             setRoleId(String(u.role.id));
             setStatus(u.status);
+            setConsultationFee(Number(u.consultationFee ?? 0));
         });
     }, [id]);
 
@@ -59,7 +61,7 @@ export default function EditUserPage() {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ name, phone, roleId: parseInt(roleId), status }),
+                body: JSON.stringify({ name, phone, roleId: parseInt(roleId), status, consultationFee }),
             });
             if (!res.ok) {
                 const body = await res.json();
@@ -159,6 +161,28 @@ export default function EditUserPage() {
                             </SelectContent>
                         </Select>
                     </div>
+
+                    {/* Consultation fee — relevant for DOCTOR role */}
+                    {user.role.name === 'DOCTOR' && (
+                        <div className="space-y-1.5">
+                            <Label htmlFor="consultationFee" className="flex items-center gap-1.5">
+                                Consultation Fee (₹)
+                                <span className="text-xs text-muted-foreground font-normal">(auto-added to OP bills)</span>
+                            </Label>
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₹</span>
+                                <Input
+                                    id="consultationFee"
+                                    type="number"
+                                    min={0}
+                                    step={50}
+                                    className="pl-7"
+                                    value={consultationFee}
+                                    onChange={e => setConsultationFee(Math.max(0, Number(e.target.value) || 0))}
+                                />
+                            </div>
+                        </div>
+                    )}
 
                     <div className="flex gap-3 pt-2">
                         <Button type="submit" disabled={isPending} className="flex-1 gap-2">

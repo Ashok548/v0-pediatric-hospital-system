@@ -5,7 +5,7 @@ import {
     Search, Plus, CalendarDays, Clock, CheckCircle2, XCircle,
     Loader2, ChevronLeft, ChevronRight, X, User2, Stethoscope,
     Phone, FileText, ChevronDown, AlertCircle, Eye, Syringe,
-    BadgeCheck,
+    BadgeCheck, Printer,
 } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -17,10 +17,16 @@ import {
 import {
     DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
 import { cn } from "@/lib/utils"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import type { Appointment, ApptStatus } from "@carenest/shared-types"
 import { usePatients } from "@/lib/api/patients"
-import { useAppointments, useDoctors, createAppointment, updateAppointmentStatus, useAppointmentStats } from "@/lib/api/appointments"
+import { useAppointments, useDoctors, createAppointment, updateAppointmentStatus, useAppointmentStats, useMonthlyCalendar, useDepartments, useAppointmentTypes, rescheduleAppointment, deleteAppointment } from "@/lib/api/appointments"
+import { createOPVisit } from "@/lib/api/op-visits"
+import { createBill } from "@/lib/api/billing"
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 const statusConfig: Record<ApptStatus, { label: string; className: string; icon: React.ElementType }> = {
@@ -44,8 +50,6 @@ const nextStatus: Partial<Record<ApptStatus, { label: string; next: ApptStatus; 
 }
 
 
-const DEPARTMENTS = ["General Paediatrics", "Neonatology", "Paediatric Cardiology", "Paediatric Neurology", "PICU"]
-const APPT_TYPES = ["Consultation", "Follow-up", "Review", "Vaccination", "Procedure"]
 const TIME_SLOTS = [
     "09:00", "09:20", "09:40", "10:00", "10:20", "10:40",
     "11:00", "11:20", "11:40", "12:00", "12:20",
@@ -70,11 +74,12 @@ function isSameDay(a: Date, b: Date) {
 
 // ─── Booking Form ─────────────────────────────────────────────────────────────
 interface BookingFormProps {
+    selectedDate: Date
     onSubmit: (appt: Omit<Appointment, "id" | "token">) => void
     onClose: () => void
 }
 
-function BookingForm({ onSubmit, onClose }: BookingFormProps) {
+function BookingForm({ selectedDate, onSubmit, onClose }: BookingFormProps) {
     const [uhidQuery, setUhidQuery] = useState("")
     const [selectedPatient, setSelectedPatient] = useState<any | null>(null)
     const [doctor, setDoctor] = useState("")
@@ -92,7 +97,9 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
     }, [uhidQuery, patients])
 
     const { doctors: apiDoctors } = useDoctors()
-    const { appointments: todaysAppts } = useAppointments({ date: new Date().toISOString() })
+    const { departments: apiDepartments } = useDepartments()
+    const { types: apiTypes } = useAppointmentTypes()
+    const { appointments: todaysAppts } = useAppointments({ date: selectedDate.toISOString() })
 
     const takenSlots = useMemo(() =>
         todaysAppts.filter(a => a.doctorId === doctor).map(a => a.time),
@@ -114,16 +121,17 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
         e.preventDefault()
         if (!validate() || !selectedPatient) return
 
-        const now = new Date()
-        const selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(time.split(":")[0]), parseInt(time.split(":")[1])).toISOString()
+        const finalDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), parseInt(time.split(":")[0]), parseInt(time.split(":")[1])).toISOString()
 
         onSubmit({
             patientId: selectedPatient.id,
             doctorId: doctor,
             department,
-            appointmentDate: selectedDate,
+            appointmentDate: finalDate,
             timeSlot: time,
             type,
+            notes,
+            chiefComplaint: notes
         } as any)
     }
 
@@ -196,7 +204,7 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
                     <label className="text-xs font-semibold uppercase tracking-wider">Department</label>
                     <select value={department} onChange={e => setDepartment(e.target.value)} className={inputCls("department")}>
                         <option value="">Select dept</option>
-                        {DEPARTMENTS.map(d => <option key={d}>{d}</option>)}
+                        {apiDepartments.map(d => <option key={d}>{d}</option>)}
                     </select>
                     {errors.department && <p className="text-[11px] text-destructive">{errors.department}</p>}
                 </div>
@@ -206,7 +214,7 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
             <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider">Appointment Type</label>
                 <div className="flex flex-wrap gap-2">
-                    {APPT_TYPES.map(t => (
+                    {apiTypes.map(t => (
                         <button key={t} type="button" onClick={() => setType(t)}
                             className={cn(
                                 "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
@@ -253,6 +261,9 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
                     placeholder="Chief complaint or reason for visit…"
                     className="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all resize-none placeholder:text-muted-foreground" />
+                <VoiceRecorder
+                    onTextGenerated={(text) => setNotes((prev) => appendTranscript(prev, text))}
+                />
             </div>
 
             {/* Actions */}
@@ -264,11 +275,82 @@ function BookingForm({ onSubmit, onClose }: BookingFormProps) {
     )
 }
 
+// ─── Reschedule Form ─────────────────────────────────────────────────────────
+function RescheduleForm({ appt, onSubmit, onClose }: { appt: Appointment, onSubmit: (id: string, data: any) => void, onClose: () => void }) {
+    const [doctor, setDoctor] = useState(appt.doctorId)
+    const [date, setDate] = useState<Date | undefined>(new Date(appt.appointmentDate))
+    const [time, setTime] = useState(appt.time)
+    
+    const { doctors: apiDoctors } = useDoctors()
+    const { appointments: dayAppts } = useAppointments({ date: date?.toISOString() })
+    
+    const takenSlots = useMemo(() =>
+        dayAppts.filter(a => a.doctorId === doctor && a.id !== appt.id).map(a => a.time),
+        [dayAppts, doctor, appt.id]
+    )
+
+    function handleSubmit(e: React.FormEvent) {
+        e.preventDefault()
+        if (!doctor || !date || !time) return
+        onSubmit(appt.id, {
+            doctorId: doctor,
+            appointmentDate: new Date(date.getFullYear(), date.getMonth(), date.getDate(), parseInt(time.split(":")[0]), parseInt(time.split(":")[1])).toISOString(),
+            timeSlot: time
+        })
+    }
+
+    return (
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5 p-1">
+            <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider">Date</label>
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !date && "text-muted-foreground")}>
+                            <CalendarDays className="mr-2 size-4" />
+                            {date ? fmtDate(date) : "Pick a date"}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar mode="single" selected={date} onSelect={setDate} initialFocus />
+                    </PopoverContent>
+                </Popover>
+            </div>
+            <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider">Doctor</label>
+                <select value={doctor} onChange={e => setDoctor(e.target.value)} className="w-full h-9 px-3 rounded-lg border border-input bg-background text-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all">
+                    <option value="">Select doctor</option>
+                    {apiDoctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+            </div>
+            <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider">Time</label>
+                <div className="grid grid-cols-4 gap-1.5 max-h-48 overflow-y-auto p-1">
+                    {TIME_SLOTS.map(slot => {
+                        const taken = takenSlots.includes(slot)
+                        return (
+                            <button key={slot} type="button" disabled={taken} onClick={() => !taken && setTime(slot)}
+                                className={cn("py-2 rounded-lg text-xs font-mono font-semibold border transition-all", taken ? "bg-muted border-border text-muted-foreground line-through opacity-50 cursor-not-allowed" : time === slot ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:border-primary/40 text-foreground")}>
+                                {slot}
+                            </button>
+                        )
+                    })}
+                </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+                <Button type="submit" className="flex-1">Reschedule</Button>
+            </div>
+        </form>
+    )
+}
+
 // ─── Appointment Detail Panel ─────────────────────────────────────────────────
-function AppointmentDetail({ appt, onClose, onStatusChange }: {
+function AppointmentDetail({ appt, onClose, onStatusChange, onReschedule, onDelete }: {
     appt: Appointment
     onClose: () => void
     onStatusChange: (id: string, status: ApptStatus) => void
+    onReschedule?: (appt: Appointment) => void
+    onDelete?: (id: string) => void
 }) {
     const sc = statusConfig[appt.status]
     const Icon = sc.icon
@@ -346,8 +428,25 @@ function AppointmentDetail({ appt, onClose, onStatusChange }: {
                 </div>
             )}
 
+            {/* Extended Actions */}
+            <div className="flex flex-col gap-2 pb-2 border-b border-border/40">
+                <p className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground">Manage Appointment</p>
+                <div className="flex flex-wrap gap-2">
+                    {appt.status === "Scheduled" && (
+                        <Button variant="outline" size="sm" className="gap-1.5 border-primary/20 text-primary hover:bg-primary/5"
+                            onClick={() => { onReschedule?.(appt); onClose() }}>
+                            <CalendarDays className="size-3.5" /> Reschedule
+                        </Button>
+                    )}
+                    <Button variant="outline" size="sm" className="gap-1.5 border-destructive/20 text-destructive hover:bg-destructive/5"
+                        onClick={() => { onDelete?.(appt.id); onClose() }}>
+                        <XCircle className="size-3.5" /> Delete
+                    </Button>
+                </div>
+            </div>
+
             {/* Link to Patient Hub */}
-            <a href={`/patients/${appt.uhid}`}
+            <a href={`/patients/${appt.patientId}`}
                 className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3 hover:border-primary/40 hover:bg-primary/[0.02] transition-all group">
                 <div className="flex items-center gap-2.5">
                     <BadgeCheck className="size-4 text-primary" />
@@ -363,7 +462,11 @@ function AppointmentDetail({ appt, onClose, onStatusChange }: {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 export function AppointmentsContent() {
-    const TODAY = new Date(2026, 1, 22) // Feb 22, 2026
+    const TODAY = useMemo(() => {
+        const d = new Date()
+        d.setHours(0, 0, 0, 0)
+        return d
+    }, [])
 
     const [selectedDate, setSelectedDate] = useState(TODAY)
     const [weekStart, setWeekStart] = useState(() => {
@@ -376,11 +479,19 @@ export function AppointmentsContent() {
     const [search, setSearch] = useState("")
     const [bookingOpen, setBookingOpen] = useState(false)
     const [detailAppt, setDetailAppt] = useState<Appointment | null>(null)
+    const [rescheduleAppt, setRescheduleAppt] = useState<Appointment | null>(null)
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
     const [isMutating, setIsMutating] = useState(false)
+    const [generatingOPFor, setGeneratingOPFor] = useState<string | null>(null)
+    const [opError, setOPError] = useState<string | null>(null)
 
     const { doctors: apiDoctors } = useDoctors()
     const { appointments: appts, mutate, isLoading } = useAppointments({ date: selectedDate.toISOString() })
     const { stats, mutate: mutateStats } = useAppointmentStats(selectedDate.toISOString())
+    const { calendar } = useMonthlyCalendar(
+        `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, "0")}`,
+        doctorFilter === "all" ? undefined : doctorFilter
+    )
 
     const weekDates = useMemo(() =>
         Array.from({ length: 7 }, (_, i) => {
@@ -454,6 +565,80 @@ export function AppointmentsContent() {
         }
     }, [mutate, mutateStats])
 
+    const handleReschedule = useCallback(async (id: string, data: any) => {
+        setIsMutating(true)
+        try {
+            await rescheduleAppointment(id, data)
+            await mutate()
+            await mutateStats()
+            setRescheduleAppt(null)
+        } catch (e: any) {
+            alert(e.message || "Failed to reschedule appointment")
+        } finally {
+            setIsMutating(false)
+        }
+    }, [mutate, mutateStats])
+
+    const handleDelete = useCallback(async (id: string) => {
+        if (!confirm("Are you sure you want to delete this appointment?")) return
+        setIsMutating(true)
+        try {
+            await deleteAppointment(id)
+            await mutate()
+            await mutateStats()
+            setDetailAppt(null)
+        } catch (e: any) {
+            alert(e.message || "Failed to delete appointment")
+        } finally {
+            setIsMutating(false)
+        }
+    }, [mutate, mutateStats])
+
+    const handleBulkStatus = useCallback(async (status: ApptStatus) => {
+        if (!confirm(`Are you sure you want to mark ${selectedIds.size} appointments as ${status}?`)) return
+        setIsMutating(true)
+        try {
+            await Promise.all(Array.from(selectedIds).map(id => updateAppointmentStatus(id, status)))
+            await mutate()
+            await mutateStats()
+            setSelectedIds(new Set())
+        } catch (e: any) {
+            alert(e.message || "Failed to update appointments")
+        } finally {
+            setIsMutating(false)
+        }
+    }, [mutate, mutateStats, selectedIds])
+
+    const handleGenerateOP = useCallback(async (appt: Appointment) => {
+        setGeneratingOPFor(appt.id)
+        setOPError(null)
+        try {
+            // 1. Create OP Visit (generates OP number, checks duplicates)
+            const opVisit = await createOPVisit({
+                patientId: appt.patientId,
+                appointmentId: appt.id,
+                doctorId: appt.doctorId,
+                department: appt.department,
+                notes: appt.chiefComplaint || undefined,
+            })
+            // 2. Create DRAFT Bill linked to visit
+            const bill = await createBill({
+                patientId: opVisit.patientId,
+                appointmentId: appt.id,
+                opVisitId: opVisit.id,
+                notes: `OP Visit ${opVisit.opNumber} - ${appt.department}`,
+            })
+            // 3. Navigate to billing form with pre-loaded bill
+            window.location.href = `/billing/op/new?billId=${bill.id}`
+        } catch (e: any) {
+            const msg = e?.message || "Failed to generate OP"
+            setOPError(msg)
+            alert(msg)
+        } finally {
+            setGeneratingOPFor(null)
+        }
+    }, [])
+
     const monthLabel = (() => {
         const first = weekDates[0], last = weekDates[6]
         if (first.getMonth() === last.getMonth())
@@ -469,18 +654,68 @@ export function AppointmentsContent() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                     <div>
                         <h1 className="text-xl font-bold text-foreground tracking-tight">Appointments</h1>
-                        <p className="text-sm text-muted-foreground mt-0.5">
-                            {fmtDate(selectedDate)} &middot; {filtered.length} appointments
-                        </p>
+                        <div className="flex flex-wrap items-center gap-2 mt-1.5 print:hidden">
+                            <Popover>
+                                <PopoverTrigger asChild>
+                                    <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5 font-normal text-muted-foreground hover:text-foreground">
+                                        <CalendarDays className="size-3.5" />
+                                        {fmtDate(selectedDate)}
+                                    </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-auto p-0" align="start">
+                                    <Calendar
+                                        mode="single"
+                                        selected={selectedDate}
+                                        onSelect={(val) => {
+                                            if (val) {
+                                                setSelectedDate(val)
+                                                const d = new Date(val)
+                                                d.setDate(d.getDate() - d.getDay())
+                                                setWeekStart(d)
+                                            }
+                                        }}
+                                        initialFocus
+                                    />
+                                </PopoverContent>
+                            </Popover>
+                            <p className="text-sm text-muted-foreground">
+                                &middot; {filtered.length} appointments
+                            </p>
+                        </div>
                     </div>
-                    <Button className="gap-2 shrink-0" onClick={() => setBookingOpen(true)}>
-                        <Plus className="size-4" />
-                        New Appointment
-                    </Button>
+                    <div className="flex items-center gap-2 shrink-0 print:hidden">
+                        {selectedIds.size > 0 && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                    <Button variant="outline" className="gap-2 border-primary/20 text-primary">
+                                        Bulk Actions ({selectedIds.size}) <ChevronDown className="size-4" />
+                                    </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end">
+                                    <DropdownMenuItem onClick={() => handleBulkStatus("Cancelled")} className="text-destructive font-medium cursor-pointer">
+                                        <XCircle className="size-4 mr-2" /> Cancel Selected
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handleBulkStatus("Completed")} className="font-medium cursor-pointer text-emerald-700">
+                                        <CheckCircle2 className="size-4 mr-2" /> Mark Completed
+                                    </DropdownMenuItem>
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
+                        <Button variant="outline" className="gap-2 text-muted-foreground hidden sm:flex" onClick={() => window.print()}>
+                            <Printer className="size-4" /> Print Day Sheet
+                        </Button>
+                        <Button variant="outline" className="gap-2 text-muted-foreground sm:hidden" onClick={() => window.print()}>
+                            <Printer className="size-4" /> Print
+                        </Button>
+                        <Button className="gap-2" onClick={() => setBookingOpen(true)}>
+                            <Plus className="size-4" />
+                            New Appointment
+                        </Button>
+                    </div>
                 </div>
 
                 {/* ── Week Calendar Strip ───────────────────────────────────────── */}
-                <Card className="py-0">
+                <Card className="py-0 print:hidden">
                     <CardContent className="px-4 py-3">
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
@@ -504,10 +739,7 @@ export function AppointmentsContent() {
                             {weekDates.map((date, i) => {
                                 const isSelected = isSameDay(date, selectedDate)
                                 const isToday = isSameDay(date, TODAY)
-                                const dayCount = appts.filter(a => {
-                                    // In real app, filter by date; mock shows all on today only
-                                    return isToday
-                                }).length
+                                const dayCount = calendar?.days?.[date.getDate()] || 0
                                 return (
                                     <button key={i}
                                         onClick={() => setSelectedDate(date)}
@@ -521,10 +753,13 @@ export function AppointmentsContent() {
                                         )}>
                                         {date.getDate()}
                                         {isToday && !isSelected && (
-                                            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 size-1 rounded-full bg-primary" />
+                                            <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-3 h-[2px] rounded-full bg-primary" />
                                         )}
                                         {isSelected && (
                                             <span className="mt-0.5 size-1 rounded-full bg-primary-foreground/60" />
+                                        )}
+                                        {dayCount > 0 && !isSelected && (
+                                            <span className="absolute top-0.5 right-1.5 text-[9px] font-bold text-muted-foreground/50">{dayCount}</span>
                                         )}
                                     </button>
                                 )
@@ -534,7 +769,7 @@ export function AppointmentsContent() {
                 </Card>
 
                 {/* ── KPI Row ──────────────────────────────────────────────────── */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:hidden">
                     {[
                         { label: "Total", value: counts.all, color: "text-primary", bg: "bg-primary/10" },
                         { label: "Completed", value: counts.Completed, color: "text-[#1a7a4c]", bg: "bg-[#e6f6ee]" },
@@ -556,7 +791,7 @@ export function AppointmentsContent() {
                 </div>
 
                 {/* ── Status Filter Chips ───────────────────────────────────────── */}
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 print:hidden">
                     {(["all", "Scheduled", "In Progress", "Completed", "Cancelled", "No Show"] as const).map(s => {
                         const isActive = statusFilter === s
                         const count = s === "all" ? counts.all : counts[s]
@@ -582,7 +817,7 @@ export function AppointmentsContent() {
                 </div>
 
                 {/* ── Search + Doctor Filter ────────────────────────────────────── */}
-                <Card className="py-0">
+                <Card className="py-0 print:hidden">
                     <CardContent className="px-4 py-3">
                         <div className="flex flex-col sm:flex-row gap-3">
                             <div className="relative flex-1">
@@ -625,6 +860,14 @@ export function AppointmentsContent() {
                         <table className="w-full min-w-[760px]">
                             <thead>
                                 <tr className="border-b border-border bg-muted/40">
+                                    <th className="px-4 py-2.5 w-10">
+                                        <input type="checkbox" className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                                            checked={filtered.length > 0 && selectedIds.size === filtered.length}
+                                            onChange={(e) => {
+                                                if (e.target.checked) setSelectedIds(new Set(filtered.map(a => a.id)))
+                                                else setSelectedIds(new Set())
+                                            }} />
+                                    </th>
                                     {["Token", "Patient", "Time", "Doctor / Dept", "Type", "Status", "Actions"].map(h => (
                                         <th key={h} className={cn(
                                             "px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground",
@@ -634,7 +877,16 @@ export function AppointmentsContent() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {filtered.length === 0 ? (
+                                {isLoading ? (
+                                    <tr>
+                                        <td colSpan={7} className="text-center py-14">
+                                            <div className="flex flex-col items-center gap-2">
+                                                <Loader2 className="size-9 animate-spin text-muted-foreground/30" />
+                                                <p className="text-sm text-muted-foreground">Loading appointments...</p>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ) : filtered.length === 0 ? (
                                     <tr>
                                         <td colSpan={7} className="text-center py-14">
                                             <div className="flex flex-col items-center gap-2">
@@ -650,6 +902,16 @@ export function AppointmentsContent() {
                                         const actions = nextStatus[a.status] ?? []
                                         return (
                                             <tr key={a.id} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
+                                                <td className="px-4 py-3">
+                                                    <input type="checkbox" className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+                                                        checked={selectedIds.has(a.id)}
+                                                        onChange={(e) => {
+                                                            const next = new Set(selectedIds)
+                                                            if (e.target.checked) next.add(a.id)
+                                                            else next.delete(a.id)
+                                                            setSelectedIds(next)
+                                                        }} />
+                                                </td>
                                                 <td className="px-4 py-3">
                                                     <span className="flex items-center justify-center size-7 rounded-full bg-primary/10 text-xs font-bold text-primary tabular-nums">
                                                         {a.token}
@@ -716,12 +978,31 @@ export function AppointmentsContent() {
                                                     )}
                                                 </td>
                                                 <td className="px-4 py-3 text-right">
-                                                    <Button variant="ghost" size="sm"
-                                                        className="text-xs text-primary h-7 gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                                                        onClick={() => setDetailAppt(a)}>
-                                                        <Eye className="size-3.5" />
-                                                        View
-                                                    </Button>
+                                                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {/* Generate OP — only for billable statuses */}
+                                                        {["Scheduled", "In Progress", "Completed"].includes(a.status) && (
+                                                            <Button
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="text-xs h-7 gap-1.5 text-emerald-700 border-emerald-200 hover:bg-emerald-50"
+                                                                disabled={generatingOPFor === a.id}
+                                                                onClick={() => handleGenerateOP(a)}
+                                                            >
+                                                                {generatingOPFor === a.id ? (
+                                                                    <Loader2 className="size-3.5 animate-spin" />
+                                                                ) : (
+                                                                    <FileText className="size-3.5" />
+                                                                )}
+                                                                {generatingOPFor === a.id ? "Generating..." : "Generate OP"}
+                                                            </Button>
+                                                        )}
+                                                        <Button variant="ghost" size="sm"
+                                                            className="text-xs text-primary h-7 gap-1.5"
+                                                            onClick={() => setDetailAppt(a)}>
+                                                            <Eye className="size-3.5" />
+                                                            View
+                                                        </Button>
+                                                    </div>
                                                 </td>
                                             </tr>
                                         )
@@ -742,10 +1023,10 @@ export function AppointmentsContent() {
                             New Appointment
                         </SheetTitle>
                         <SheetDescription>
-                            Book a new appointment for {fmtDate(TODAY)}
+                            Book a new appointment for {fmtDate(selectedDate)}
                         </SheetDescription>
                     </SheetHeader>
-                    <BookingForm onSubmit={handleBook} onClose={() => setBookingOpen(false)} />
+                    <BookingForm selectedDate={selectedDate} onSubmit={handleBook} onClose={() => setBookingOpen(false)} />
                 </SheetContent>
             </Sheet>
 
@@ -766,6 +1047,30 @@ export function AppointmentsContent() {
                             appt={detailAppt}
                             onClose={() => setDetailAppt(null)}
                             onStatusChange={handleStatusChange}
+                            onReschedule={setRescheduleAppt}
+                            onDelete={handleDelete}
+                        />
+                    )}
+                </SheetContent>
+            </Sheet>
+
+            {/* ── Reschedule Sheet ─────────────────────────────────────────────── */}
+            <Sheet open={!!rescheduleAppt} onOpenChange={open => !open && setRescheduleAppt(null)}>
+                <SheetContent side="right" className="w-full sm:max-w-[420px] overflow-y-auto">
+                    <SheetHeader className="pb-4 border-b border-border mb-5">
+                        <SheetTitle className="flex items-center gap-2">
+                            <CalendarDays className="size-5 text-primary" />
+                            Reschedule Appointment
+                        </SheetTitle>
+                        <SheetDescription>
+                            {rescheduleAppt?.patientName} (Token #{rescheduleAppt?.token})
+                        </SheetDescription>
+                    </SheetHeader>
+                    {rescheduleAppt && (
+                        <RescheduleForm
+                            appt={rescheduleAppt}
+                            onSubmit={handleReschedule}
+                            onClose={() => setRescheduleAppt(null)}
                         />
                     )}
                 </SheetContent>

@@ -1,6 +1,6 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ApptStatus, Prisma, prisma, Appointment, Patient, User } from '@carenest/database';
-import { CreateAppointmentDto, UpdateAppointmentStatusDto } from './dto/create-appointment.dto';
+import { CreateAppointmentDto, UpdateAppointmentStatusDto, RescheduleAppointmentDto } from './dto/create-appointment.dto';
 
 type AppointmentWithRelations = Appointment & {
     patient: Patient;
@@ -33,7 +33,7 @@ export class AppointmentsService {
     async getDoctors() {
         return this.prisma.user.findMany({
             where: { role: { name: 'DOCTOR' }, status: 'ACTIVE' },
-            select: { id: true, name: true }
+            select: { id: true, name: true, consultationFee: true }
         });
     }
 
@@ -62,6 +62,7 @@ export class AppointmentsService {
     private formatResponse(appt: AppointmentWithRelations) {
         return {
             id: appt.id,
+            patientId: appt.patientId,
             patientName: `${appt.patient.firstName} ${appt.patient.lastName}`,
             uhid: appt.patient.uhid,
             age: this.calculateAge(appt.patient.dateOfBirth),
@@ -120,7 +121,7 @@ export class AppointmentsService {
         });
     }
 
-    async findAll(filters: { date?: string, status?: ApptStatus, doctorId?: string, search?: string, patientId?: string }) {
+    async findAll(filters: { date?: string, status?: ApptStatus, doctorId?: string, search?: string, patientId?: string, page?: number, limit?: number }) {
         const where: Prisma.AppointmentWhereInput = {};
 
         if (filters.date) {
@@ -148,25 +149,41 @@ export class AppointmentsService {
             };
         }
 
-        const appts = await this.prisma.appointment.findMany({
-            where,
-            include: { patient: true, doctor: true },
-            orderBy: [{ appointmentDate: 'desc' }, { timeSlot: 'asc' }],
-        });
+        const page = filters.page ? Number(filters.page) : 1;
+        const limit = filters.limit ? Number(filters.limit) : 50;
+        const skip = (page - 1) * limit;
 
-        return appts.map((a: AppointmentWithRelations) => this.formatResponse(a));
+        const [appts, total] = await Promise.all([
+            this.prisma.appointment.findMany({
+                where,
+                include: { patient: true, doctor: true },
+                orderBy: [{ appointmentDate: 'desc' }, { timeSlot: 'asc' }],
+                skip,
+                take: limit,
+            }),
+            this.prisma.appointment.count({ where })
+        ]);
+
+        return {
+            data: appts.map((a: AppointmentWithRelations) => this.formatResponse(a)),
+            total,
+            page,
+            limit,
+            totalPages: Math.ceil(total / limit)
+        };
     }
 
     async getStats(date?: string) {
         const queryDate = date ? new Date(date) : (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
 
-        const appts = await this.prisma.appointment.findMany({
+        const counts = await this.prisma.appointment.groupBy({
+            by: ['status'],
             where: { appointmentDate: queryDate },
-            select: { status: true },
+            _count: { status: true },
         });
 
         const stats = {
-            total: appts.length,
+            total: 0,
             scheduled: 0,
             inProgress: 0,
             completed: 0,
@@ -174,12 +191,14 @@ export class AppointmentsService {
             noShow: 0,
         };
 
-        for (const a of appts) {
-            if (a.status === ApptStatus.SCHEDULED) stats.scheduled++;
-            else if (a.status === ApptStatus.IN_PROGRESS) stats.inProgress++;
-            else if (a.status === ApptStatus.COMPLETED) stats.completed++;
-            else if (a.status === ApptStatus.CANCELLED) stats.cancelled++;
-            else if (a.status === ApptStatus.NO_SHOW) stats.noShow++;
+        for (const group of counts) {
+            const count = group._count.status;
+            stats.total += count;
+            if (group.status === ApptStatus.SCHEDULED) stats.scheduled = count;
+            else if (group.status === ApptStatus.IN_PROGRESS) stats.inProgress = count;
+            else if (group.status === ApptStatus.COMPLETED) stats.completed = count;
+            else if (group.status === ApptStatus.CANCELLED) stats.cancelled = count;
+            else if (group.status === ApptStatus.NO_SHOW) stats.noShow = count;
         }
 
         return stats;
@@ -263,5 +282,56 @@ export class AppointmentsService {
             month: mon + 1,
             days: dayCounts,
         };
+    }
+
+    async getDepartments() {
+        const depts = await this.prisma.department.findMany({ 
+            where: { status: 'ACTIVE' }, 
+            orderBy: { name: 'asc' } 
+        });
+        return depts.map((d: { name: string }) => d.name);
+    }
+
+    getTypes() {
+        return [
+            "Consultation",
+            "Follow-up",
+            "Review",
+            "Vaccination",
+            "Procedure",
+            "Emergency",
+            "Routine Checkup"
+        ];
+    }
+
+    async reschedule(id: string, dto: RescheduleAppointmentDto) {
+        const existing = await this.prisma.appointment.findUnique({ where: { id } });
+        if (!existing) throw new NotFoundException('Appointment not found');
+
+        if (existing.status !== ApptStatus.SCHEDULED) {
+            throw new BadRequestException(`Cannot reschedule appointment in status: ${existing.status}`);
+        }
+
+        const apptDate = new Date(dto.appointmentDate);
+
+        const appt = await this.prisma.appointment.update({
+            where: { id },
+            data: {
+                appointmentDate: apptDate,
+                timeSlot: dto.timeSlot,
+                doctorId: dto.doctorId,
+            },
+            include: { patient: true, doctor: true },
+        });
+
+        return this.formatResponse(appt);
+    }
+
+    async remove(id: string) {
+        const existing = await this.prisma.appointment.findUnique({ where: { id } });
+        if (!existing) throw new NotFoundException('Appointment not found');
+
+        await this.prisma.appointment.delete({ where: { id } });
+        return { success: true };
     }
 }

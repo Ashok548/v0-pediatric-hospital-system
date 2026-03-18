@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body, Patch, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Query, Delete, HttpCode, HttpStatus } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
-import { CreateAppointmentDto, UpdateAppointmentStatusDto } from './dto/create-appointment.dto';
+import { CreateAppointmentDto, UpdateAppointmentStatusDto, RescheduleAppointmentDto } from './dto/create-appointment.dto';
 import { ApptStatus } from '@carenest/database';
 
 @Controller('appointments')
@@ -19,13 +19,25 @@ export class AppointmentsController {
         @Query('doctorId') doctorId?: string,
         @Query('search') search?: string,
         @Query('patientId') patientId?: string,
+        @Query('page') page?: number,
+        @Query('limit') limit?: number,
     ) {
-        return this.appointmentsService.findAll({ date, status, doctorId, search, patientId });
+        return this.appointmentsService.findAll({ date, status, doctorId, search, patientId, page, limit });
     }
 
     @Get('doctors')
     getDoctors() {
         return this.appointmentsService.getDoctors();
+    }
+
+    @Get('departments')
+    getDepartments() {
+        return this.appointmentsService.getDepartments();
+    }
+
+    @Get('types')
+    getTypes() {
+        return this.appointmentsService.getTypes();
     }
 
     @Get('stats')
@@ -53,5 +65,19 @@ export class AppointmentsController {
         @Body() updateDto: UpdateAppointmentStatusDto,
     ) {
         return this.appointmentsService.updateStatus(id, updateDto);
+    }
+
+    @Patch(':id/reschedule')
+    reschedule(
+        @Param('id') id: string,
+        @Body() dto: RescheduleAppointmentDto,
+    ) {
+        return this.appointmentsService.reschedule(id, dto);
+    }
+
+    @Delete(':id')
+    @HttpCode(HttpStatus.OK)
+    remove(@Param('id') id: string) {
+        return this.appointmentsService.remove(id);
     }
 }

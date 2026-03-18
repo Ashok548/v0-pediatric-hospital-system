@@ -72,11 +72,14 @@ export function InvoicePreview({ id }: { id: string }) {
                             <p className="text-zinc-500 font-medium">Billed To:</p>
                             <p className="font-semibold text-zinc-900 text-base">{pName}</p>
                             <p className="text-zinc-600">UHID: {pUhid}</p>
+                            {bill.patient?.phone && <p className="text-zinc-600">Phone: {bill.patient.phone}</p>}
                             {bill.admissionId && <p className="text-zinc-600">Admission No: {bill.admissionId}</p>}
                         </div>
                         <div className="space-y-1 text-right">
                             <p className="text-zinc-500 font-medium">Type:</p>
                             <p className="font-semibold text-zinc-900">{typeLabel}</p>
+                            {bill.opVisit?.opNumber && <p className="text-zinc-600">OP No: {bill.opVisit.opNumber}</p>}
+                            {bill.opVisit?.doctor?.name && <p className="text-zinc-600">Dr. {bill.opVisit.doctor.name}</p>}
                             <p className="text-zinc-600">Status: {MappedBillStatusColors[bill.status]?.label || bill.status}</p>
                         </div>
                     </div>

@@ -4,7 +4,12 @@ import {
     ConflictException,
     BadRequestException,
 } from "@nestjs/common";
-import { prisma } from "@carenest/database";
+import { Prisma, prisma } from "@carenest/database";
+import { OpenRouterService } from "../services/openRouterService";
+import {
+    buildDischargeSummaryPrompt,
+    type DischargeSummaryContext,
+} from "./discharge-summary-prompt";
 
 // ─── Type aliases (pre-generation safe — string constants instead of enum refs) ─
 type AdmissionStatusType = "DRAFT" | "BED_ASSIGNED" | "ADMITTED" | "DISCHARGED" | "CANCELLED";
@@ -41,6 +46,127 @@ const ADMISSION_INCLUDE = {
     },
 } as const;
 
+const DISCHARGE_SUMMARY_INCLUDE = {
+    patient: {
+        select: {
+            uhid: true,
+            firstName: true,
+            lastName: true,
+            gender: true,
+            dateOfBirth: true,
+            bloodGroup: true,
+            guardianName: true,
+            guardianPhone: true,
+            allergies: true,
+            birthWeight: true,
+        },
+    },
+    admittingDoctor: { select: { name: true } },
+    currentBed: {
+        select: {
+            bedNumber: true,
+            ward: {
+                select: {
+                    name: true,
+                    type: true,
+                    floor: { select: { name: true } },
+                },
+            },
+        },
+    },
+    transfers: {
+        orderBy: { transferDate: "desc" as const },
+        take: 20,
+        include: {
+            fromBed: { select: { bedNumber: true } },
+            toBed: { select: { bedNumber: true } },
+        },
+    },
+    vitalsRecords: {
+        orderBy: { recordedAt: "desc" as const },
+        take: 10,
+    },
+    nursingNotes: {
+        orderBy: { recordedAt: "desc" as const },
+        take: 20,
+    },
+    ioRecords: {
+        orderBy: { recordedAt: "desc" as const },
+        take: 40,
+    },
+    consultations: {
+        orderBy: { createdAt: "desc" as const },
+        take: 20,
+        include: {
+            doctor: { select: { name: true } },
+        },
+    },
+    prescriptions: {
+        orderBy: { orderedAt: "desc" as const },
+        take: 20,
+        include: {
+            doctor: { select: { name: true } },
+            items: {
+                include: {
+                    medication: {
+                        select: {
+                            drugName: true,
+                            genericName: true,
+                            form: true,
+                            strength: true,
+                        },
+                    },
+                },
+            },
+        },
+    },
+    labOrders: {
+        orderBy: { orderDate: "desc" as const },
+        take: 15,
+        include: {
+            doctor: { select: { name: true } },
+            panels: {
+                include: {
+                    items: {
+                        select: {
+                            parameterName: true,
+                            value: true,
+                            unit: true,
+                            refDisplay: true,
+                            refMin: true,
+                            refMax: true,
+                        },
+                    },
+                },
+            },
+        },
+    },
+    serviceOrders: {
+        orderBy: { orderDate: "desc" as const },
+        take: 20,
+        include: {
+            service: { select: { name: true, code: true } },
+            doctor: { select: { name: true } },
+        },
+    },
+    bills: {
+        orderBy: { createdAt: "desc" as const },
+        take: 5,
+        select: {
+            billNumber: true,
+            status: true,
+            totalAmount: true,
+            paidAmount: true,
+            dueAmount: true,
+            createdAt: true,
+        },
+    },
+} as const;
+
+type DischargeSummaryAdmission = Prisma.AdmissionGetPayload<{
+    include: typeof DISCHARGE_SUMMARY_INCLUDE;
+}>;
+
 import {
     CreateAdmissionDto,
     BedTransferDto,
@@ -51,6 +177,62 @@ import {
 
 @Injectable()
 export class AdmissionsService {
+    constructor(private readonly openRouterService: OpenRouterService) { }
+
+    // ─── Atomic Bill Number Generator (shared with auto-bill creation) ────────
+    private async generateBillNumber(tx: any): Promise<string> {
+        const year = new Date().getFullYear();
+
+        const updated = await tx.$executeRaw`
+            UPDATE bill_sequences
+            SET last_value = last_value + 1, updated_at = NOW()
+            WHERE id = 1 AND year = ${year}
+        `;
+
+        if (updated === 0) {
+            await tx.billSequence.upsert({
+                where: { id_year: { id: 1, year } },
+                update: { year, lastValue: 1 },
+                create: { id: 1, year, lastValue: 1 },
+            });
+        }
+
+        const seq = await tx.billSequence.findUnique({
+            where: { id_year: { id: 1, year } },
+        });
+
+        return `BILL-${year}-${String(seq!.lastValue).padStart(6, "0")}`;
+    }
+
+    // Auto-create one draft bill per admission if it doesn't exist already.
+    private async createDraftBillForAdmission(tx: any, patientId: string, admissionId: string) {
+        const existingBill = await tx.bill.findFirst({
+            where: { admissionId },
+            select: { id: true },
+        });
+
+        if (existingBill) {
+            return;
+        }
+
+        const billNumber = await this.generateBillNumber(tx);
+
+        await tx.bill.create({
+            data: {
+                billNumber,
+                patientId,
+                admissionId,
+                status: "DRAFT" as any,
+                totalAmount: 0,
+                discountAmount: 0,
+                taxAmount: 0,
+                netAmount: 0,
+                paidAmount: 0,
+                dueAmount: 0,
+                notes: "Auto-created on admission",
+            },
+        });
+    }
 
     // ─── Atomic Admission Number Generator ─────────────────────────────────────
     private async generateAdmissionNumber(): Promise<string> {
@@ -98,22 +280,27 @@ export class AdmissionsService {
         if (dto.bedId) return this.createWithBed(dto);
 
         const admissionNumber = await this.generateAdmissionNumber();
-        return prisma.admission.create({
-            data: {
-                admissionNumber,
-                patientId: dto.patientId,
-                admissionType: dto.admissionType as any,
-                priority: (dto.priority ?? "NORMAL") as any,
-                department: dto.department,
-                admittingDoctorId: dto.admittingDoctorId ?? null,
-                admissionDate: new Date(dto.admissionDate),
-                expectedDischarge: dto.expectedDischarge ? new Date(dto.expectedDischarge) : null,
-                initialDiagnosis: dto.initialDiagnosis ?? null,
-                gestationalAge: dto.gestationalAge ?? null,
-                nicuRiskLevel: dto.nicuRiskLevel ?? null,
-                status: "DRAFT" as any,
-            },
-            include: ADMISSION_INCLUDE,
+        return prisma.$transaction(async (tx: any) => {
+            const admission = await tx.admission.create({
+                data: {
+                    admissionNumber,
+                    patientId: dto.patientId,
+                    admissionType: dto.admissionType as any,
+                    priority: (dto.priority ?? "NORMAL") as any,
+                    department: dto.department,
+                    admittingDoctorId: dto.admittingDoctorId ?? null,
+                    admissionDate: new Date(dto.admissionDate),
+                    expectedDischarge: dto.expectedDischarge ? new Date(dto.expectedDischarge) : null,
+                    initialDiagnosis: dto.initialDiagnosis ?? null,
+                    gestationalAge: dto.gestationalAge ?? null,
+                    nicuRiskLevel: dto.nicuRiskLevel ?? null,
+                    status: "DRAFT" as any,
+                },
+                include: ADMISSION_INCLUDE,
+            });
+
+            await this.createDraftBillForAdmission(tx, dto.patientId, admission.id);
+            return admission;
         });
     }
 
@@ -133,7 +320,7 @@ export class AdmissionsService {
 
             await tx.bed.update({ where: { id: dto.bedId }, data: { status: "OCCUPIED" } });
 
-            return tx.admission.create({
+            const admission = await tx.admission.create({
                 data: {
                     admissionNumber,
                     patientId: dto.patientId,
@@ -154,6 +341,9 @@ export class AdmissionsService {
                 },
                 include: ADMISSION_INCLUDE,
             });
+
+            await this.createDraftBillForAdmission(tx, dto.patientId, admission.id);
+            return admission;
         });
     }
 
@@ -217,20 +407,39 @@ export class AdmissionsService {
                 throw new BadRequestException("Can only transfer beds for actively admitted patients");
             }
 
-            const newBed = await tx.bed.findUnique({ where: { id: dto.toBedId } });
+            // Fetch new bed with ward so we can derive the target department
+            const newBed = await tx.bed.findUnique({
+                where: { id: dto.toBedId },
+                include: { ward: true },
+            });
             if (!newBed) throw new NotFoundException(`Bed ${dto.toBedId} not found`);
             if (newBed.status !== "AVAILABLE") {
                 throw new ConflictException(`Bed ${newBed.bedNumber} is not available (${newBed.status})`);
             }
 
+            // Department is derived from the target ward's type (e.g. "NICU", "GENERAL")
+            const fromDepartment: string | null = admission.department ?? null;
+            const toDepartment: string = newBed.ward.type;
+
+            // Cross-department transfers require an explicit reason
+            if (fromDepartment && fromDepartment !== toDepartment && !dto.reason?.trim()) {
+                throw new BadRequestException(
+                    `A reason is required when transferring between departments (${fromDepartment} → ${toDepartment})`
+                );
+            }
+
             const oldBedId = admission.currentBedId;
             if (oldBedId) {
                 await tx.bed.update({ where: { id: oldBedId }, data: { status: "CLEANING" } });
+                const deptNote =
+                    fromDepartment && fromDepartment !== toDepartment
+                        ? ` (department change: ${fromDepartment} → ${toDepartment})`
+                        : "";
                 await tx.bedActivityLog.create({
                     data: {
                         bedId: oldBedId,
                         action: "MARKED_CLEANING",
-                        notes: `Patient transferred to bed ${newBed.bedNumber}`,
+                        notes: `Patient transferred to bed ${newBed.bedNumber}${deptNote}`,
                         performedBy: requestingUserId ?? null,
                     },
                 });
@@ -242,10 +451,14 @@ export class AdmissionsService {
                 where: { id },
                 data: {
                     currentBedId: dto.toBedId,
+                    // Sync the admission's department to reflect the new ward type
+                    department: toDepartment,
                     transfers: {
                         create: {
                             fromBedId: oldBedId ?? null,
                             toBedId: dto.toBedId,
+                            fromDepartment,
+                            toDepartment,
                             reason: dto.reason ?? null,
                             transferredBy: requestingUserId ?? null,
                         },
@@ -284,6 +497,28 @@ export class AdmissionsService {
         }
 
         return prisma.admission.update({ where: { id }, data: update, include: ADMISSION_INCLUDE });
+    }
+
+    // ─── Generate AI Discharge Summary ────────────────────────────────────────
+    async generateDischargeSummary(id: string, dischargeType?: string) {
+        const admission = await this.collectDischargeSummaryData(id);
+
+        if (admission.status !== "ADMITTED") {
+            throw new BadRequestException("Discharge summary can only be generated for active admissions");
+        }
+
+        if (!admission.clinicalCleared) {
+            throw new BadRequestException("Clinical clearance pending");
+        }
+
+        const context = this.toDischargeSummaryContext(admission);
+        // Override with the doctor's current selection (not yet persisted to DB)
+        if (dischargeType) {
+            context.admission.dischargeType = dischargeType;
+        }
+        const { systemPrompt, userPrompt } = buildDischargeSummaryPrompt(context);
+        const summary = await this.openRouterService.generateDischargeSummary(systemPrompt, userPrompt);
+        return { summary };
     }
 
     // ─── Finalize Discharge ─────────────────────────────────────────────────────
@@ -329,6 +564,169 @@ export class AdmissionsService {
                 include: ADMISSION_INCLUDE,
             });
         });
+    }
+
+    private async collectDischargeSummaryData(id: string): Promise<DischargeSummaryAdmission> {
+        const admission = await prisma.admission.findUnique({
+            where: { id },
+            include: DISCHARGE_SUMMARY_INCLUDE,
+        });
+
+        if (!admission) {
+            throw new NotFoundException(`Admission ${id} not found`);
+        }
+
+        return admission;
+    }
+
+    private toDischargeSummaryContext(admission: DischargeSummaryAdmission): DischargeSummaryContext {
+        return {
+            patient: {
+                uhid: admission.patient.uhid,
+                fullName: `${admission.patient.firstName} ${admission.patient.lastName}`.trim(),
+                gender: admission.patient.gender,
+                dateOfBirth: admission.patient.dateOfBirth.toISOString(),
+                bloodGroup: admission.patient.bloodGroup,
+                guardianName: admission.patient.guardianName,
+                guardianPhone: admission.patient.guardianPhone,
+                allergies: admission.patient.allergies,
+                birthWeight: this.toText(admission.patient.birthWeight),
+            },
+            admission: {
+                admissionNumber: admission.admissionNumber,
+                admissionDate: admission.admissionDate.toISOString(),
+                department: admission.department,
+                admissionType: admission.admissionType,
+                priority: admission.priority,
+                status: admission.status,
+                initialDiagnosis: admission.initialDiagnosis,
+                clinicalNote: admission.clinicalNote,
+                dischargeType: admission.dischargeType,
+                gestationalAge: admission.gestationalAge,
+                nicuRiskLevel: admission.nicuRiskLevel,
+                admittingDoctorName: admission.admittingDoctor?.name ?? null,
+                currentBed: admission.currentBed
+                    ? {
+                        bedNumber: admission.currentBed.bedNumber,
+                        wardName: admission.currentBed.ward.name,
+                        wardType: admission.currentBed.ward.type,
+                        floorName: admission.currentBed.ward.floor.name,
+                    }
+                    : null,
+            },
+            transfers: admission.transfers.map((transfer) => ({
+                transferDate: transfer.transferDate.toISOString(),
+                reason: transfer.reason,
+                fromBed: transfer.fromBed?.bedNumber ?? null,
+                toBed: transfer.toBed?.bedNumber ?? null,
+            })),
+            vitals: admission.vitalsRecords.map((vital) => ({
+                recordedAt: vital.recordedAt.toISOString(),
+                heartRate: vital.heartRate,
+                spo2: vital.spo2,
+                temperature: this.toText(vital.temperature),
+                respRate: vital.respRate,
+                bpSystolic: vital.bpSystolic,
+                bpDiastolic: vital.bpDiastolic,
+                weight: this.toText(vital.weight),
+                notes: vital.notes,
+                isCritical: vital.isCritical,
+                alertMessage: vital.alertMessage,
+            })),
+            nursingNotes: admission.nursingNotes.map((note) => ({
+                recordedAt: note.recordedAt.toISOString(),
+                noteType: note.noteType,
+                priority: note.priority,
+                shiftPeriod: note.shiftPeriod,
+                content: note.content,
+                recordedBy: note.recordedBy,
+            })),
+            ioRecords: admission.ioRecords.map((record) => ({
+                recordedAt: record.recordedAt.toISOString(),
+                ioType: record.ioType,
+                route: record.route,
+                volumeMl: record.volumeMl,
+                notes: record.notes,
+                recordedBy: record.recordedBy,
+            })),
+            consultations: admission.consultations.map((consultation) => ({
+                createdAt: consultation.createdAt.toISOString(),
+                doctorName: consultation.doctor?.name ?? null,
+                chiefComplaint: consultation.chiefComplaint,
+                historyOfIllness: consultation.historyOfIllness,
+                examinationNotes: consultation.examinationNotes,
+                diagnosis: consultation.diagnosis,
+                plan: consultation.plan,
+            })),
+            prescriptions: admission.prescriptions
+                .filter((p) => p.status !== 'CANCELLED')
+                .map((prescription) => ({
+                orderedAt: prescription.orderedAt.toISOString(),
+                status: prescription.status,
+                doctorName: prescription.doctor?.name ?? null,
+                notes: prescription.notes,
+                items: prescription.items.map((item) => ({
+                    medicationName: item.medication.drugName,
+                    genericName: item.medication.genericName,
+                    form: item.medication.form,
+                    strength: item.medication.strength,
+                    dose: item.dose,
+                    frequency: item.frequency,
+                    duration: item.duration,
+                    prescribedQty: item.prescribedQty,
+                    dispensedQty: item.dispensedQty,
+                    instructions: item.instructions,
+                })),
+            })),
+            labOrders: admission.labOrders
+                .filter((order) => order.status === 'COMPLETED' || order.status === 'VERIFIED')
+                .map((order) => ({
+                orderDate: order.orderDate.toISOString(),
+                status: order.status,
+                doctorName: order.doctor?.name ?? null,
+                panels: order.panels.map((panel) => ({
+                    panelName: panel.panelName,
+                    category: panel.category,
+                    sampleType: panel.sampleType,
+                    status: panel.status,
+                    collectedAt: panel.collectedAt?.toISOString() ?? null,
+                    items: panel.items.map((item) => ({
+                        parameterName: item.parameterName,
+                        value: item.value,
+                        unit: item.unit,
+                        refDisplay: item.refDisplay,
+                        refMin: item.refMin,
+                        refMax: item.refMax,
+                    })),
+                })),
+            })),
+            serviceOrders: admission.serviceOrders.map((order) => ({
+                orderDate: order.orderDate.toISOString(),
+                status: order.status,
+                priority: order.priority,
+                quantity: order.quantity,
+                serviceName: order.service.name,
+                serviceCode: order.service.code,
+                doctorName: order.doctor?.name ?? null,
+                notes: order.notes,
+                completedAt: order.completedAt?.toISOString() ?? null,
+            })),
+            bills: admission.bills.map((bill) => ({
+                billNumber: bill.billNumber,
+                status: bill.status,
+                totalAmount: this.toText(bill.totalAmount) ?? "0",
+                paidAmount: this.toText(bill.paidAmount) ?? "0",
+                dueAmount: this.toText(bill.dueAmount) ?? "0",
+                createdAt: bill.createdAt.toISOString(),
+            })),
+        };
+    }
+
+    private toText(value: unknown): string | null {
+        if (value == null) {
+            return null;
+        }
+        return String(value);
     }
 
     // ─── Cancel ─────────────────────────────────────────────────────────────────

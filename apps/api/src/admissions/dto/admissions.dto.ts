@@ -92,6 +92,13 @@ export class FinalizeDischargeDto {
     dischargeSummary?: string;
 }
 
+// ─── Generate Discharge Summary ─────────────────────────────────────────────
+export class GenerateDischargeSummaryDto {
+    @IsOptional()
+    @IsEnum(["NORMAL", "LAMA", "REFERRED", "EXPIRED"])
+    dischargeType?: string;
+}
+
 // ─── Query ────────────────────────────────────────────────────────────────────
 export class QueryAdmissionsDto {
     @IsOptional()

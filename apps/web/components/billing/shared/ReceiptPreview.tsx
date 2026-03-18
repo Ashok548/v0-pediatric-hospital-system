@@ -69,10 +69,13 @@ export function ReceiptPreview({ id }: { id: string }) {
                             <p className="text-zinc-500 font-medium">Received From:</p>
                             <p className="font-semibold text-zinc-900 text-base">{pName}</p>
                             <p className="text-zinc-600">UHID: {pUhid}</p>
+                            {bill.patient?.phone && <p className="text-zinc-600">Phone: {bill.patient.phone}</p>}
                         </div>
                         <div className="text-right">
                             <p className="text-zinc-500 font-medium">Billing Type:</p>
                             <p className="font-semibold text-zinc-900">{bill.admissionId ? 'Inpatient (IPD)' : 'Outpatient (OPD)'}</p>
+                            {bill.opVisit?.opNumber && <p className="text-zinc-600">OP No: {bill.opVisit.opNumber}</p>}
+                            {bill.opVisit?.doctor?.name && <p className="text-zinc-600">Dr. {bill.opVisit.doctor.name}</p>}
                         </div>
                     </div>
 

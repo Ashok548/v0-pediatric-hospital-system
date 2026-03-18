@@ -19,9 +19,12 @@ import {
     BedTransferDto,
     DischargeClearanceDto,
     FinalizeDischargeDto,
+    GenerateDischargeSummaryDto,
     QueryAdmissionsDto,
 } from "./dto/admissions.dto";
 import { JwtAuthGuard } from "../auth/guards/jwt-auth.guard";
+import { RolesGuard } from "../auth/guards/roles.guard";
+import { Roles } from "../auth/decorators/roles.decorator";
 
 @UseGuards(JwtAuthGuard)
 @Controller("admissions")
@@ -56,6 +59,8 @@ export class AdmissionsController {
 
     // PATCH /admissions/:id/discharge/clearance
     @Patch(":id/discharge/clearance")
+    @UseGuards(RolesGuard)
+    @Roles("DOCTOR", "ADMIN")
     updateClearance(@Param("id") id: string, @Body() dto: DischargeClearanceDto, @Req() req: Request) {
         const userId = (req.user as any)?.sub;
         return this.service.updateDischargeClearance(id, dto, userId);
@@ -63,10 +68,21 @@ export class AdmissionsController {
 
     // POST /admissions/:id/discharge/finalize
     @Post(":id/discharge/finalize")
+    @UseGuards(RolesGuard)
+    @Roles("DOCTOR", "ADMIN")
     @HttpCode(HttpStatus.OK)
     finalizeDischarge(@Param("id") id: string, @Body() dto: FinalizeDischargeDto, @Req() req: Request) {
         const userId = (req.user as any)?.sub;
         return this.service.finalizeDischarge(id, dto, userId);
+    }
+
+    // POST /admissions/:id/discharge/generate-summary
+    @Post(":id/discharge/generate-summary")
+    @UseGuards(RolesGuard)
+    @Roles("DOCTOR", "ADMIN")
+    @HttpCode(HttpStatus.OK)
+    generateDischargeSummary(@Param("id") id: string, @Body() dto: GenerateDischargeSummaryDto) {
+        return this.service.generateDischargeSummary(id, dto.dischargeType);
     }
 
     // DELETE /admissions/:id — cancel

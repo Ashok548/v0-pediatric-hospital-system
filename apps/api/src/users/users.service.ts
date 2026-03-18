@@ -21,6 +21,7 @@ const USER_SELECT = {
     email: true,
     phone: true,
     status: true,
+    consultationFee: true,
     lastLoginAt: true,
     createdAt: true,
     updatedAt: true,
@@ -111,6 +112,7 @@ export class UsersService {
                 ...(dto.phone && { phone: dto.phone }),
                 ...(dto.roleId && { roleId: dto.roleId }),
                 ...(dto.status && { status: dto.status }),
+                ...(dto.consultationFee !== undefined && { consultationFee: dto.consultationFee }),
             },
             select: USER_SELECT,
         });

@@ -25,6 +25,8 @@ import Link from "next/link"
 import { useLabOrder, updateLabPanelResults, finalizeLabOrder } from "@/lib/api/labs"
 import { useAuth } from "@/hooks/use-auth"
 import { useToast } from "@/hooks/use-toast"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -619,6 +621,10 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                 onChange={(e) => setTechnicianNotes(e.target.value)}
                 disabled={isLocked}
                 aria-label="Technician notes"
+              />
+              <VoiceRecorder
+                disabled={isLocked || isSaving || isFinalizing}
+                onTextGenerated={(text) => setTechnicianNotes((prev) => appendTranscript(prev, text))}
               />
             </CardContent>
           </Card>

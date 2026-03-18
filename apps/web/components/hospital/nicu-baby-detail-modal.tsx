@@ -5,15 +5,16 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Textarea } from "@/components/ui/textarea"
+import { DoctorDictationEditor } from "@/components/DoctorDictationEditor"
 import {
   Activity, Clock, Thermometer, Droplets, Wind, HeartPulse,
   Baby, AlertTriangle, ArrowRight, ShieldAlert, FileText,
-  FileEdit, Plus, Info, Scale, Syringe, Trash2
+    FileEdit, Plus, Info, Scale, Syringe, Trash2, XCircle
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
+import { useAuth } from "@/hooks/use-auth"
 
 // Types & Hooks
 import type { ApiNicuAdmission, CreateVitalsPayload } from "@/lib/types/nicu"
@@ -178,6 +179,8 @@ function OrdersTab({ admission }: { admission: ApiNicuAdmission }) {
 
 export function NicuBabyDetailModal({ admission, onClose }: { admission: ApiNicuAdmission; onClose: () => void }) {
   const router = useRouter()
+    const { role } = useAuth()
+    const canInitiateDischarge = role === "DOCTOR" || role === "ADMIN"
   // Data hooks
   const { patient, isLoading: patientLoading } = usePatient(admission.patient.id)
   const { vitals, isLoading: vitalsLoading, mutate: mutateVitals } = useAdmissionVitals(admission.id)
@@ -579,7 +582,14 @@ export function NicuBabyDetailModal({ admission, onClose }: { admission: ApiNicu
                         </div>
                         <div className="flex flex-col gap-1.5">
                             <label className="text-[10px] font-semibold text-muted-foreground uppercase">Content</label>
-                            <Textarea className="w-full min-h-[120px] text-xs resize-none" placeholder="Enter clinical notes..." value={noteForm.content} onChange={e => setNoteForm({...noteForm, content: e.target.value})} />
+                            <DoctorDictationEditor
+                                value={noteForm.content}
+                                disabled={isDeletingRest}
+                                placeholder="Enter clinical notes..."
+                                onChange={(content) =>
+                                    setNoteForm((prev) => ({ ...prev, content }))
+                                }
+                            />
                         </div>
                         <Button size="sm" type="submit" disabled={isDeletingRest} className="w-full mt-1">Save Note</Button>
                     </form>
@@ -643,6 +653,11 @@ export function NicuBabyDetailModal({ admission, onClose }: { admission: ApiNicu
               </Button>
           </div>
           <div className="flex gap-2">
+              {canInitiateDischarge && (
+                  <Button variant="secondary" size="sm" onClick={() => router.push(`/admissions/${admission.id}/discharge`)}>
+                      <XCircle className="size-3.5 mr-1.5" /> Discharge
+                  </Button>
+              )}
               <Button variant="secondary" size="sm" onClick={() => router.push(`/admissions/${admission.id}/transfer`)}>
                   <ArrowRight className="size-3.5 mr-1.5" /> Transfer
               </Button>

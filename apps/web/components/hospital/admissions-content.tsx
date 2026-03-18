@@ -26,7 +26,6 @@ import {
     ClipboardList,
     CheckCircle,
     Clock,
-    XCircle,
     AlertCircle,
     RefreshCw,
 } from "lucide-react"
@@ -230,18 +229,11 @@ export function AdmissionsContent() {
                                             <TableCell className="text-right pr-6">
                                                 <div className="flex items-center justify-end gap-2 opacity-70 group-hover:opacity-100 transition-opacity">
                                                     {a.status === "ADMITTED" && (
-                                                        <>
-                                                            <Link href={`/admissions/${a.id}/transfer`}>
-                                                                <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                                                                    <ArrowRightLeft className="h-3 w-3" /> Transfer
-                                                                </Button>
-                                                            </Link>
-                                                            <Link href={`/admissions/${a.id}/discharge`}>
-                                                                <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-                                                                    <XCircle className="h-3 w-3" /> Discharge
-                                                                </Button>
-                                                            </Link>
-                                                        </>
+                                                        <Link href={`/admissions/${a.id}/transfer`}>
+                                                            <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                                                                <ArrowRightLeft className="h-3 w-3" /> Transfer
+                                                            </Button>
+                                                        </Link>
                                                     )}
                                                 </div>
                                             </TableCell>

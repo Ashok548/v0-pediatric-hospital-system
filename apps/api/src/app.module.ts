@@ -23,9 +23,12 @@ import { LabsModule } from './labs/labs.module';
 import { VaccinationsModule } from './vaccinations/vaccinations.module';
 import { SettingsModule } from './settings/settings.module';
 import { ServiceOrdersModule } from './service-orders/service-orders.module';
+import { TranscriptionsModule } from './transcriptions/transcriptions.module';
+import { MedicalFormatModule } from './medical-format/medical-format.module';
+import { OPVisitsModule } from './op-visits/op-visits.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule, ConsultationsModule, LabsModule, VaccinationsModule, SettingsModule, ServiceOrdersModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule, ConsultationsModule, LabsModule, VaccinationsModule, SettingsModule, ServiceOrdersModule, TranscriptionsModule, MedicalFormatModule, OPVisitsModule],
 
   controllers: [AppController],
   providers: [

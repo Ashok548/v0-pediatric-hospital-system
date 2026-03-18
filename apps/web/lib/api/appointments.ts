@@ -10,6 +10,16 @@ interface AppointmentsQuery {
     doctorId?: string;
     search?: string;
     patientId?: string;
+    page?: number;
+    limit?: number;
+}
+
+export interface PaginatedAppointments {
+    data: Appointment[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
 }
 
 /** GET /appointments — list with filters */
@@ -20,17 +30,23 @@ export function useAppointments(query: AppointmentsQuery = {}) {
     if (query.doctorId) params.set("doctorId", query.doctorId);
     if (query.search) params.set("search", query.search);
     if (query.patientId) params.set("patientId", query.patientId);
+    if (query.page) params.set("page", query.page.toString());
+    if (query.limit) params.set("limit", query.limit.toString());
 
     const qs = params.toString() ? `?${params}` : "";
 
-    const { data, error, isLoading, mutate } = useSWR<Appointment[]>(
+    const { data, error, isLoading, mutate } = useSWR<PaginatedAppointments>(
         `/appointments${qs}`,
         fetcher,
         { keepPreviousData: true }
     );
 
     return {
-        appointments: data || [],
+        appointments: data?.data || [],
+        total: data?.total || 0,
+        page: data?.page || 1,
+        limit: data?.limit || 50,
+        totalPages: data?.totalPages || 0,
         isLoading,
         error,
         mutate,
@@ -70,6 +86,7 @@ export function useAppointmentStats(date: string) {
 export interface DoctorListMember {
     id: string;
     name: string;
+    consultationFee: number;
 }
 
 /** GET /appointments/doctors — list of active doctors */
@@ -84,6 +101,26 @@ export function useDoctors() {
         isLoading,
         error,
     };
+}
+
+/** GET /appointments/departments */
+export function useDepartments() {
+    const { data, error, isLoading } = useSWR<string[]>(
+        `/appointments/departments`,
+        fetcher,
+        { revalidateOnFocus: false }
+    );
+    return { departments: data || [], isLoading, error };
+}
+
+/** GET /appointments/types */
+export function useAppointmentTypes() {
+    const { data, error, isLoading } = useSWR<string[]>(
+        `/appointments/types`,
+        fetcher,
+        { revalidateOnFocus: false }
+    );
+    return { types: data || [], isLoading, error };
 }
 
 /** POST /appointments — Create new appointment */
@@ -109,6 +146,21 @@ export async function updateAppointmentStatus(id: string, status: ApptStatus): P
     return apiClient<Appointment>(`/appointments/${id}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status }),
+    });
+}
+
+/** PATCH /appointments/:id/reschedule */
+export async function rescheduleAppointment(id: string, data: { appointmentDate: string; timeSlot: string; doctorId: string }): Promise<Appointment> {
+    return apiClient<Appointment>(`/appointments/${id}/reschedule`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+    });
+}
+
+/** DELETE /appointments/:id */
+export async function deleteAppointment(id: string): Promise<{ success: boolean }> {
+    return apiClient<{ success: boolean }>(`/appointments/${id}`, {
+        method: "DELETE",
     });
 }
 

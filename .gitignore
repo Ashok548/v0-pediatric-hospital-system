@@ -6,14 +6,21 @@ __v0_jsx-dev-runtime.ts
 # Common ignores
 node_modules/
 .next/
-.env*.local
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.development
+.env.test
+.env.production
 .DS_Store
 .turbo/
 dist/
 **/dist/
 /apps/web/test-results/
 /apps/web/playwright-report/
-
+# Playwright
 # Playwright
 **/playwright-report/
 **/test-results/

@@ -6,6 +6,8 @@ import {
     IsPositive,
     IsEnum,
     IsOptional,
+    IsNumber,
+    Min,
 } from "class-validator";
 
 export class UpdateUserDto {
@@ -26,4 +28,9 @@ export class UpdateUserDto {
     @IsOptional()
     @IsEnum(["ACTIVE", "INACTIVE"], { message: "Status must be ACTIVE or INACTIVE" })
     status?: "ACTIVE" | "INACTIVE";
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    consultationFee?: number;
 }

@@ -13,6 +13,8 @@ import { Textarea } from "@/components/ui/textarea"
 import { useBedHierarchy, createAdmission } from "@/lib/api/admissions"
 import type { ApiFloorWithWards, ApiWardWithBeds, ApiBed, AdmissionType } from "@/lib/types/admission"
 import { apiClient } from "@/lib/api-client"
+import { appendTranscript } from "@/lib/utils/transcript"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
 
 interface ApiPatient {
     id: string
@@ -229,6 +231,10 @@ export function NewAdmissionWizard() {
                                     className="min-h-[110px] resize-none"
                                     value={diagnosis}
                                     onChange={(e) => setDiagnosis(e.target.value)}
+                                />
+                                <VoiceRecorder
+                                    disabled={submitting}
+                                    onTextGenerated={(text) => setDiagnosis((prev) => appendTranscript(prev, text))}
                                 />
                             </div>
                         </div>

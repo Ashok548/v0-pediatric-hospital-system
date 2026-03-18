@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -173,6 +175,12 @@ export function NotesPanel({ admissionId }: Props) {
                                 value={content}
                                 onChange={e => setContent(e.target.value)}
                                 placeholder="Patient resting comfortably..."
+                            />
+                            <VoiceRecorder
+                                disabled={isSubmitting}
+                                onTextGenerated={(text) => {
+                                    setContent((prev) => appendTranscript(prev, text))
+                                }}
                             />
                         </div>
                         <div className="flex justify-end gap-2 pt-2">

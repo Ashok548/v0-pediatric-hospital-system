@@ -10,6 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { appendTranscript } from "@/lib/utils/transcript"
 import {
   User, Baby, Phone, MapPin, Shield, FileUp, Save, X, Check, AlertCircle,
   Upload, FileText, Trash2, UserPlus, Hash, CalendarDays, Heart, Building2, CreditCard,
@@ -451,6 +453,10 @@ export function PatientRegistrationContent() {
                 <textarea value={notes.value} onChange={e => setNotes(f => ({ ...f, value: e.target.value }))}
                   disabled={disabled} placeholder="Pre-existing conditions, medications, special instructions..."
                   rows={3} className="flex w-full rounded-md border border-input bg-card px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:opacity-50 resize-none" />
+                <VoiceRecorder
+                  disabled={disabled}
+                  onTextGenerated={(text) => setNotes(f => ({ ...f, value: appendTranscript(f.value, text) }))}
+                />
               </div>
             </CardContent>
           </Card>
