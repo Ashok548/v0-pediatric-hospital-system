@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useCallback } from "react"
+import React, { useState, useMemo, useCallback } from "react"
 import {
     Search, Plus, CalendarDays, Clock, CheckCircle2, XCircle,
     Loader2, ChevronLeft, ChevronRight, X, User2, Stethoscope,
@@ -20,11 +20,12 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 import { cn } from "@/lib/utils"
+import { format } from "date-fns"
 import { VoiceRecorder } from "@/components/VoiceRecorder"
 import { appendTranscript } from "@/lib/utils/transcript"
 import type { Appointment, ApptStatus } from "@carenest/shared-types"
 import { usePatients } from "@/lib/api/patients"
-import { useAppointments, useDoctors, createAppointment, updateAppointmentStatus, useAppointmentStats, useMonthlyCalendar, useDepartments, useAppointmentTypes, rescheduleAppointment, deleteAppointment } from "@/lib/api/appointments"
+import { useAppointments, useDoctors, createAppointment, updateAppointmentStatus, useAppointmentStats, useMonthlyCalendar, useDepartments, useAppointmentTypes, rescheduleAppointment, deleteAppointment, useLastVisit } from "@/lib/api/appointments"
 import { createOPVisit } from "@/lib/api/op-visits"
 import { createBill } from "@/lib/api/billing"
 
@@ -99,7 +100,29 @@ function BookingForm({ selectedDate, onSubmit, onClose }: BookingFormProps) {
     const { doctors: apiDoctors } = useDoctors()
     const { departments: apiDepartments } = useDepartments()
     const { types: apiTypes } = useAppointmentTypes()
-    const { appointments: todaysAppts } = useAppointments({ date: selectedDate.toISOString() })
+    const { appointments: todaysAppts } = useAppointments({ date: format(selectedDate, "yyyy-MM-dd") })
+
+    const { lastVisit } = useLastVisit(selectedPatient?.id ?? null)
+    const [appliedLastVisit, setAppliedLastVisit] = useState(false)
+
+    // Auto-populate from last visit
+    React.useEffect(() => {
+        if (selectedPatient && lastVisit && !appliedLastVisit) {
+            setDoctor(lastVisit.doctorId)
+            setDepartment(lastVisit.department)
+            // If they are a returning patient, usually next appt is follow-up
+            if (apiTypes.includes("Follow-up")) {
+                setType("Follow-up")
+            }
+            setAppliedLastVisit(true)
+        } else if (!selectedPatient) {
+            // Reset when patient is cleared
+            setAppliedLastVisit(false)
+            setDoctor("")
+            setDepartment("")
+            setType("")
+        }
+    }, [selectedPatient, lastVisit, appliedLastVisit, apiTypes])
 
     const takenSlots = useMemo(() =>
         todaysAppts.filter(a => a.doctorId === doctor).map(a => a.time),
@@ -121,7 +144,9 @@ function BookingForm({ selectedDate, onSubmit, onClose }: BookingFormProps) {
         e.preventDefault()
         if (!validate() || !selectedPatient) return
 
-        const finalDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), parseInt(time.split(":")[0]), parseInt(time.split(":")[1])).toISOString()
+        // We only need the date part (UTC midnight is robust for Prisma @db.Date mapping)
+        // Time slot is handled as a separate field on the backend
+        const finalDate = `${format(selectedDate, "yyyy-MM-dd")}T00:00:00.000Z`
 
         onSubmit({
             patientId: selectedPatient.id,
@@ -188,6 +213,31 @@ function BookingForm({ selectedDate, onSubmit, onClose }: BookingFormProps) {
                     </div>
                 )}
                 {errors.patient && <p className="text-[11px] text-destructive">{errors.patient}</p>}
+
+                {/* Auto-fill Banner */}
+                {selectedPatient && lastVisit && appliedLastVisit && (
+                    <div className="mt-1 flex items-start gap-2 rounded-md bg-blue-50 px-3 py-2 text-blue-900 border border-blue-100">
+                        <CheckCircle2 className="size-4 text-blue-500 shrink-0 mt-0.5" />
+                        <div className="flex-1 text-xs">
+                            <p className="font-medium">Pre-filled from last visit</p>
+                            <p className="text-blue-700 mt-0.5">
+                                {new Date(lastVisit.appointmentDate).toLocaleDateString()} with {lastVisit.doctorName}
+                            </p>
+                        </div>
+                        <button 
+                            type="button" 
+                            onClick={() => {
+                                setDoctor("")
+                                setDepartment("")
+                                setType("")
+                                setAppliedLastVisit(false)
+                            }}
+                            className="text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+                        >
+                            Clear
+                        </button>
+                    </div>
+                )}
             </div>
 
             {/* Doctor + Department */}
@@ -486,8 +536,8 @@ export function AppointmentsContent() {
     const [opError, setOPError] = useState<string | null>(null)
 
     const { doctors: apiDoctors } = useDoctors()
-    const { appointments: appts, mutate, isLoading } = useAppointments({ date: selectedDate.toISOString() })
-    const { stats, mutate: mutateStats } = useAppointmentStats(selectedDate.toISOString())
+    const { appointments: appts, mutate, isLoading } = useAppointments({ date: format(selectedDate, "yyyy-MM-dd") })
+    const { stats, mutate: mutateStats } = useAppointmentStats(format(selectedDate, "yyyy-MM-dd"))
     const { calendar } = useMonthlyCalendar(
         `${weekStart.getFullYear()}-${String(weekStart.getMonth() + 1).padStart(2, "0")}`,
         doctorFilter === "all" ? undefined : doctorFilter

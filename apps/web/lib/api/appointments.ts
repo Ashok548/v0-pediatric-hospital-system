@@ -189,3 +189,18 @@ export function useMonthlyCalendar(month?: string, doctorId?: string) {
         error,
     };
 }
+
+export function useLastVisit(patientId: string | null) {
+    const { data, error, isLoading } = useSWR<{
+        doctorId: string;
+        doctorName: string;
+        department: string;
+        type: string;
+        appointmentDate: string;
+    } | null>(
+        patientId ? `/appointments/last-visit/${patientId}` : null,
+        fetcher,
+        { revalidateOnFocus: false }
+    );
+    return { lastVisit: data ?? null, isLoading, error };
+}

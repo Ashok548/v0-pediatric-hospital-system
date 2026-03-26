@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useRef, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -12,16 +12,45 @@ import { AddBillItemDto } from "@/lib/types/billing"
 
 interface Props {
     onAdd: (item: AddBillItemDto) => void
+    department?: string | null
 }
 
-export function AddBillItemLine({ onAdd }: Props) {
+const QUICK_CHARGE_KEYWORDS: Record<string, string[]> = {
+    'Pediatrics': ['Consultation', 'Vaccination', 'Checkup', 'Dressing'],
+    'Neonatology (NICU)': ['Consultation', 'O2 Therapy', 'Sugar', 'Phototherapy'],
+    'DEFAULT': ['Consultation', 'Injection', 'Dressing', 'Observation', 'Test']
+}
+
+export function AddBillItemLine({ onAdd, department }: Props) {
     const [serviceId, setServiceId] = useState<string>("")
     const [qty, setQty] = useState(1)
     const [discount, setDiscount] = useState(0)
     const [serviceSearch, setServiceSearch] = useState("")
+    const searchInputRef = useRef<HTMLInputElement>(null)
+
+    // Auto-focus on mount
+    useEffect(() => {
+        searchInputRef.current?.focus()
+    }, [])
 
     // In a real app we'd debounce serviceSearch and send to API, but fetch all for now
     const { services, isLoading } = useServices({ limit: 100 })
+
+    const deptKeywords = department && QUICK_CHARGE_KEYWORDS[department] 
+        ? QUICK_CHARGE_KEYWORDS[department] 
+        : QUICK_CHARGE_KEYWORDS['DEFAULT']
+
+    const quickChargeServices = useMemo(() => {
+        if (!services.length) return []
+        const matched: any[] = []
+        for (const keyword of deptKeywords) {
+            const found = services.find(s => s.name.toLowerCase().includes(keyword.toLowerCase()))
+            if (found && !matched.some(m => m.id === found.id)) {
+                matched.push({ ...found, label: keyword })
+            }
+        }
+        return matched.slice(0, 4)
+    }, [services, deptKeywords])
 
     const filteredServices = useMemo(() => {
         let list = services
@@ -51,21 +80,72 @@ export function AddBillItemLine({ onAdd }: Props) {
         setQty(1)
         setDiscount(0)
         setServiceSearch("")
+        searchInputRef.current?.focus()
+    }
+
+    const handleQuickAdd = (id: string) => {
+        onAdd({
+            serviceId: id,
+            quantity: 1,
+            discountPercent: 0
+        })
+    }
+
+    const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault()
+            if (serviceId && selectedService) {
+                handleAdd()
+            } else if (serviceSearch && filteredServices.length > 0) {
+                // Auto-select and add top result
+                onAdd({
+                    serviceId: filteredServices[0].id,
+                    quantity: qty,
+                    discountPercent: discount
+                })
+                setServiceId("")
+                setQty(1)
+                setDiscount(0)
+                setServiceSearch("")
+                setTimeout(() => searchInputRef.current?.focus(), 50)
+            }
+        }
     }
 
     return (
-        <div className="space-y-3 bg-muted/20 p-3 rounded-lg border">
-            {/* Main row */}
-            <div className="grid grid-cols-12 gap-2 items-end">
-                {/* Service with search */}
-                <div className="col-span-12 md:col-span-5 space-y-1.5">
-                    <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Service</label>
-                    <Input
-                        placeholder="Search services..."
-                        className="bg-background mb-1.5 h-8 text-xs"
-                        value={serviceSearch}
-                        onChange={e => setServiceSearch(e.target.value)}
-                    />
+        <div className="space-y-4">
+            {/* Quick Charge Buttons */}
+            {quickChargeServices.length > 0 && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                    {quickChargeServices.map(qs => (
+                        <Button 
+                            key={qs.id} 
+                            variant="secondary" 
+                            size="sm" 
+                            className="h-7 text-[11px] px-3 font-medium bg-primary/10 text-primary hover:bg-primary/20"
+                            onClick={() => handleQuickAdd(qs.id)}
+                            type="button"
+                        >
+                            + {qs.label} <span className="text-primary/70 ml-1 opacity-70">₹{String(qs.basePrice)}</span>
+                        </Button>
+                    ))}
+                </div>
+            )}
+
+            <div className="space-y-3 bg-muted/20 p-3 rounded-lg border">
+                {/* Main row */}
+                <div className="grid grid-cols-12 gap-2 items-end">
+                    {/* Service with search */}
+                    <div className="col-span-12 md:col-span-5 space-y-1.5">
+                        <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Service</label>
+                        <Input
+                            ref={searchInputRef}
+                            placeholder="Type to search and press Enter..."
+                            className="bg-background mb-1.5 h-8 text-xs"
+                            value={serviceSearch}
+                            onChange={e => setServiceSearch(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                        />
                     <Select value={serviceId} onValueChange={(v) => {
                         setServiceId(v)
                     }}>
@@ -98,32 +178,52 @@ export function AddBillItemLine({ onAdd }: Props) {
                 {/* Qty */}
                 <div className="col-span-4 md:col-span-2 space-y-1.5">
                     <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Qty</label>
-                    <Input type="number" min={1} className="bg-background" value={qty}
+                    <Input type="number" min={1} className="bg-background h-8" value={qty}
+                        onKeyDown={handleKeyDown}
                         onChange={e => setQty(Math.max(1, Number(e.target.value) || 1))} />
                 </div>
 
                 {/* Discount */}
                 <div className="col-span-4 md:col-span-2 space-y-1.5">
                     <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Disc %</label>
-                    <Input type="number" min={0} max={100} className="bg-background" value={discount}
+                    <Input type="number" min={0} max={100} className="bg-background h-8" value={discount}
+                        onKeyDown={handleKeyDown}
                         onChange={e => setDiscount(Math.min(100, Math.max(0, Number(e.target.value) || 0)))} />
                 </div>
 
                 {/* Total */}
                 <div className="col-span-6 md:col-span-2 space-y-1.5">
                     <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Total (inc. tax)</label>
-                    <Input readOnly className="bg-muted font-semibold text-right"
+                    <Input readOnly className="bg-muted font-semibold text-right h-8"
                         value={selectedService ? `₹${previewTotal.toFixed(0)}` : "—"} />
                 </div>
 
                 {/* Add */}
                 <div className="col-span-6 md:col-span-1">
-                    <Button type="button" className="w-full"
-                        disabled={!selectedService || qty < 1} onClick={handleAdd}>
+                    <Button type="button" className="w-full h-8"
+                        disabled={(!selectedService && !(serviceSearch && filteredServices.length > 0)) || qty < 1} 
+                        onClick={() => {
+                            if (!selectedService && serviceSearch && filteredServices.length > 0) {
+                                // Fallback add top result if not explicitly selected but text typed
+                                onAdd({
+                                    serviceId: filteredServices[0].id,
+                                    quantity: qty,
+                                    discountPercent: discount
+                                })
+                                setServiceId("")
+                                setQty(1)
+                                setDiscount(0)
+                                setServiceSearch("")
+                                setTimeout(() => searchInputRef.current?.focus(), 50)
+                            } else {
+                                handleAdd()
+                            }
+                        }}>
                         <Plus className="size-4" />
                     </Button>
                 </div>
             </div>
+        </div>
         </div>
     )
 }

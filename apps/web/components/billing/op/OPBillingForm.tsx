@@ -20,7 +20,7 @@ import { Separator } from "@/components/ui/separator"
 import { AddBillItemDto, RecordPaymentDto, MappedBillStatusColors } from "@/lib/types/billing"
 import { useBill, createBill, addBillItem, removeBillItem, recordPayment, cancelBill, finalizeBill } from "@/lib/api/billing"
 import { apiClient } from "@/lib/api-client"
-import { Trash2, FileText, CheckCircle, Save, XCircle, AlertTriangle, Loader2 } from "lucide-react"
+import { Trash2, FileText, CheckCircle, Save, XCircle, AlertTriangle, Loader2, Plus } from "lucide-react"
 
 interface OPBillingFormProps {
     billId?: string
@@ -313,8 +313,14 @@ export function OPBillingForm({ billId: propBillId }: OPBillingFormProps = {}) {
                                         </table>
                                     </div>
                                 ) : (
-                                    <div className="py-8 text-center text-sm text-muted-foreground bg-muted/20 rounded-md border border-dashed">
-                                        No items. Use the form below to add services.
+                                    <div className="py-8 flex flex-col items-center justify-center text-center bg-muted/20 rounded-md border border-dashed">
+                                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center mb-3">
+                                            <Plus className="size-5 text-primary text-opacity-80" />
+                                        </div>
+                                        <h4 className="font-semibold text-foreground mb-1">No services added yet</h4>
+                                        <p className="text-sm text-muted-foreground max-w-sm">
+                                            Use the quick charge buttons below or search for a service to instantly add it to this bill.
+                                        </p>
                                     </div>
                                 )}
 
@@ -322,7 +328,7 @@ export function OPBillingForm({ billId: propBillId }: OPBillingFormProps = {}) {
                                     <>
                                         <Separator className="my-2" />
                                         <p className="text-sm font-semibold">Add Item</p>
-                                        <AddBillItemLine onAdd={handleAddItem} />
+                                        <AddBillItemLine onAdd={handleAddItem} department={bill.opVisit?.department || bill.admission?.department} />
                                     </>
                                 )}
                             </CardContent>
@@ -368,7 +374,7 @@ export function OPBillingForm({ billId: propBillId }: OPBillingFormProps = {}) {
                             <>
                                 <Button
                                     size="lg" className="w-full gap-2"
-                                    disabled={Number(bill.dueAmount) > 0 || (bill.items || []).length === 0}
+                                    disabled={(bill.items || []).length === 0}
                                     onClick={() => setConfirmFinalize(true)}
                                 >
                                     <CheckCircle className="size-4" /> Finalize & Generate Invoice
@@ -381,10 +387,20 @@ export function OPBillingForm({ billId: propBillId }: OPBillingFormProps = {}) {
                             </>
                         )}
                         {isClosed && (
-                            <Button size="lg" variant="secondary" className="w-full gap-2"
-                                onClick={() => router.push(`/billing/invoice/${bill.id}`)}>
-                                <FileText className="size-4" /> View / Print Receipt
-                            </Button>
+                            <>
+                                <Button size="lg" variant="secondary" className="w-full gap-2"
+                                    onClick={() => router.push(`/billing/invoice/${bill.id}`)}>
+                                    <FileText className="size-4" /> View / Print Receipt
+                                </Button>
+                                <Button variant="outline" className="w-full"
+                                    onClick={() => router.push('/billing')}>
+                                    Back to Billing Dashboard
+                                </Button>
+                                <Button variant="outline" className="w-full"
+                                    onClick={() => router.push('/appointments')}>
+                                    Go to Appointments
+                                </Button>
+                            </>
                         )}
                     </div>
                 </div>

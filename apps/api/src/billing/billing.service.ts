@@ -117,43 +117,58 @@ export class BillingService {
 
         const billNumber = await this.generateBillNumber();
 
-        // Auto-create OPVisit for OP bills when doctorId + department are provided
-        let resolvedOpVisitId = dto.opVisitId;
+        // Generate numbers outside transaction to avoid sequence locks
+        let opNumber: string | undefined;
         if (!dto.admissionId && !dto.opVisitId && dto.doctorId && dto.department) {
-            const visitDate = dto.visitDate ? new Date(dto.visitDate) : new Date();
-            const opNumber = await this.generateOPNumber();
-            const opVisit = await prisma.oPVisit.create({
-                data: {
-                    opNumber,
-                    patientId: dto.patientId,
-                    appointmentId: dto.appointmentId ?? null,
-                    doctorId: dto.doctorId,
-                    department: dto.department,
-                    visitDate,
-                    status: 'REGISTERED',
-                },
-            });
-            resolvedOpVisitId = opVisit.id;
+            opNumber = await this.generateOPNumber();
         }
 
-        return prisma.bill.create({
-            data: {
-                billNumber,
-                patientId: dto.patientId,
-                admissionId: dto.admissionId,
-                appointmentId: dto.appointmentId,
-                opVisitId: resolvedOpVisitId,
-                tariffPlanId: dto.tariffPlanId,
-                notes: dto.notes,
-                status: "DRAFT" as any,
-                totalAmount: 0,
-                discountAmount: 0,
-                taxAmount: 0,
-                netAmount: 0,
-                paidAmount: 0,
-                dueAmount: 0,
-            },
-            include: BILL_INCLUDE
+        return prisma.$transaction(async (tx: any) => {
+            let resolvedOpVisitId = dto.opVisitId;
+            
+            if (opNumber && dto.doctorId && dto.department) {
+                const visitDate = dto.visitDate ? new Date(dto.visitDate) : new Date();
+                const opVisit = await tx.oPVisit.create({
+                    data: {
+                        opNumber,
+                        patientId: dto.patientId,
+                        appointmentId: dto.appointmentId ?? null,
+                        doctorId: dto.doctorId,
+                        department: dto.department,
+                        visitDate,
+                        status: 'REGISTERED',
+                    },
+                });
+                resolvedOpVisitId = opVisit.id;
+            }
+
+            // Sync Appointment Status to IN_PROGRESS when billing starts
+            if (dto.appointmentId) {
+                await tx.appointment.update({
+                    where: { id: dto.appointmentId },
+                    data: { status: 'IN_PROGRESS' }
+                });
+            }
+
+            return tx.bill.create({
+                data: {
+                    billNumber,
+                    patientId: dto.patientId,
+                    admissionId: dto.admissionId,
+                    appointmentId: dto.appointmentId,
+                    opVisitId: resolvedOpVisitId,
+                    tariffPlanId: dto.tariffPlanId,
+                    notes: dto.notes,
+                    status: "DRAFT" as any,
+                    totalAmount: 0,
+                    discountAmount: 0,
+                    taxAmount: 0,
+                    netAmount: 0,
+                    paidAmount: 0,
+                    dueAmount: 0,
+                },
+                include: BILL_INCLUDE
+            });
         });
     }
 
@@ -488,6 +503,21 @@ export class BillingService {
             }
             if (bill._count.items === 0) {
                 throw new BadRequestException("Cannot finalize an empty bill");
+            }
+
+            // Transition parent components upon finalizing
+            if (bill.appointmentId) {
+                await tx.appointment.update({
+                    where: { id: bill.appointmentId },
+                    data: { status: "COMPLETED" }
+                });
+            }
+            
+            if (bill.opVisitId) {
+                await tx.oPVisit.update({
+                    where: { id: bill.opVisitId },
+                    data: { status: "BILLED" }
+                });
             }
 
             return tx.bill.update({

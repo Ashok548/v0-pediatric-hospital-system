@@ -61,17 +61,18 @@ async function main() {
     for (const service of seedServices) {
         // Generate a simple code if not provided (e.g., first 3 letters of category + index)
         const prefix = service.category.substring(0, 3).toUpperCase();
-        const code = `${prefix}-${String(serviceCount + 1).padStart(3, '0')}`;
+        const safeName = service.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 5).toUpperCase();
+        const code = `${prefix}-${safeName}-${String(Date.now() + serviceCount).slice(-4)}`;
         
         await prisma.service.upsert({
             where: { name_category: { name: service.name, category: service.category } },
-            update: { billingType: service.billingType },
+            update: { billingType: service.billingType, basePrice: service.basePrice || 0 },
             create: {
                 code: code,
                 name: service.name,
                 category: service.category,
                 billingType: service.billingType,
-                basePrice: 0.00,
+                basePrice: service.basePrice || 0.00,
                 taxPercent: 0,
                 status: "ACTIVE",
             },

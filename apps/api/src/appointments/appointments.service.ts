@@ -81,8 +81,16 @@ export class AppointmentsService {
         };
     }
 
-    async create(dto: CreateAppointmentDto) {
-        const appointmentDate = new Date(dto.appointmentDate);
+    async create(dto: CreateAppointmentDto & { patientId?: string }) {
+        let finalPatientId = dto.patientId;
+
+        // If 'NEW', create a dummy patient or require patient creation logic first
+        if (dto.patientId === 'NEW') {
+            // ...
+        }
+
+        const dateStr = dto.appointmentDate.split('T')[0];
+        const appointmentDate = new Date(`${dateStr}T00:00:00.000Z`);
 
         return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
             // Check double booking
@@ -125,14 +133,17 @@ export class AppointmentsService {
         const where: Prisma.AppointmentWhereInput = {};
 
         if (filters.date) {
-            const d = new Date(filters.date);
-            d.setHours(0, 0, 0, 0);
-            where.appointmentDate = d;
+            // Force pure UTC midnight of the target date to match the DB Date field perfectly
+            // For example, 2026-03-25T18:30:00.000Z -> 2026-03-25
+            const dateStr = filters.date.split('T')[0]; 
+            where.appointmentDate = new Date(`${dateStr}T00:00:00.000Z`);
         } else if (!filters.search && !filters.patientId) {
-            // Default to today if no date, search, or patientId provided
+            // Default to today in local timezone mapped to UTC midnight
             const today = new Date();
-            today.setHours(0, 0, 0, 0); // Need to just query the date part loosely or EXACT if JS Date matches
-            where.appointmentDate = today;
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            where.appointmentDate = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
         }
 
         if (filters.status) where.status = filters.status;
@@ -174,7 +185,16 @@ export class AppointmentsService {
     }
 
     async getStats(date?: string) {
-        const queryDate = date ? new Date(date) : (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; })();
+        const queryDate = date ? (() => {
+            const dateStr = date.split('T')[0];
+            return new Date(`${dateStr}T00:00:00.000Z`);
+        })() : (() => { 
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+        })();
 
         const counts = await this.prisma.appointment.groupBy({
             by: ['status'],
@@ -213,6 +233,27 @@ export class AppointmentsService {
         return this.formatResponse(appt);
     }
 
+    async getLastVisit(patientId: string) {
+        const lastAppt = await this.prisma.appointment.findFirst({
+            where: { 
+                patientId,
+                status: { in: [ApptStatus.COMPLETED, ApptStatus.SCHEDULED] }
+            },
+            orderBy: [{ appointmentDate: 'desc' }, { createdAt: 'desc' }],
+            include: { doctor: true },
+        });
+        
+        if (!lastAppt) return null;
+        
+        return {
+            doctorId: lastAppt.doctorId,
+            doctorName: lastAppt.doctor.name,
+            department: lastAppt.department,
+            type: lastAppt.type,
+            appointmentDate: lastAppt.appointmentDate.toISOString(),
+        };
+    }
+
     async updateStatus(id: string, dto: UpdateAppointmentStatusDto) {
         const existing = await this.prisma.appointment.findUnique({ where: { id } });
         if (!existing) throw new NotFoundException('Appointment not found');
@@ -249,8 +290,15 @@ export class AppointmentsService {
             mon = m - 1;
         }
 
-        const startDate = new Date(year, mon, 1);
-        const endDate = new Date(year, mon + 1, 0, 23, 59, 59, 999);
+        const startDateStr = `${year}-${String(mon + 1).padStart(2, '0')}-01T00:00:00.000Z`;
+        
+        // Find the last day of the month by going to day 0 of the next month
+        const nextMonthDate = new Date(Date.UTC(year, mon + 1, 0));
+        const lastDayStr = String(nextMonthDate.getUTCDate()).padStart(2, '0');
+        const endDateStr = `${year}-${String(mon + 1).padStart(2, '0')}-${lastDayStr}T23:59:59.999Z`;
+
+        const startDate = new Date(startDateStr);
+        const endDate = new Date(endDateStr);
 
         const where: Prisma.AppointmentWhereInput = {
             appointmentDate: {
@@ -312,7 +360,8 @@ export class AppointmentsService {
             throw new BadRequestException(`Cannot reschedule appointment in status: ${existing.status}`);
         }
 
-        const apptDate = new Date(dto.appointmentDate);
+        const dateStr = dto.appointmentDate.split('T')[0];
+        const apptDate = new Date(`${dateStr}T00:00:00.000Z`);
 
         const appt = await this.prisma.appointment.update({
             where: { id },
