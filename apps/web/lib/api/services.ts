@@ -7,23 +7,29 @@ export interface ApiService {
     id: string;
     code: string;
     name: string;
-    department: {
+    category: string;
+    subCategory?: string;
+    uiGroup: string;
+    careType: "OP" | "IP" | "BOTH";
+    departments: {
         id: string;
-        name: string;
-    } | null;
-    serviceCategory: {
-        id: string;
-        name: string;
-    } | null;
+        department: {
+            id: string;
+            name: string;
+        }
+    }[];
     basePrice: number | string;
     taxPercent: number | string;
-    isActive: boolean;
+    status: string;
 }
 
 export interface ServicesQuery {
     search?: string;
     categoryId?: string;
+    category?: string;
     departmentId?: string;
+    departmentName?: string;
+    careType?: "OP" | "IP" | "BOTH";
     page?: number;
     limit?: number;
 }
@@ -40,7 +46,10 @@ export function useServices(query: ServicesQuery = {}) {
     const params = new URLSearchParams();
     if (query.search) params.set("search", query.search);
     if (query.categoryId) params.set("categoryId", query.categoryId);
+    if (query.category) params.set("category", query.category);
     if (query.departmentId) params.set("departmentId", query.departmentId);
+    if (query.departmentName) params.set("departmentName", query.departmentName);
+    if (query.careType) params.set("careType", query.careType);
     if (query.page) params.set("page", String(query.page));
     if (query.limit) params.set("limit", String(query.limit));
 

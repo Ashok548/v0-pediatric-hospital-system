@@ -57,7 +57,7 @@ export class ServicesService {
         const limit = query.limit ?? 10;
         const skip = (page - 1) * limit;
 
-        const where = {
+        const where: any = {
             ...(query.search && {
                 OR: [
                     { name: { contains: query.search, mode: "insensitive" as const } },
@@ -66,6 +66,14 @@ export class ServicesService {
             }),
             ...(query.category && { category: query.category }),
             ...(query.status && { status: query.status }),
+            ...(query.careType && {
+                careType: { in: [query.careType, "BOTH"] }
+            }),
+            ...(query.departmentName && {
+                departments: {
+                    some: { department: { name: query.departmentName } }
+                }
+            })
         };
 
         const [data, total, categoryGroup] = await prisma.$transaction([
@@ -73,7 +81,16 @@ export class ServicesService {
                 where,
                 skip,
                 take: limit,
-                orderBy: { name: "asc" },
+                orderBy: [
+                    { uiGroup: "asc" },
+                    { displayOrder: "asc" },
+                    { name: "asc" }
+                ],
+                include: {
+                    departments: {
+                        include: { department: true }
+                    }
+                }
             }),
             prisma.service.count({ where }),
             prisma.service.groupBy({

@@ -1,9 +1,9 @@
-import { ServiceCategory, BillingType } from "../../generated/prisma/index.js";
+import { ServiceCategory, BillingType, CareType, AutoAddTrigger, ServiceIntent, RecurrenceUnit } from "../../generated/prisma/index.js";
 
 export const seedServices = [
   // Rooms & Beds (Billed per Day)
-  { name: "NICU Bed Charges", category: ServiceCategory.ROOM, billingType: BillingType.DAY, basePrice: 5000.00 },
-  { name: "Level 1 NICU Care", category: ServiceCategory.ROOM, billingType: BillingType.DAY, basePrice: 8000.00 },
+  { name: "NICU Bed Charges", category: ServiceCategory.ROOM, billingType: BillingType.DAY, basePrice: 5000.00, careType: CareType.IP, isRecurring: true, recurrenceUnit: RecurrenceUnit.DAILY, intent: ServiceIntent.FACILITY_CHARGE, autoAddTrigger: AutoAddTrigger.ON_NICU_ADMISSION, isDefault: true, uiGroup: "Rooms & Beds", displayOrder: 1, departmentNames: ["Neonatology (NICU)"] },
+  { name: "Level 1 NICU Care", category: ServiceCategory.ROOM, billingType: BillingType.DAY, basePrice: 8000.00, careType: CareType.IP, isRecurring: true, recurrenceUnit: RecurrenceUnit.DAILY, intent: ServiceIntent.FACILITY_CHARGE, uiGroup: "Rooms & Beds", displayOrder: 2, departmentNames: ["Neonatology (NICU)"] },
   { name: "Level 2 NICU Care", category: ServiceCategory.ROOM, billingType: BillingType.DAY, basePrice: 12000.00 },
   { name: "Level 3 NICU Care", category: ServiceCategory.ROOM, billingType: BillingType.DAY, basePrice: 18000.00 },
   { name: "Isolation NICU Bed", category: ServiceCategory.ROOM, billingType: BillingType.DAY, basePrice: 15000.00 },
@@ -13,10 +13,10 @@ export const seedServices = [
   // Respiratory
   { name: "Oxygen Therapy", category: ServiceCategory.RESPIRATORY, billingType: BillingType.HOUR, basePrice: 150.00 },
   { name: "Nasal Cannula Oxygen", category: ServiceCategory.RESPIRATORY, billingType: BillingType.HOUR, basePrice: 100.00 },
-  { name: "CPAP Support", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 4000.00 },
-  { name: "BiPAP Support", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 5000.00 },
-  { name: "Mechanical Ventilator", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 10000.00 },
-  { name: "High Frequency Ventilator", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 12000.00 },
+  { name: "CPAP Support", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 4000.00, careType: CareType.IP, conflictGroupCode: "RESP_VENT", isRecurring: true, recurrenceUnit: RecurrenceUnit.DAILY, intent: ServiceIntent.THERAPEUTIC, uiGroup: "Respiratory Support", autoAddPriority: 10, departmentNames: ["Neonatology (NICU)", "Pediatrics"] },
+  { name: "BiPAP Support", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 5000.00, careType: CareType.IP, conflictGroupCode: "RESP_VENT", isRecurring: true, recurrenceUnit: RecurrenceUnit.DAILY, intent: ServiceIntent.THERAPEUTIC, uiGroup: "Respiratory Support", departmentNames: ["Neonatology (NICU)", "Pediatrics"] },
+  { name: "Mechanical Ventilator", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 10000.00, careType: CareType.IP, conflictGroupCode: "RESP_VENT", isRecurring: true, recurrenceUnit: RecurrenceUnit.DAILY, intent: ServiceIntent.THERAPEUTIC, uiGroup: "Respiratory Support", autoAddPriority: 50, departmentNames: ["Neonatology (NICU)", "Pediatrics"] },
+  { name: "High Frequency Ventilator", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 12000.00, careType: CareType.IP, conflictGroupCode: "RESP_VENT", isRecurring: true, recurrenceUnit: RecurrenceUnit.DAILY, intent: ServiceIntent.THERAPEUTIC, uiGroup: "Respiratory Support", departmentNames: ["Neonatology (NICU)"] },
   { name: "HFNC Support", category: ServiceCategory.RESPIRATORY, billingType: BillingType.DAY, basePrice: 6000.00 },
   { name: "Intubation Procedure", category: ServiceCategory.RESPIRATORY, billingType: BillingType.PROCEDURE, basePrice: 2500.00 },
   { name: "Extubation Procedure", category: ServiceCategory.RESPIRATORY, billingType: BillingType.PROCEDURE, basePrice: 1500.00 },
@@ -89,7 +89,7 @@ export const seedServices = [
   { name: "Resident Doctor Visit", category: ServiceCategory.CONSULTATION, billingType: BillingType.VISIT, basePrice: 500.00 },
   
   // Outpatient (OP) Consultations
-  { name: "OP Pediatrician Consultation", category: ServiceCategory.CONSULTATION, billingType: BillingType.VISIT, basePrice: 800.00 },
-  { name: "OP Neonatologist Consultation", category: ServiceCategory.CONSULTATION, billingType: BillingType.VISIT, basePrice: 1200.00 },
+  { name: "OP Pediatrician Consultation", category: ServiceCategory.CONSULTATION, billingType: BillingType.VISIT, basePrice: 800.00, careType: CareType.OP, autoAddTrigger: AutoAddTrigger.ON_OP_CREATION, isDefault: true, intent: ServiceIntent.PROFESSIONAL_FEE, uiGroup: "Consultations", displayOrder: 1, autoAddPriority: 10, departmentNames: ["Pediatrics"] },
+  { name: "OP Neonatologist Consultation", category: ServiceCategory.CONSULTATION, billingType: BillingType.VISIT, basePrice: 1200.00, careType: CareType.OP, autoAddTrigger: AutoAddTrigger.ON_OP_CREATION, isDefault: false, intent: ServiceIntent.PROFESSIONAL_FEE, uiGroup: "Consultations", displayOrder: 2, autoAddPriority: 20, departmentNames: ["Neonatology (NICU)"] },
   { name: "OP Follow-up Visit", category: ServiceCategory.CONSULTATION, billingType: BillingType.VISIT, basePrice: 500.00 },
 ];

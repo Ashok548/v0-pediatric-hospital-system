@@ -15,6 +15,14 @@ export class QueryServicesDto {
     status?: "ACTIVE" | "INACTIVE";
 
     @IsOptional()
+    @IsEnum(["OP", "IP", "BOTH"])
+    careType?: "OP" | "IP" | "BOTH";
+
+    @IsOptional()
+    @IsString()
+    departmentName?: string;
+
+    @IsOptional()
     @Type(() => Number)
     @IsInt()
     @IsPositive()

@@ -59,6 +59,36 @@ enum BillingType {
   VISIT
 }
 
+enum CareType {
+  OP
+  IP
+  BOTH
+}
+
+enum AutoAddTrigger {
+  NONE
+  ON_OP_CREATION
+  ON_IP_ADMISSION
+  ON_NICU_ADMISSION
+  ON_DISCHARGE
+}
+
+enum RecurrenceUnit {
+  HOURLY
+  DAILY
+  PER_SHIFT
+}
+
+enum ServiceIntent {
+  FACILITY_CHARGE
+  PROFESSIONAL_FEE
+  CLINICAL_PROCEDURE
+  DIAGNOSTIC
+  CONSUMABLE
+  THERAPEUTIC
+  PHARMACY
+}
+
 model Role {
   id          Int     @id @default(autoincrement())
   name        String  @unique
@@ -155,18 +185,64 @@ model Department {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
+  services    ServiceDepartment[]
+
   @@map("departments")
 }
+
 
 model Service {
   id          String          @id @default(uuid())
   code        String          @unique @db.VarChar(50)
   name        String
   category    ServiceCategory @default(CONSULTATION)
+  subCategory String?         @map("sub_category") @db.VarChar(50)
   billingType BillingType     @default(DAY) @map("billing_type")
+  careType    CareType        @default(BOTH) @map("care_type")
   basePrice   Decimal         @map("base_price") @db.Decimal(10, 2)
   taxPercent  Decimal         @default(0) @map("tax_percent") @db.Decimal(5, 2)
+  hsnSacCode  String?         @map("hsn_sac_code") @db.VarChar(20)
   status      MasterStatus    @default(ACTIVE)
+
+  // Automation Phase 1
+  autoAddTrigger   AutoAddTrigger @default(NONE) @map("auto_add_trigger")
+  isDefault        Boolean        @default(false) @map("is_default")
+  isMandatory      Boolean        @default(false) @map("is_mandatory")
+  requiresApproval Boolean        @default(false) @map("requires_approval")
+  maxQtyPerDay     Int?           @map("max_qty_per_day")
+
+  // UI & Grouping Phase 1
+  uiGroup      String  @default("General") @map("ui_group") @db.VarChar(50)
+  displayOrder Int     @default(100) @map("display_order")
+
+  // Relational Context Phase 1 & 2
+  departmentCodes  String[] @default([]) @map("department_codes") // legacy, keeping for safe migration
+  parentServiceId  String?  @map("parent_service_id")
+  parentService    Service?  @relation("ServiceHierarchy", fields: [parentServiceId], references: [id])
+  childServices    Service[] @relation("ServiceHierarchy")
+  
+  departments      ServiceDepartment[]
+  dependencies     ServiceDependency[] @relation("ServiceDeps")
+  dependencyTargets ServiceDependency[] @relation("ServiceDepTargets")
+
+  // Recurrence Phase 1
+  isRecurring       Boolean          @default(false) @map("is_recurring")
+  recurrenceUnit    RecurrenceUnit?  @map("recurrence_unit")
+  recurrenceCap     Int?             @map("recurrence_cap")
+
+  // Conflict Prevention Phase 1
+  conflictGroupCode String?          @map("conflict_group_code") @db.VarChar(30)
+
+  // Intent Classification Phase 1
+  intent            ServiceIntent    @default(FACILITY_CHARGE)
+
+  // Hierarchy Behavior Phase 1
+  isSelectable      Boolean          @default(true) @map("is_selectable")
+  isGroupHeader     Boolean          @default(false) @map("is_group_header")
+
+  // Priority Phase 1
+  autoAddPriority   Int              @default(100) @map("auto_add_priority")
+
   createdAt   DateTime        @default(now()) @map("created_at")
   updatedAt   DateTime        @updatedAt @map("updated_at")
 
@@ -174,8 +250,36 @@ model Service {
 
   @@unique([name, category])
   @@index([category])
+  @@index([careType])
+  @@index([autoAddTrigger])
+  @@index([uiGroup])
   @@index([status])
   @@map("services")
+}
+
+model ServiceDepartment {
+  id           String @id @default(uuid())
+  serviceId    String @map("service_id")
+  departmentId String @map("department_id")
+
+  service    Service    @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, departmentId])
+  @@map("service_departments")
+}
+
+model ServiceDependency {
+  id                String  @id @default(uuid())
+  serviceId         String  @map("service_id")
+  dependsOnServiceId String @map("depends_on_service_id")
+  isAutoAdd         Boolean @default(true) @map("is_auto_add")
+
+  service   Service @relation("ServiceDeps", fields: [serviceId], references: [id])
+  dependsOn Service @relation("ServiceDepTargets", fields: [dependsOnServiceId], references: [id])
+
+  @@unique([serviceId, dependsOnServiceId])
+  @@map("service_dependencies")
 }
 
 // ─── Advanced Billing Master Data ────────────────────────────────────────────

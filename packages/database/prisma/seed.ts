@@ -53,7 +53,21 @@ async function main() {
         console.log(`✅ User: ${user.email} (${user.roleName})`);
     }
 
-    // 3. Seed Services
+    // 3. Seed Departments
+    console.log("🏥 Seeding departments...");
+    const { seedDepartments } = await import("./seed-data/departments.js");
+    const deptMap: Record<string, string> = {};
+    for (const dept of seedDepartments) {
+        const d = await prisma.department.upsert({
+            where: { name: dept.name },
+            update: { description: dept.description },
+            create: { name: dept.name, description: dept.description, status: "ACTIVE" }
+        });
+        deptMap[dept.name] = d.id;
+        console.log(`✅ Department: ${dept.name}`);
+    }
+
+    // 4. Seed Services
     console.log("💉 Seeding services...");
     const { seedServices } = await import("./seed-data/services.js");
     let serviceCount = 0;
@@ -64,29 +78,82 @@ async function main() {
         const safeName = service.name.replace(/[^a-zA-Z0-9]/g, '').substring(0, 5).toUpperCase();
         const code = `${prefix}-${safeName}-${String(Date.now() + serviceCount).slice(-4)}`;
         
-        await prisma.service.upsert({
+        const serviceData = {
+            code: code,
+            name: service.name,
+            category: service.category,
+            billingType: service.billingType,
+            basePrice: service.basePrice || 0.00,
+            taxPercent: 0,
+            status: "ACTIVE" as const,
+            // Phase 1 Advanced Fields
+            careType: (service as any).careType || "BOTH",
+            isRecurring: (service as any).isRecurring || false,
+            recurrenceUnit: (service as any).recurrenceUnit || null,
+            intent: (service as any).intent || "FACILITY_CHARGE",
+            autoAddTrigger: (service as any).autoAddTrigger || "NONE",
+            isDefault: (service as any).isDefault || false,
+            uiGroup: (service as any).uiGroup || "General",
+            displayOrder: (service as any).displayOrder || 100,
+            autoAddPriority: (service as any).autoAddPriority || 100,
+            conflictGroupCode: (service as any).conflictGroupCode || null,
+        };
+
+        const dbService = await prisma.service.upsert({
             where: { name_category: { name: service.name, category: service.category } },
-            update: { billingType: service.billingType, basePrice: service.basePrice || 0 },
+            update: {
+                ...serviceData,
+                departments: {
+                    deleteMany: {},
+                    create: ((service as any).departmentNames || []).map((deptName: string) => ({
+                        department: { connect: { id: deptMap[deptName] } }
+                    }))
+                }
+            },
             create: {
-                code: code,
-                name: service.name,
-                category: service.category,
-                billingType: service.billingType,
-                basePrice: service.basePrice || 0.00,
-                taxPercent: 0,
-                status: "ACTIVE",
+                ...serviceData,
+                departments: {
+                    create: ((service as any).departmentNames || []).map((deptName: string) => ({
+                        department: { connect: { id: deptMap[deptName] } }
+                    }))
+                }
             },
         });
         serviceCount++;
     }
     console.log(`✅ Seeded ${serviceCount} services.`);
 
-    // 4. Seed Medications
+    // 4a. Seed Service Dependencies
+    console.log("🔗 Linking service dependencies...");
+    
+    // Example: Mechanical Ventilator depends on Multiparameter Monitor
+    const ventilator = await prisma.service.findFirst({ where: { name: "Mechanical Ventilator", category: "RESPIRATORY" } });
+    const monitor = await prisma.service.findFirst({ where: { name: "Multiparameter Monitor", category: "MONITORING" } });
+
+    if (ventilator && monitor) {
+        await prisma.serviceDependency.upsert({
+            where: {
+                serviceId_dependsOnServiceId: {
+                    serviceId: ventilator.id,
+                    dependsOnServiceId: monitor.id
+                }
+            },
+            update: {},
+            create: {
+                serviceId: ventilator.id,
+                dependsOnServiceId: monitor.id,
+                isAutoAdd: true
+            }
+        });
+        console.log(`✅ Linked: Ventilator automatically adds Monitor`);
+    }
+
+    // 5. Seed Medications
     console.log("💊 Seeding medications...");
     const { seedMedications } = await import("./seed-data/medications.js");
     await seedMedications(prisma);
 
-    // 5. Seed Lab Master Data
+    // 6. Seed Lab Master Data
     console.log("🧪 Seeding Lab Master Data...");
     const { labMasterData } = await import("./seed-data/lab-master.js");
     

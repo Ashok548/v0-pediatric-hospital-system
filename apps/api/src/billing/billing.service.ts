@@ -150,7 +150,7 @@ export class BillingService {
                 });
             }
 
-            return tx.bill.create({
+            const newBill = await tx.bill.create({
                 data: {
                     billNumber,
                     patientId: dto.patientId,
@@ -166,7 +166,46 @@ export class BillingService {
                     netAmount: 0,
                     paidAmount: 0,
                     dueAmount: 0,
-                },
+                }
+            });
+
+            // Point 1: Auto-add mapped Default Services (e.g., OP Consultation)
+            if (resolvedOpVisitId && dto.department) {
+                const autoServices = await tx.service.findMany({
+                    where: {
+                        autoAddTrigger: 'ON_OP_CREATION',
+                        isDefault: true,
+                        status: 'ACTIVE',
+                        departments: {
+                            some: { department: { name: dto.department } }
+                        }
+                    },
+                    orderBy: { autoAddPriority: 'asc' }
+                });
+
+                for (const autoSrv of autoServices) {
+                    await tx.billItem.create({
+                        data: {
+                            billId: newBill.id,
+                            serviceId: autoSrv.id,
+                            serviceName: autoSrv.name,
+                            serviceCode: autoSrv.code,
+                            quantity: 1,
+                            unitPrice: parseFloat(autoSrv.basePrice.toString()),
+                            discountPercent: 0,
+                            taxPercent: parseFloat(autoSrv.taxPercent.toString()),
+                            discountAmount: 0,
+                            taxAmount: 0,
+                            totalPrice: 0
+                        }
+                    });
+                }
+                // Recalculate will return the fully mapped bill including items
+                return this.recalculateBillTotals(tx, newBill.id);
+            }
+
+            return tx.bill.findUnique({
+                where: { id: newBill.id },
                 include: BILL_INCLUDE
             });
         });
@@ -451,6 +490,22 @@ export class BillingService {
             const taxPercent = parseFloat(service.taxPercent.toString());
             const quantity = dto.quantity ?? 1;
 
+            // Point 4: Conflict Prevention Check (e.g., CPAP vs Ventilator)
+            if (service.conflictGroupCode) {
+                const conflictingItems = await tx.billItem.findMany({
+                    where: { 
+                        billId, 
+                        service: { conflictGroupCode: service.conflictGroupCode } 
+                    },
+                    include: { service: true }
+                });
+                if (conflictingItems.length > 0) {
+                    import('@nestjs/common').then(m => { 
+                        throw new m.ConflictException(`Cannot add ${service.name} — conflicts with existing bill item '${conflictingItems[0].serviceName}'`);
+                    });
+                }
+            }
+
             await tx.billItem.create({
                 data: {
                     billId,
@@ -466,6 +521,40 @@ export class BillingService {
                     totalPrice: 0       // Calculated in recalculation
                 }
             });
+
+            // Point 5: Dependency Auto-Chaining (e.g., Ventilator auto-adds Monitor)
+            const dependencies = await tx.serviceDependency.findMany({
+                where: { serviceId: service.id, isAutoAdd: true },
+                include: { dependsOn: true }
+            });
+
+            for (const dep of dependencies) {
+                // Check if target is already on the bill
+                const existing = await tx.billItem.findFirst({
+                    where: { billId, serviceId: dep.dependsOnServiceId }
+                });
+
+                if (!existing) {
+                    const target = dep.dependsOn;
+                    if (target.status === "ACTIVE") {
+                        await tx.billItem.create({
+                            data: {
+                                billId,
+                                serviceId: target.id,
+                                serviceName: target.name,
+                                serviceCode: target.code,
+                                quantity: 1, // Assume 1 for auto-add dependencies
+                                unitPrice: parseFloat(target.basePrice.toString()),
+                                discountPercent: 0,
+                                taxPercent: parseFloat(target.taxPercent.toString()),
+                                discountAmount: 0,
+                                taxAmount: 0,
+                                totalPrice: 0
+                            }
+                        });
+                    }
+                }
+            }
 
             return this.recalculateBillTotals(tx, billId);
         });

@@ -15,12 +15,6 @@ interface Props {
     department?: string | null
 }
 
-const QUICK_CHARGE_KEYWORDS: Record<string, string[]> = {
-    'Pediatrics': ['Consultation', 'Vaccination', 'Checkup', 'Dressing'],
-    'Neonatology (NICU)': ['Consultation', 'O2 Therapy', 'Sugar', 'Phototherapy'],
-    'DEFAULT': ['Consultation', 'Injection', 'Dressing', 'Observation', 'Test']
-}
-
 export function AddBillItemLine({ onAdd, department }: Props) {
     const [serviceId, setServiceId] = useState<string>("")
     const [qty, setQty] = useState(1)
@@ -33,24 +27,15 @@ export function AddBillItemLine({ onAdd, department }: Props) {
         searchInputRef.current?.focus()
     }, [])
 
-    // In a real app we'd debounce serviceSearch and send to API, but fetch all for now
-    const { services, isLoading } = useServices({ limit: 100 })
+    // Fetch main dropdown list (filtered by OP care type)
+    const { services, isLoading } = useServices({ limit: 150, careType: "OP" })
 
-    const deptKeywords = department && QUICK_CHARGE_KEYWORDS[department] 
-        ? QUICK_CHARGE_KEYWORDS[department] 
-        : QUICK_CHARGE_KEYWORDS['DEFAULT']
-
-    const quickChargeServices = useMemo(() => {
-        if (!services.length) return []
-        const matched: any[] = []
-        for (const keyword of deptKeywords) {
-            const found = services.find(s => s.name.toLowerCase().includes(keyword.toLowerCase()))
-            if (found && !matched.some(m => m.id === found.id)) {
-                matched.push({ ...found, label: keyword })
-            }
-        }
-        return matched.slice(0, 4)
-    }, [services, deptKeywords])
+    // Fetch context-aware quick charge buttons for this specific department
+    const { services: quickChargeServices } = useServices({ 
+        limit: 5, 
+        careType: "OP", 
+        departmentName: department || undefined 
+    })
 
     const filteredServices = useMemo(() => {
         let list = services
@@ -122,11 +107,11 @@ export function AddBillItemLine({ onAdd, department }: Props) {
                             key={qs.id} 
                             variant="secondary" 
                             size="sm" 
-                            className="h-7 text-[11px] px-3 font-medium bg-primary/10 text-primary hover:bg-primary/20"
+                            className="h-7 text-[11px] px-3 font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
                             onClick={() => handleQuickAdd(qs.id)}
                             type="button"
                         >
-                            + {qs.label} <span className="text-primary/70 ml-1 opacity-70">₹{String(qs.basePrice)}</span>
+                            + {qs.name} <span className="text-primary/70 ml-1 opacity-70">₹{String(qs.basePrice)}</span>
                         </Button>
                     ))}
                 </div>
@@ -146,34 +131,36 @@ export function AddBillItemLine({ onAdd, department }: Props) {
                             onChange={e => setServiceSearch(e.target.value)}
                             onKeyDown={handleKeyDown}
                         />
-                    <Select value={serviceId} onValueChange={(v) => {
-                        setServiceId(v)
-                    }}>
-                        <SelectTrigger className="bg-background">
-                            <SelectValue placeholder={isLoading ? "Loading..." : "Select service..."} />
-                        </SelectTrigger>
-                        <SelectContent>
-                            {isLoading ? (
-                                <div className="py-3 px-2 flex justify-center"><Loader2 className="animate-spin size-4 text-muted-foreground" /></div>
-                            ) : filteredServices.length === 0 ? (
-                                <div className="py-3 px-2 text-center text-xs text-muted-foreground">
-                                    No services match your search.
-                                </div>
-                            ) : (
-                                filteredServices.map(srv => (
-                                    <SelectItem key={srv.id} value={srv.id}>
-                                        <span className="flex items-center gap-2 text-xs">
-                                            <span className="font-mono text-[10px] text-muted-foreground">{srv.code}</span>
-                                            {srv.name}
-                                            <Badge variant="outline" className="text-[9px] px-1 py-0">{srv.serviceCategory?.name ?? 'General'}</Badge>
-                                            <span className="text-muted-foreground ml-auto">₹{srv.basePrice}</span>
-                                        </span>
-                                    </SelectItem>
-                                ))
-                            )}
-                        </SelectContent>
-                    </Select>
-                </div>
+                        <Select value={serviceId} onValueChange={(v) => {
+                            setServiceId(v)
+                        }}>
+                            <SelectTrigger className="bg-background">
+                                <SelectValue placeholder={isLoading ? "Loading..." : "Select service..."} />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {isLoading ? (
+                                    <div className="py-3 px-2 flex justify-center"><Loader2 className="animate-spin size-4 text-muted-foreground" /></div>
+                                ) : filteredServices.length === 0 ? (
+                                    <div className="py-3 px-2 text-center text-xs text-muted-foreground">
+                                        No services match your search.
+                                    </div>
+                                ) : (
+                                    filteredServices.map(srv => (
+                                        <SelectItem key={srv.id} value={srv.id}>
+                                            <span className="flex items-center gap-2 text-xs">
+                                                <span className="font-mono text-[10px] text-muted-foreground">{srv.code}</span>
+                                                {srv.name}
+                                                <Badge variant="outline" className="text-[9px] px-1 py-0 border-muted-foreground/30 text-muted-foreground">
+                                                    {srv.uiGroup || srv.category || 'General'}
+                                                </Badge>
+                                                <span className="text-muted-foreground ml-auto">₹{srv.basePrice}</span>
+                                            </span>
+                                        </SelectItem>
+                                    ))
+                                )}
+                            </SelectContent>
+                        </Select>
+                    </div>
 
                 {/* Qty */}
                 <div className="col-span-4 md:col-span-2 space-y-1.5">
@@ -227,3 +214,4 @@ export function AddBillItemLine({ onAdd, department }: Props) {
         </div>
     )
 }
+

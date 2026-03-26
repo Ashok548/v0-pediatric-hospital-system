@@ -79,24 +79,6 @@ export function OPBillingForm({ billId: propBillId }: OPBillingFormProps = {}) {
                 notes: `OP Consultation: ${visit.department} (${visit.doctorName})`,
             })
 
-            // Auto-add consultation fee as a bill item if the doctor has one set
-            if (visit.consultationFee > 0) {
-                try {
-                    // Find a CONSULTATION category service to use as the line item
-                    const servicesRes = await apiClient<{ data: any[] }>(`/master/services?category=CONSULTATION&limit=1`)
-                    const consultationService = servicesRes?.data?.[0]
-                    if (consultationService) {
-                        await addBillItem(newBill.id, {
-                            serviceId: consultationService.id,
-                            quantity: 1,
-                            unitPrice: visit.consultationFee,
-                        })
-                    }
-                } catch (feeErr) {
-                    console.warn("Could not auto-add consultation fee:", feeErr)
-                }
-            }
-
             setActiveBillId(newBill.id)
         } catch (err: any) {
             console.error("Failed to create bill", err)
