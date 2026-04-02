@@ -704,61 +704,69 @@ function ClinicalTimeline({
     const events: TimelineEvent[] = useMemo(() => {
         const list: TimelineEvent[] = []
 
-        admissions.forEach((a) => {
-            list.push({
-                id: `adm-${a.id}`,
-                date: a.admissionDate,
-                type: a.status === "DISCHARGED" ? "discharge" : "admission",
-                title: a.status === "DISCHARGED" ? `Discharged` : `Admitted`,
-                subtitle: `${a.admissionNumber} · ${a.department}${a.currentBed ? ` · ${a.currentBed.ward.name}` : ""}`,
-                status: a.status,
-                icon: a.status === "DISCHARGED" ? LogOut : BedDouble,
-                iconBg: a.status === "ADMITTED" ? "bg-green-100" : a.status === "DISCHARGED" ? "bg-purple-100" : "bg-blue-100",
-                iconColor: a.status === "ADMITTED" ? "text-green-700" : a.status === "DISCHARGED" ? "text-purple-700" : "text-blue-700",
+        if (Array.isArray(admissions)) {
+            admissions.forEach((a) => {
+                list.push({
+                    id: `adm-${a.id}`,
+                    date: a.admissionDate,
+                    type: a.status === "DISCHARGED" ? "discharge" : "admission",
+                    title: a.status === "DISCHARGED" ? `Discharged` : `Admitted`,
+                    subtitle: `${a.admissionNumber} · ${a.department}${a.currentBed ? ` · ${a.currentBed.ward.name}` : ""}`,
+                    status: a.status,
+                    icon: a.status === "DISCHARGED" ? LogOut : BedDouble,
+                    iconBg: a.status === "ADMITTED" ? "bg-green-100" : a.status === "DISCHARGED" ? "bg-purple-100" : "bg-blue-100",
+                    iconColor: a.status === "ADMITTED" ? "text-green-700" : a.status === "DISCHARGED" ? "text-purple-700" : "text-blue-700",
+                })
             })
-        })
+        }
 
-        labOrders.forEach((o) => {
-            list.push({
-                id: `lab-${o.id}`,
-                date: o.orderDate,
-                type: "lab",
-                title: `Lab Order`,
-                subtitle: `${o.orderNumber} · ${o.status}`,
-                status: o.status,
-                icon: TestTube2,
-                iconBg: "bg-orange-100",
-                iconColor: "text-orange-700",
+        if (Array.isArray(labOrders)) {
+            labOrders.forEach((o) => {
+                list.push({
+                    id: `lab-${o.id}`,
+                    date: o.orderDate,
+                    type: "lab",
+                    title: `Lab Order`,
+                    subtitle: `${o.orderNumber} · ${o.status}`,
+                    status: o.status,
+                    icon: TestTube2,
+                    iconBg: "bg-orange-100",
+                    iconColor: "text-orange-700",
+                })
             })
-        })
+        }
 
-        prescriptions.forEach((rx) => {
-            list.push({
-                id: `rx-${rx.id}`,
-                date: rx.orderedAt,
-                type: "prescription",
-                title: `Prescription`,
-                subtitle: `${rx.prescriptionNumber} · ${rx.items?.length ?? 0} item(s)${rx.doctor?.name ? ` · Dr. ${rx.doctor.name}` : ""}`,
-                status: rx.status,
-                icon: FileText,
-                iconBg: "bg-primary/10",
-                iconColor: "text-primary",
+        if (Array.isArray(prescriptions)) {
+            prescriptions.forEach((rx) => {
+                list.push({
+                    id: `rx-${rx.id}`,
+                    date: rx.orderedAt,
+                    type: "prescription",
+                    title: `Prescription`,
+                    subtitle: `${rx.prescriptionNumber} · ${rx.items?.length ?? 0} item(s)${rx.doctor?.name ? ` · Dr. ${rx.doctor.name}` : ""}`,
+                    status: rx.status,
+                    icon: FileText,
+                    iconBg: "bg-primary/10",
+                    iconColor: "text-primary",
+                })
             })
-        })
+        }
 
-        vaccines.filter((v) => v.status === "COMPLETED").forEach((v) => {
-            list.push({
-                id: `vax-${v.id}`,
-                date: v.administeredAt ?? v.ageLabel,
-                type: "vaccine",
-                title: `Vaccination`,
-                subtitle: `${v.vaccineName} · ${v.ageLabel}`,
-                status: v.status,
-                icon: Syringe,
-                iconBg: "bg-[#e8f4fd]",
-                iconColor: "text-[#1a6fb5]",
+        if (Array.isArray(vaccines)) {
+            vaccines.filter((v) => v.status === "COMPLETED").forEach((v) => {
+                list.push({
+                    id: `vax-${v.id}`,
+                    date: v.administeredAt ?? v.ageLabel,
+                    type: "vaccine",
+                    title: `Vaccination`,
+                    subtitle: `${v.vaccineName} · ${v.ageLabel}`,
+                    status: v.status,
+                    icon: Syringe,
+                    iconBg: "bg-[#e8f4fd]",
+                    iconColor: "text-[#1a6fb5]",
+                })
             })
-        })
+        }
 
         return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     }, [admissions, labOrders, prescriptions, vaccines])

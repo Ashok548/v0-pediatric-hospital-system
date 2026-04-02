@@ -35,6 +35,12 @@ export class UpdateOPVisitStatusDto {
 
 export class QueryOPVisitsDto {
     @IsOptional()
+    page?: string | number;
+
+    @IsOptional()
+    limit?: string | number;
+
+    @IsOptional()
     @IsString()
     date?: string;
 

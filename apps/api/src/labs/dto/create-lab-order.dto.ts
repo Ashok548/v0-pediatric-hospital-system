@@ -24,13 +24,17 @@ export class CreateLabOrderDto {
     @IsNotEmpty()
     patientId: string;
 
-    @IsString()
+    @IsUUID()
     @IsOptional()
     admissionId?: string;
 
-    @IsString()
+    @IsUUID()
     @IsOptional()
     appointmentId?: string;
+
+    @IsUUID()
+    @IsOptional()
+    opVisitId?: string;
 
     @IsArray()
     @ValidateNested({ each: true })

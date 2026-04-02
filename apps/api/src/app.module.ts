@@ -1,5 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { ScheduleModule } from '@nestjs/schedule';
+import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AppController } from "./app.controller";
 import { AppService } from "./app.service";
 import { AuthModule } from "./auth/auth.module";
@@ -26,9 +28,16 @@ import { ServiceOrdersModule } from './service-orders/service-orders.module';
 import { TranscriptionsModule } from './transcriptions/transcriptions.module';
 import { MedicalFormatModule } from './medical-format/medical-format.module';
 import { OPVisitsModule } from './op-visits/op-visits.module';
+import { OutboxModule } from './events/outbox.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule, ConsultationsModule, LabsModule, VaccinationsModule, SettingsModule, ServiceOrdersModule, TranscriptionsModule, MedicalFormatModule, OPVisitsModule],
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    ScheduleModule.forRoot(),
+    EventEmitterModule.forRoot({ wildcard: false, delimiter: '.' }),
+    OutboxModule,
+    AuthModule, UsersModule, RolesModule, MasterModule, PatientsModule, AdmissionsModule, NicuModule, GrowthModule, NursingModule, BillingModule, ReportsModule, AppointmentsModule, PharmacyModule, ConsultationsModule, LabsModule, VaccinationsModule, SettingsModule, ServiceOrdersModule, TranscriptionsModule, MedicalFormatModule, OPVisitsModule
+  ],
 
   controllers: [AppController],
   providers: [

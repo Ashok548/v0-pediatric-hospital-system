@@ -397,6 +397,7 @@ model Patient {
   vaccines      PatientVaccine[]
   serviceOrders ServiceOrder[]
   opVisits      OPVisit[]
+  consents      Consent[]
 
   // Indexed for high-performance searching
   @@index([lastName, firstName])
@@ -494,6 +495,7 @@ model Admission {
   consultations Consultation[]
   labOrders     LabOrder[]
   serviceOrders ServiceOrder[]
+  consents      Consent[]
 
   @@index([patientId])
   @@index([status])
@@ -779,11 +781,16 @@ model Payment {
 // ─── OP Visit Models ──────────────────────────────────────────────────────────
 
 enum OPVisitStatus {
-  REGISTERED   // OP number generated, waiting for consultation
-  IN_PROGRESS  // Doctor is consulting
-  COMPLETED    // Consultation done
-  BILLED       // Bill finalized
+  REGISTERED
+  TRIAGED
+  PRE_CONSULT
+  CONSULTING
+  ORDERS_PLACED
+  IN_PROGRESS
+  COMPLETED
+  BILLED
   CANCELLED
+  CONVERTED_TO_ER
 }
 
 model OPVisitSequence {
@@ -815,10 +822,19 @@ model OPVisit {
 
   notes String? @db.Text
 
+  triageLevel String?  @map("triage_level") @db.VarChar(20)
+  triageNotes String?  @map("triage_notes") @db.Text
+  triagedAt   DateTime? @map("triaged_at")
+  triagedBy   String?  @map("triaged_by")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  bill Bill?
+  bill          Bill?
+  labOrders     LabOrder[]
+  consultations Consultation[]
+  consents      Consent[]
+  prescriptions Prescription[]
 
   @@index([patientId])
   @@index([visitDate])
@@ -890,6 +906,8 @@ model Prescription {
   patient            Patient            @relation(fields: [patientId], references: [id])
   admissionId        String?            @map("admission_id")
   admission          Admission?         @relation(fields: [admissionId], references: [id])
+  opVisitId          String?            @map("op_visit_id")
+  opVisit            OPVisit?           @relation(fields: [opVisitId], references: [id])
   doctorId           String             @map("doctor_id")
   doctor             User               @relation(fields: [doctorId], references: [id])
   status             PrescriptionStatus @default(PENDING)
@@ -930,6 +948,12 @@ model PrescriptionItem {
 
 // ─── Consultations & Clinical Data ──────────────────────────────────────────
 
+enum ConsultationStatus {
+  DRAFT
+  SIGNED
+  AMENDED
+}
+
 model Consultation {
   id            String       @id @default(uuid())
   patientId     String       @map("patient_id") @db.Uuid
@@ -940,6 +964,11 @@ model Consultation {
   appointment   Appointment? @relation(fields: [appointmentId], references: [id])
   admissionId   String?      @map("admission_id")
   admission     Admission?   @relation(fields: [admissionId], references: [id])
+  opVisitId     String?      @map("op_visit_id")
+  opVisit       OPVisit?     @relation(fields: [opVisitId], references: [id])
+
+  status        ConsultationStatus @default(DRAFT)
+  signedAt      DateTime?          @map("signed_at")
 
   chiefComplaint   String? @map("chief_complaint") @db.Text
   historyOfIllness String? @map("history_of_illness") @db.Text
@@ -1007,6 +1036,18 @@ model LabOrderSequence {
   @@map("lab_order_sequences")
 }
 
+enum LabOrderStatus {
+  DRAFT
+  PENDING_CLEARANCE
+  AWAITING_SAMPLE
+  SAMPLE_COLLECTED
+  PROCESSING
+  PARTIAL
+  RESULT_ENTERED
+  VERIFIED
+  CANCELLED
+}
+
 model LabOrder {
   id              String   @id @default(uuid())
   orderNumber     String   @unique @map("order_number") @db.VarChar(20)
@@ -1020,11 +1061,14 @@ model LabOrder {
   appointmentId   String?  @map("appointment_id")
   appointment     Appointment? @relation(fields: [appointmentId], references: [id])
 
+  opVisitId       String?  @map("op_visit_id")
+  opVisit         OPVisit? @relation(fields: [opVisitId], references: [id])
+
   patientType     String   @default("INPATIENT") @map("patient_type") @db.VarChar(20)
 
   doctorId        String   @map("doctor_id")
   doctor          User     @relation("LabOrderDoctor", fields: [doctorId], references: [id])
-  status          String   @default("PENDING") @db.VarChar(20)
+  status          LabOrderStatus @default(DRAFT)
   orderDate       DateTime @default(now()) @map("order_date")
   verifiedById    String?  @map("verified_by_id")
   verifiedBy      User?    @relation("LabOrderVerifier", fields: [verifiedById], references: [id])
@@ -1042,6 +1086,15 @@ model LabOrder {
   @@map("lab_orders")
 }
 
+enum LabPanelStatus {
+  PENDING
+  SAMPLE_COLLECTED
+  SAMPLE_REJECTED
+  PROCESSING
+  COMPLETED
+  VERIFIED
+}
+
 model LabResultPanel {
   id            String          @id @default(uuid())
   labOrderId    String          @map("lab_order_id")
@@ -1053,7 +1106,7 @@ model LabResultPanel {
   sampleType    String          @map("sample_type") @db.VarChar(50)
   collectedAt   DateTime?       @map("collected_at")
   receivedAt    DateTime?       @map("received_at")
-  status        String          @default("PENDING") @db.VarChar(20)
+  status        LabPanelStatus  @default(PENDING)
 
   items LabResultItem[]
 
@@ -1167,4 +1220,67 @@ model ServiceOrderSequence {
 
   @@unique([id, year])
   @@map("service_order_sequences")
+}
+
+enum ConsentStatus {
+  GIVEN
+  REFUSED
+  WITHDRAWN
+}
+
+model Consent {
+  id           String        @id @default(uuid())
+  patientId    String        @map("patient_id") @db.Uuid
+  patient      Patient       @relation(fields: [patientId], references: [id])
+  opVisitId    String?       @map("op_visit_id")
+  opVisit      OPVisit?      @relation(fields: [opVisitId], references: [id])
+  admissionId  String?       @map("admission_id")
+  admission    Admission?    @relation(fields: [admissionId], references: [id])
+  consentType  String        @map("consent_type") @db.VarChar(50)  // "GENERAL_TREATMENT", "VACCINATION", "LAB_TEST", "PROCEDURE"
+  status       ConsentStatus @default(GIVEN)
+  givenBy      String        @map("given_by") @db.VarChar(200)     // Guardian name
+  relationship String?       @db.VarChar(30)                        // "PARENT", "GUARDIAN"
+  witnessName  String?       @map("witness_name") @db.VarChar(200)
+  notes        String?       @db.Text
+  signedAt     DateTime      @default(now()) @map("signed_at")
+  revokedAt    DateTime?     @map("revoked_at")
+  createdAt    DateTime      @default(now()) @map("created_at")
+
+  @@index([patientId])
+  @@index([opVisitId])
+  @@map("consents")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  entity     String   @db.VarChar(50)   // "OPVisit", "LabOrder", "Bill", etc.
+  entityId   String   @map("entity_id")
+  action     String   @db.VarChar(30)   // "STATUS_CHANGE", "CREATE", "UPDATE"
+  oldValue   String?  @map("old_value") @db.Text
+  newValue   String?  @map("new_value") @db.Text
+  userId     String?  @map("user_id")
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  createdAt  DateTime @default(now())   @map("created_at")
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ─── Transactional Outbox Pattern ─────────────────────────────────────────────
+// Events are written atomically within DB transactions and polled by the OutboxService.
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  aggregateType String    @map("aggregate_type") @db.VarChar(50)  // e.g. "Consultation", "Invoice"
+  aggregateId   String    @map("aggregate_id")
+  eventType     String    @map("event_type") @db.VarChar(100)     // e.g. "OrdersSigned", "FinancialClearanceGranted"
+  payload       Json
+  status        String    @default("PENDING") @db.VarChar(20)     // PENDING, PROCESSED, FAILED, DEAD_LETTERED
+  retryCount    Int       @default(0) @map("retry_count")
+  errorReason   String?   @map("error_reason") @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at")
+  processedAt   DateTime? @map("processed_at")
+
+  @@index([status, createdAt])
+  @@map("outbox_events")
 }

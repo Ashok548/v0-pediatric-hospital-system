@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, Put, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Put, UseGuards, Request, Query } from '@nestjs/common';
 import { ConsultationsService } from './consultations.service';
 import { CreateConsultationDto } from './dto/create-consultation.dto';
 import { UpdateConsultationDto } from './dto/update-consultation.dto';
@@ -15,8 +15,8 @@ export class ConsultationsController {
     }
 
     @Get('patient/:patientId')
-    findByPatient(@Param('patientId') patientId: string) {
-        return this.consultationsService.findByPatient(patientId);
+    findByPatient(@Param('patientId') patientId: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+        return this.consultationsService.findByPatient(patientId, page, limit);
     }
 
     @Get(':id')

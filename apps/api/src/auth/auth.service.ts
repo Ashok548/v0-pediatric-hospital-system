@@ -130,12 +130,12 @@ export class AuthService {
             });
         } catch (e) { }
 
-        // Lab Reports to Review (Status = PARTIAL or PENDING if unread, here we just use PARTIAL/PENDING)
+        // Lab Reports to Review (Status = PARTIAL or RESULT_ENTERED if unread, here we just use PARTIAL/RESULT_ENTERED)
         let labReports = 0;
         try {
             labReports = await prisma.labOrder.count({
-                // where: { doctorId: userId, status: { in: ['PENDING', 'PARTIAL'] } } // Doctor ID restricted
-                where: { status: { in: ['PENDING', 'PARTIAL'] } } // Global for demo
+                // where: { doctorId: userId, status: { in: ['RESULT_ENTERED', 'PARTIAL'] } } // Doctor ID restricted
+                where: { status: { in: ['RESULT_ENTERED', 'PARTIAL'] } } // Global for demo
             });
         } catch (e) { }
 

@@ -679,7 +679,7 @@ export class AdmissionsService {
                 })),
             })),
             labOrders: admission.labOrders
-                .filter((order) => order.status === 'COMPLETED' || order.status === 'VERIFIED')
+                .filter((order) => (['COMPLETED', 'VERIFIED'] as string[]).includes(order.status as unknown as string))
                 .map((order) => ({
                 orderDate: order.orderDate.toISOString(),
                 status: order.status,

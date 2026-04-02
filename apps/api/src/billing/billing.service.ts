@@ -3,10 +3,13 @@ import {
     NotFoundException,
     ConflictException,
     BadRequestException,
+    forwardRef,
+    Inject,
 } from "@nestjs/common";
 import { prisma } from "@carenest/database";
 import { CreateBillDto, AddBillItemDto, RecordPaymentDto, QueryBillsDto, BillingStatsQueryDto } from "./dto/billing.dto";
 import { BillStatus, PaymentMode } from "@carenest/database";
+import { OPVisitsService } from "../op-visits/op-visits.service";
 
 // Reusable Include Projection
 const BILL_INCLUDE = {
@@ -41,56 +44,12 @@ const BILL_INCLUDE = {
 
 @Injectable()
 export class BillingService {
+    constructor(
+        @Inject(forwardRef(() => OPVisitsService))
+        private readonly opVisitsService: OPVisitsService
+    ) {}
 
-    // ─── Atomic Bill Number Generator ──────────────────────────────────────────
-    private async generateBillNumber(): Promise<string> {
-        const year = new Date().getFullYear();
 
-        const updated = await prisma.$executeRaw`
-            UPDATE bill_sequences
-            SET last_value = last_value + 1, updated_at = NOW()
-            WHERE id = 1 AND year = ${year}
-        `;
-
-        if (updated === 0) {
-            await prisma.billSequence.upsert({
-                where: { id_year: { id: 1, year } },
-                update: { year, lastValue: 1 },
-                create: { id: 1, year, lastValue: 1 },
-            });
-        }
-
-        const seq = await prisma.billSequence.findUnique({
-            where: { id_year: { id: 1, year } },
-        });
-
-        return `BILL-${year}-${String(seq!.lastValue).padStart(6, "0")}`;
-    }
-
-    // ─── Atomic OP Number Generator ─────────────────────────────────────────────
-    private async generateOPNumber(): Promise<string> {
-        const year = new Date().getFullYear();
-
-        const updated = await prisma.$executeRaw`
-            UPDATE op_visit_sequences
-            SET last_value = last_value + 1, updated_at = NOW()
-            WHERE id = 1 AND year = ${year}
-        `;
-
-        if (updated === 0) {
-            await prisma.oPVisitSequence.upsert({
-                where: { id_year: { id: 1, year } },
-                update: { year, lastValue: 1 },
-                create: { id: 1, year, lastValue: 1 },
-            });
-        }
-
-        const seq = await prisma.oPVisitSequence.findUnique({
-            where: { id_year: { id: 1, year } },
-        });
-
-        return `OP-${year}-${String(seq!.lastValue).padStart(6, "0")}`;
-    }
 
     // ─── Create Bill ────────────────────────────────────────────────────────────
     async create(dto: CreateBillDto) {
@@ -115,29 +74,32 @@ export class BillingService {
             }
         }
 
-        const billNumber = await this.generateBillNumber();
-
-        // Generate numbers outside transaction to avoid sequence locks
-        let opNumber: string | undefined;
-        if (!dto.admissionId && !dto.opVisitId && dto.doctorId && dto.department) {
-            opNumber = await this.generateOPNumber();
-        }
-
         return prisma.$transaction(async (tx: any) => {
+            // FIX P0-2: Bill number is now generated inside the transaction to prevent burned sequences on rollback
+            const year = new Date().getFullYear();
+            const seqUpdated = await tx.$executeRaw`
+                UPDATE bill_sequences SET last_value = last_value + 1, updated_at = NOW() WHERE id = 1 AND year = ${year}
+            `;
+            if (seqUpdated === 0) {
+                await tx.billSequence.upsert({
+                    where: { id_year: { id: 1, year } },
+                    update: { year, lastValue: 1 },
+                    create: { id: 1, year, lastValue: 1 },
+                });
+            }
+            const billSeq = await tx.billSequence.findUnique({ where: { id_year: { id: 1, year } } });
+            const billNumber = `BILL-${year}-${String(billSeq!.lastValue).padStart(6, "0")}`;
+
             let resolvedOpVisitId = dto.opVisitId;
-            
-            if (opNumber && dto.doctorId && dto.department) {
-                const visitDate = dto.visitDate ? new Date(dto.visitDate) : new Date();
-                const opVisit = await tx.oPVisit.create({
-                    data: {
-                        opNumber,
-                        patientId: dto.patientId,
-                        appointmentId: dto.appointmentId ?? null,
-                        doctorId: dto.doctorId,
-                        department: dto.department,
-                        visitDate,
-                        status: 'REGISTERED',
-                    },
+
+            // FIX P0-2: If OP visit creation is needed, delegate to OPVisitsService to enforce state machine + audit
+            if (!dto.admissionId && !dto.opVisitId && dto.doctorId && dto.department) {
+                const opVisit = await this.opVisitsService.create({
+                    patientId: dto.patientId,
+                    appointmentId: dto.appointmentId,
+                    doctorId: dto.doctorId,
+                    department: dto.department,
+                    notes: dto.notes,
                 });
                 resolvedOpVisitId = opVisit.id;
             }
@@ -159,7 +121,7 @@ export class BillingService {
                     opVisitId: resolvedOpVisitId,
                     tariffPlanId: dto.tariffPlanId,
                     notes: dto.notes,
-                    status: "DRAFT" as any,
+                    status: BillStatus.DRAFT,
                     totalAmount: 0,
                     discountAmount: 0,
                     taxAmount: 0,
@@ -251,23 +213,23 @@ export class BillingService {
 
         if (query.period === 'today') {
             startDate = new Date();
-            startDate.setHours(0, 0, 0, 0);
+            startDate.setUTCHours(0, 0, 0, 0);
         } else if (query.period === 'week') {
             startDate = new Date();
-            startDate.setDate(startDate.getDate() - startDate.getDay()); // Start of week (Sunday)
-            startDate.setHours(0, 0, 0, 0);
+            startDate.setDate(startDate.getDate() - startDate.getUTCDay());
+            startDate.setUTCHours(0, 0, 0, 0);
         } else if (query.period === 'month') {
             startDate = new Date();
-            startDate.setDate(1); // Start of month
-            startDate.setHours(0, 0, 0, 0);
+            startDate.setUTCDate(1);
+            startDate.setUTCHours(0, 0, 0, 0);
         } else if (query.period === 'custom' && query.startDate && query.endDate) {
             startDate = new Date(query.startDate);
             endDate = new Date(query.endDate);
-            endDate.setHours(23, 59, 59, 999);
+            endDate.setUTCHours(23, 59, 59, 999);
         } else {
             // Default to today if no period specified
             startDate = new Date();
-            startDate.setHours(0, 0, 0, 0);
+            startDate.setUTCHours(0, 0, 0, 0);
         }
 
         const statusFilterQuery = {
@@ -490,7 +452,7 @@ export class BillingService {
             const taxPercent = parseFloat(service.taxPercent.toString());
             const quantity = dto.quantity ?? 1;
 
-            // Point 4: Conflict Prevention Check (e.g., CPAP vs Ventilator)
+            // FIX P0-4: Conflict throw is synchronous now (was import().then() which silently swallowed the error)
             if (service.conflictGroupCode) {
                 const conflictingItems = await tx.billItem.findMany({
                     where: { 
@@ -500,9 +462,7 @@ export class BillingService {
                     include: { service: true }
                 });
                 if (conflictingItems.length > 0) {
-                    import('@nestjs/common').then(m => { 
-                        throw new m.ConflictException(`Cannot add ${service.name} — conflicts with existing bill item '${conflictingItems[0].serviceName}'`);
-                    });
+                    throw new ConflictException(`Cannot add ${service.name} — conflicts with existing bill item '${conflictingItems[0].serviceName}'`);
                 }
             }
 
@@ -580,14 +540,14 @@ export class BillingService {
     }
 
     // ─── Finalize Bill ──────────────────────────────────────────────────────────
-    async finalizeBill(id: string) {
+    async finalizeBill(id: string, userId?: string) {
         return prisma.$transaction(async (tx: any) => {
             const bill = await tx.bill.findUnique({
                 where: { id },
                 include: { _count: { select: { items: true } } }
             });
             if (!bill) throw new NotFoundException(`Bill ${id} not found`);
-            if (bill.status !== "DRAFT") {
+            if (bill.status !== BillStatus.DRAFT) {
                 throw new BadRequestException(`Bill is already ${bill.status}`);
             }
             if (bill._count.items === 0) {
@@ -601,19 +561,24 @@ export class BillingService {
                     data: { status: "COMPLETED" }
                 });
             }
-            
+
+            // FIX P0-3: Route OPVisit status update through OPVisitsService to enforce ALLOWED_TRANSITIONS guard
             if (bill.opVisitId) {
-                await tx.oPVisit.update({
-                    where: { id: bill.opVisitId },
-                    data: { status: "BILLED" }
-                });
+                await this.opVisitsService.updateStatus(bill.opVisitId, { status: 'BILLED' }, userId);
             }
 
-            return tx.bill.update({
+            const updated = await tx.bill.update({
                 where: { id },
-                data: { status: "FINAL" },
+                data: { status: BillStatus.FINAL },
                 include: BILL_INCLUDE
             });
+
+            // Compliance: Log the finalization
+            await tx.auditLog.create({
+                data: { entity: 'Bill', entityId: id, action: 'FINALIZE', oldValue: BillStatus.DRAFT, newValue: BillStatus.FINAL, userId: userId ?? null }
+            });
+
+            return updated;
         });
     }
 
@@ -623,7 +588,7 @@ export class BillingService {
             const bill = await tx.bill.findUnique({ where: { id: billId } });
             if (!bill) throw new NotFoundException(`Bill ${billId} not found`);
 
-            if (!["FINAL", "PARTIALLY_PAID"].includes(bill.status)) {
+            if (![BillStatus.FINAL, BillStatus.PARTIALLY_PAID].includes(bill.status)) {
                 throw new BadRequestException(`Payments can only be added to FINAL or PARTIALLY_PAID bills. Status is ${bill.status}`);
             }
 
@@ -652,39 +617,73 @@ export class BillingService {
 
             // Precision issues might cause 0.00000001 due amounts, so round/check threshold
             const isFullyPaid = newDueAmount < 0.01;
+            const newStatus = isFullyPaid ? BillStatus.PAID : BillStatus.PARTIALLY_PAID;
 
-            return tx.bill.update({
+            const updated = await tx.bill.update({
                 where: { id: billId },
                 data: {
                     paidAmount: newPaidAmount,
                     dueAmount: isFullyPaid ? 0 : newDueAmount,
-                    status: isFullyPaid ? "PAID" : "PARTIALLY_PAID"
+                    status: newStatus
                 },
                 include: BILL_INCLUDE
             });
+
+            // Compliance: Audit trail for payment events
+            await tx.auditLog.create({
+                data: { entity: 'Bill', entityId: billId, action: 'PAYMENT', oldValue: bill.status, newValue: newStatus, userId: requestingUserId ?? null }
+            });
+
+            // Dispatch FinancialClearanceGranted when bill is fully paid
+            // LabsService will listen and advance PENDING_CLEARANCE orders to AWAITING_SAMPLE
+            if (isFullyPaid) {
+                const lineItems = await tx.billItem.findMany({ where: { billId }, select: { id: true, serviceId: true } });
+                await tx.outboxEvent.create({
+                    data: {
+                        aggregateType: 'Bill',
+                        aggregateId: billId,
+                        eventType: 'FinancialClearanceGranted',
+                        payload: {
+                            billId,
+                            opVisitId: bill.opVisitId,
+                            patientId: bill.patientId,
+                            clearedLineItemIds: lineItems.map((i: any) => i.id),
+                        },
+                    }
+                });
+            }
+
+            return updated;
         });
     }
 
     // ─── Cancel Bill ────────────────────────────────────────────────────────────
-    async cancelBill(id: string) {
+    async cancelBill(id: string, userId?: string) {
         return prisma.$transaction(async (tx: any) => {
             const bill = await tx.bill.findUnique({
                 where: { id },
                 include: { _count: { select: { payments: true } } }
             });
             if (!bill) throw new NotFoundException(`Bill ${id} not found`);
-            if (bill.status === "CANCELLED") {
+            if (bill.status === BillStatus.CANCELLED) {
                 throw new BadRequestException("Bill is already cancelled");
             }
             if (bill._count.payments > 0) {
                 throw new BadRequestException("Cannot cancel a bill that has payments. Void the payments first/Issue refunds.");
             }
 
-            return tx.bill.update({
+            const updated = await tx.bill.update({
                 where: { id },
-                data: { status: "CANCELLED" },
+                data: { status: BillStatus.CANCELLED },
                 include: BILL_INCLUDE
             });
+
+            // Compliance: Audit trail for cancellation
+            await tx.auditLog.create({
+                data: { entity: 'Bill', entityId: id, action: 'CANCEL', oldValue: bill.status, newValue: BillStatus.CANCELLED, userId: userId ?? null }
+            });
+
+            return updated;
         });
     }
 }

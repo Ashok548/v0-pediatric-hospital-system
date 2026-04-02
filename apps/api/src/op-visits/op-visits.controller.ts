@@ -1,6 +1,6 @@
 import {
     Controller, Get, Post, Patch, Body, Param, Query,
-    UseGuards, HttpCode, HttpStatus, ParseUUIDPipe,
+    UseGuards, HttpCode, HttpStatus, ParseUUIDPipe, Request
 } from "@nestjs/common";
 import { OPVisitsService } from "./op-visits.service";
 import { CreateOPVisitDto, UpdateOPVisitStatusDto, QueryOPVisitsDto } from "./dto/op-visit.dto";
@@ -13,8 +13,8 @@ export class OPVisitsController {
 
     @Post()
     @HttpCode(HttpStatus.CREATED)
-    create(@Body() dto: CreateOPVisitDto) {
-        return this.opVisitsService.create(dto);
+    create(@Body() dto: CreateOPVisitDto, @Request() req: any) {
+        return this.opVisitsService.create(dto, req.user?.id);
     }
 
     @Get()
@@ -32,7 +32,8 @@ export class OPVisitsController {
     updateStatus(
         @Param("id", ParseUUIDPipe) id: string,
         @Body() dto: UpdateOPVisitStatusDto,
+        @Request() req: any,
     ) {
-        return this.opVisitsService.updateStatus(id, dto);
+        return this.opVisitsService.updateStatus(id, dto, req.user?.id);
     }
 }

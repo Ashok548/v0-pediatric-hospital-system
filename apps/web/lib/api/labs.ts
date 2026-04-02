@@ -16,7 +16,7 @@ export function usePatientLabOrders(patientId: string | null) {
         patientId ? `/labs/orders/patient/${patientId}` : null,
         fetcher
     );
-    return { orders: data ?? [], isLoading, error, mutate };
+    return { orders: data?.data ?? [], isLoading, error, mutate };
 }
 
 export function useAdmissionLabOrders(admissionId: string | null) {
@@ -24,7 +24,7 @@ export function useAdmissionLabOrders(admissionId: string | null) {
         admissionId ? `/labs/orders/admission/${admissionId}` : null,
         fetcher
     );
-    return { orders: data ?? [], isLoading, error, mutate };
+    return { orders: data?.data ?? [], isLoading, error, mutate };
 }
 
 export function useLabOrders() {
@@ -32,7 +32,7 @@ export function useLabOrders() {
         '/labs/orders',
         fetcher
     );
-    return { orders: data ?? [], isLoading, error, mutate };
+    return { orders: data?.data ?? [], isLoading, error, mutate };
 }
 
 export function useLabOrder(orderId: string | null) {
