@@ -133,8 +133,83 @@ export class PharmacyService {
         return prescription;
     }
 
-    async createPrescription(dto: CreatePrescriptionDto) {
+    async createPrescription(dto: CreatePrescriptionDto, authenticatedDoctorId?: string) {
         return this.prisma.$transaction(async (tx: any) => {
+            const patient = await tx.patient.findUnique({ where: { id: dto.patientId } });
+            if (!patient) {
+                throw new NotFoundException('Patient not found');
+            }
+
+            const doctorId = authenticatedDoctorId ?? dto.doctorId;
+            if (!doctorId) {
+                throw new BadRequestException('Authenticated doctor context is required to create a prescription');
+            }
+
+            const doctor = await tx.user.findUnique({ where: { id: doctorId } });
+            if (!doctor) {
+                throw new NotFoundException('Doctor not found');
+            }
+
+            if (!dto.admissionId && !dto.opVisitId && !dto.appointmentId) {
+                throw new BadRequestException('Prescription must be linked to an admission, outpatient visit, or appointment');
+            }
+
+            if (dto.admissionId && (dto.opVisitId || dto.appointmentId)) {
+                throw new BadRequestException('Prescription cannot be linked to both inpatient and outpatient contexts');
+            }
+
+            if (dto.admissionId) {
+                const admission = await tx.admission.findUnique({ where: { id: dto.admissionId } });
+                if (!admission) {
+                    throw new NotFoundException('Admission not found');
+                }
+
+                if (admission.patientId !== dto.patientId) {
+                    throw new BadRequestException('Admission does not belong to the specified patient');
+                }
+            }
+
+            let resolvedOpVisitId = dto.opVisitId;
+
+            if (dto.appointmentId) {
+                const appointment = await tx.appointment.findUnique({
+                    where: { id: dto.appointmentId },
+                    include: { opVisit: true }
+                });
+
+                if (!appointment) {
+                    throw new NotFoundException('Appointment not found');
+                }
+
+                if (appointment.patientId !== dto.patientId) {
+                    throw new BadRequestException('Appointment does not belong to the specified patient');
+                }
+
+                if (appointment.doctorId !== doctorId) {
+                    throw new BadRequestException('Prescription can only be created by the appointment doctor');
+                }
+
+                resolvedOpVisitId = resolvedOpVisitId ?? appointment.opVisit?.id ?? null;
+                if (!resolvedOpVisitId) {
+                    throw new BadRequestException('Outpatient prescriptions require an active OP visit. Start the outpatient encounter before placing medication orders.');
+                }
+            }
+
+            if (resolvedOpVisitId) {
+                const opVisit = await tx.oPVisit.findUnique({ where: { id: resolvedOpVisitId } });
+                if (!opVisit) {
+                    throw new NotFoundException('OP visit not found');
+                }
+
+                if (opVisit.patientId !== dto.patientId) {
+                    throw new BadRequestException('OP visit does not belong to the specified patient');
+                }
+
+                if (opVisit.doctorId && opVisit.doctorId !== doctorId) {
+                    throw new BadRequestException('Prescription can only be created by the encounter doctor');
+                }
+            }
+
             // 1. Generate unique prescription number
             // Fix NEW-1: Use the canonical nextSequenceValue atomic helper (INSERT ... ON CONFLICT RETURNING)
             // instead of the racy Prisma upsert pattern which had a two-trip SELECT race.
@@ -148,8 +223,8 @@ export class PharmacyService {
                     prescriptionNumber: rxNumber,
                     patientId: dto.patientId,
                     admissionId: dto.admissionId,
-                    opVisitId: dto.opVisitId,
-                    doctorId: dto.doctorId,
+                    opVisitId: resolvedOpVisitId,
+                    doctorId,
                     notes: dto.notes,
                     status: 'PENDING',
                     items: {

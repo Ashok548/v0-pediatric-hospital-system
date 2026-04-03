@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
@@ -8,6 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Button } from "@/components/ui/button"
 import { PaymentMode, RecordPaymentDto, MappedPaymentModeLabels } from "@/lib/types/billing"
 import { IndianRupee, Loader2 } from "lucide-react"
+
+function nextIdempotencyKey() {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        return crypto.randomUUID()
+    }
+
+    return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
 
 export function PaymentCollectionForm({
     balanceDue,
@@ -21,6 +29,12 @@ export function PaymentCollectionForm({
     const [amount, setAmount] = useState<number>(balanceDue)
     const [mode, setMode] = useState<PaymentMode>("UPI")
     const [transactionRef, setTransactionRef] = useState("")
+    const [idempotencyKey, setIdempotencyKey] = useState(() => nextIdempotencyKey())
+
+    useEffect(() => {
+        setAmount(balanceDue)
+        setIdempotencyKey(nextIdempotencyKey())
+    }, [balanceDue])
 
     const handleAdd = () => {
         if (amount <= 0 || amount > balanceDue || isSubmitting) return;
@@ -28,7 +42,8 @@ export function PaymentCollectionForm({
         onPaymentAdd({
             amount,
             paymentMode: mode,
-            transactionRef: transactionRef || undefined
+            transactionRef: transactionRef || undefined,
+            idempotencyKey,
         })
     }
 
@@ -42,7 +57,10 @@ export function PaymentCollectionForm({
             <CardContent className="p-4 space-y-4">
                 <div className="space-y-2">
                     <Label>Payment Mode</Label>
-                    <Select value={mode} onValueChange={v => setMode(v as PaymentMode)}>
+                    <Select value={mode} onValueChange={v => {
+                        setMode(v as PaymentMode)
+                        setIdempotencyKey(nextIdempotencyKey())
+                    }}>
                         <SelectTrigger>
                             <SelectValue placeholder="Select Mode" />
                         </SelectTrigger>
@@ -58,7 +76,10 @@ export function PaymentCollectionForm({
                         <Label>Transaction / Ref ID (Optional)</Label>
                         <Input
                             value={transactionRef}
-                            onChange={e => setTransactionRef(e.target.value)}
+                            onChange={e => {
+                                setTransactionRef(e.target.value)
+                                setIdempotencyKey(nextIdempotencyKey())
+                            }}
                             placeholder="e.g. UTR or Check Number"
                         />
                     </div>
@@ -71,7 +92,10 @@ export function PaymentCollectionForm({
                             type="number"
                             className="pl-8"
                             value={amount}
-                            onChange={e => setAmount(Number(e.target.value))}
+                            onChange={e => {
+                                setAmount(Number(e.target.value))
+                                setIdempotencyKey(nextIdempotencyKey())
+                            }}
                             max={balanceDue}
                         />
                     </div>

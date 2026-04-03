@@ -73,7 +73,7 @@ export class AppointmentsController {
         @Body() updateDto: UpdateAppointmentStatusDto,
         @Request() req: any,
     ) {
-        return this.appointmentsService.updateStatus(id, updateDto, req.user?.sub);
+        return this.appointmentsService.updateStatus(id, updateDto, req.user?.id);
     }
 
     @Patch(':id/reschedule')

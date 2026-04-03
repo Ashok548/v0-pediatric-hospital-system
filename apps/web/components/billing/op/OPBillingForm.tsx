@@ -348,6 +348,7 @@ export function OPBillingForm({ billId: propBillId }: OPBillingFormProps = {}) {
                         <PaymentCollectionForm
                             balanceDue={Number(bill.dueAmount)}
                             onPaymentAdd={handlePayment}
+                            isSubmitting={isActionLoading}
                         />
                     )}
 

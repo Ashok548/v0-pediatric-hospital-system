@@ -10,6 +10,7 @@
         "db:migrate": "prisma migrate dev",
         "db:reset": "prisma migrate reset",
         "db:seed": "npx tsx prisma/seed.ts",
+        "db:seed:test-data": "npx tsx prisma/test-data-seed.ts",
         "db:studio": "prisma studio",
         "clean": "rm -rf dist generated .turbo"
     },

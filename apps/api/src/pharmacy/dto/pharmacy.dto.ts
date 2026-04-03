@@ -37,8 +37,13 @@ export class CreatePrescriptionDto {
 
     @IsOptional()
     @IsString()
+    appointmentId?: string;
+
+    @IsOptional()
+    @IsString()
     opVisitId?: string;
 
+    @IsOptional()
     @IsUUID()
     doctorId: string;
 

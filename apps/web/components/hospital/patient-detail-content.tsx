@@ -53,7 +53,6 @@ import { usePatientLabOrders } from "@/lib/api/labs"
 import { usePatientVaccinations } from "@/lib/api/vaccinations"
 import { usePrescriptions } from "@/lib/api/pharmacy"
 import { CreateLabOrderDialog } from "./dialogs/create-lab-order-dialog"
-import { createOPVisit } from "@/lib/api/op-visits"
 import { createBill } from "@/lib/api/billing"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -859,8 +858,11 @@ export function PatientDetailContent({ patientId }: { patientId: string }) {
         setOpLoading(true)
         setOpError(null)
         try {
-            const opVisit = await createOPVisit({ patientId: patient.id, department: "General OPD" })
-            const bill = await createBill({ patientId: patient.id, opVisitId: opVisit.id })
+            const bill = await createBill({
+                patientId: patient.id,
+                department: "General OPD",
+                notes: "Walk-in outpatient registration",
+            })
             router.push(`/billing/op/new?billId=${bill.id}`)
         } catch (err: any) {
             setOpError(err?.message ?? "Failed to generate OP")

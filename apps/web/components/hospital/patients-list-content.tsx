@@ -36,7 +36,6 @@ import { cn } from "@/lib/utils"
 import { useQuery } from "@/hooks/use-query"
 import { useUrlQuery } from "@/hooks/use-url-query"
 import { useDebounce } from "@/hooks/use-debounce"
-import { createOPVisit } from "@/lib/api/op-visits"
 import { createBill } from "@/lib/api/billing"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -131,13 +130,10 @@ function PatientRowActions({ patient }: { patient: ApiPatient }) {
   async function handleGenerateOP() {
     setOpLoading(true)
     try {
-      const opVisit = await createOPVisit({
-        patientId: patient.id,
-        department: "General OPD",
-      })
       const bill = await createBill({
         patientId: patient.id,
-        opVisitId: opVisit.id,
+        department: "General OPD",
+        notes: "Walk-in outpatient registration",
       })
       router.push(`/billing/op/new?billId=${bill.id}`)
     } catch (err: any) {

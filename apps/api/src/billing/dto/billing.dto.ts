@@ -84,6 +84,11 @@ export class RecordPaymentDto {
 
     @IsOptional()
     @IsString()
+    @MaxLength(100)
+    idempotencyKey?: string;
+
+    @IsOptional()
+    @IsString()
     notes?: string;
 }
 

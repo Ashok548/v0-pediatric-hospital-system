@@ -17,11 +17,13 @@ export class ConsultationsController {
     }
 
     @Get('patient/:patientId')
+    @Roles('DOCTOR', 'NURSE', 'ADMIN')
     findByPatient(@Param('patientId') patientId: string, @Query('page') page?: string, @Query('limit') limit?: string) {
         return this.consultationsService.findByPatient(patientId, page, limit);
     }
 
     @Get(':id')
+    @Roles('DOCTOR', 'NURSE', 'ADMIN')
     findOne(@Param('id') id: string) {
         return this.consultationsService.findOne(id);
     }

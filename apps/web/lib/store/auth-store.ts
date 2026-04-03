@@ -1,11 +1,5 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// lib/store/auth-store.ts
-// Mock Role-Based Access Control simulator.
-// No real auth — allows toggling between hospital roles to demonstrate
-// conditional UI behavior in the app shell.
-// ─────────────────────────────────────────────────────────────────────────────
-
-import { useSyncExternalStore } from "react"
+import { useEffect, useState } from "react"
+import { useAuth, type AuthUser } from "@/hooks/use-auth"
 
 export type HospitalRole =
     | "admin"
@@ -44,34 +38,90 @@ export function canAccess(role: HospitalRole, feature: string): boolean {
     return ROLE_PERMISSIONS[role]?.includes(feature) ?? false
 }
 
+const ROLE_MAP: Record<string, HospitalRole> = {
+    ADMIN: "admin",
+    DOCTOR: "doctor",
+    NURSE: "nurse",
+    BILLING: "billing_clerk",
+    RECEPTIONIST: "billing_clerk",
+    PHARMACIST: "pharmacist",
+}
+
+const DEFAULT_DEPARTMENTS: Record<HospitalRole, string> = {
+    admin: "Administration",
+    doctor: "Outpatient Department",
+    nurse: "Nursing",
+    billing_clerk: "Billing",
+    pharmacist: "Pharmacy",
+}
+
+function mapAuthUser(user?: AuthUser): MockUser | null {
+    if (!user) {
+        return null
+    }
+
+    const mappedRole = ROLE_MAP[user.role?.name] ?? "admin"
+
+    return {
+        id: user.id,
+        name: user.name,
+        role: mappedRole,
+        department: DEFAULT_DEPARTMENTS[mappedRole],
+        avatar: user.name
+            .split(" ")
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0]?.toUpperCase() ?? "")
+            .join("") || "U",
+    }
+}
+
+function isDevRoleSwitchingEnabled() {
+    return process.env.NODE_ENV !== "production"
+}
+
 // ─── State ────────────────────────────────────────────────────────────────────
-let _currentUser: MockUser = MOCK_USERS[4] // Default: Admin (shows all nav items including Master Data)
+let _mockUserId: string | null = null
 
 const _listeners = new Set<() => void>()
 function emit() { _listeners.forEach(fn => fn()) }
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
 export function setMockRole(userId: string): void {
+    if (!isDevRoleSwitchingEnabled()) {
+        return
+    }
+
     const user = MOCK_USERS.find(u => u.id === userId)
     if (user) {
-        _currentUser = user
+        _mockUserId = user.id
         emit()
     }
 }
 
-function getSnapshot() { return _currentUser }
 function subscribe(fn: () => void) {
     _listeners.add(fn)
-    return () => _listeners.delete(fn)
+    return () => { _listeners.delete(fn) }
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 export function useAuthStore() {
-    const currentUser = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+    const { user, isLoading } = useAuth()
+    const [, setMockRevision] = useState(0)
+
+    useEffect(() => subscribe(() => setMockRevision((revision) => revision + 1)), [])
+
+    const sessionUser = mapAuthUser(user)
+    const currentUser = isDevRoleSwitchingEnabled() && _mockUserId
+        ? (MOCK_USERS.find((candidate) => candidate.id === _mockUserId) ?? sessionUser)
+        : sessionUser
+
     return {
         currentUser,
-        currentRole: currentUser.role,
+        currentRole: currentUser?.role,
         setMockRole,
-        canAccess: (feature: string) => canAccess(currentUser.role, feature),
+        isLoading,
+        isUsingMockRole: Boolean(isDevRoleSwitchingEnabled() && _mockUserId),
+        canAccess: (feature: string) => currentUser ? canAccess(currentUser.role, feature) : false,
     }
 }

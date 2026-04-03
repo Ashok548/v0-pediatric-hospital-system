@@ -23,6 +23,10 @@ const ROLE_COLORS: Record<string, string> = {
 export function RoleSwitcher() {
     const { currentUser, setMockRole } = useAuthStore()
 
+    if (process.env.NODE_ENV === "production" || !currentUser) {
+        return null
+    }
+
     return (
         <div className="flex items-center gap-2">
             <div className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground">

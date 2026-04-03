@@ -209,6 +209,27 @@ export class ConsultationsService {
                             }
                         });
                     }
+
+                    if (existing.appointmentId && targetStatus === 'COMPLETED') {
+                        const appointment = await tx.appointment.findUnique({ where: { id: existing.appointmentId } });
+                        if (appointment && ['SCHEDULED', 'IN_PROGRESS'].includes(appointment.status)) {
+                            await tx.appointment.update({
+                                where: { id: existing.appointmentId },
+                                data: { status: 'COMPLETED' }
+                            });
+
+                            await tx.auditLog.create({
+                                data: {
+                                    entity: 'Appointment',
+                                    entityId: existing.appointmentId,
+                                    action: 'STATUS_CHANGE',
+                                    oldValue: appointment.status,
+                                    newValue: 'COMPLETED',
+                                    userId: doctorId,
+                                }
+                            });
+                        }
+                    }
                 }
             }
 

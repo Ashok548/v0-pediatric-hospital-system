@@ -26,7 +26,6 @@ import { appendTranscript } from "@/lib/utils/transcript"
 import type { Appointment, ApptStatus } from "@carenest/shared-types"
 import { usePatients } from "@/lib/api/patients"
 import { useAppointments, useDoctors, createAppointment, updateAppointmentStatus, useAppointmentStats, useMonthlyCalendar, useDepartments, useAppointmentTypes, rescheduleAppointment, deleteAppointment, useLastVisit } from "@/lib/api/appointments"
-import { createOPVisit } from "@/lib/api/op-visits"
 import { createBill } from "@/lib/api/billing"
 
 // ─── Config ──────────────────────────────────────────────────────────────────
@@ -663,22 +662,13 @@ export function AppointmentsContent() {
         setGeneratingOPFor(appt.id)
         setOPError(null)
         try {
-            // 1. Create OP Visit (generates OP number, checks duplicates)
-            const opVisit = await createOPVisit({
+            const bill = await createBill({
                 patientId: appt.patientId,
                 appointmentId: appt.id,
                 doctorId: appt.doctorId,
                 department: appt.department,
-                notes: appt.chiefComplaint || undefined,
+                notes: appt.chiefComplaint || `OP Visit - ${appt.department}`,
             })
-            // 2. Create DRAFT Bill linked to visit
-            const bill = await createBill({
-                patientId: opVisit.patientId,
-                appointmentId: appt.id,
-                opVisitId: opVisit.id,
-                notes: `OP Visit ${opVisit.opNumber} - ${appt.department}`,
-            })
-            // 3. Navigate to billing form with pre-loaded bill
             window.location.href = `/billing/op/new?billId=${bill.id}`
         } catch (e: any) {
             const msg = e?.message || "Failed to generate OP"

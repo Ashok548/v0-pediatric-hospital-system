@@ -215,7 +215,6 @@ export function CreateMedicationOrderDialog({
     const [notes, setNotes] = useState("")
 
     const { inventory } = usePharmacyInventory()
-    const { currentUser } = useAuthStore()
     const { mutate } = useSWRConfig()
     const { toast } = useToast()
 
@@ -305,7 +304,6 @@ export function CreateMedicationOrderDialog({
                 patientId,
                 admissionId: admissionId || undefined,
                 appointmentId: appointmentId || undefined,
-                doctorId: currentUser?.id,
                 notes: notes,
                 items: itemsPayload
             })

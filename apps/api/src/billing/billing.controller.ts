@@ -38,6 +38,7 @@ export class BillingController {
     }
 
     @Get(":id")
+    @Roles('RECEPTIONIST', 'BILLING', 'ADMIN')
     findOne(@Param("id", ParseUUIDPipe) id: string) {
         return this.billingService.findOne(id);
     }
@@ -69,7 +70,7 @@ export class BillingController {
         @Param("id", ParseUUIDPipe) id: string,
         @Req() req: any
     ) {
-        const userId = req.user?.sub;
+        const userId = req.user?.id;
         return this.billingService.finalizeBill(id, userId);
     }
 
@@ -81,7 +82,7 @@ export class BillingController {
         @Body() dto: RecordPaymentDto,
         @Req() req: Request
     ) {
-        const userId = (req.user as any)?.sub;
+        const userId = (req.user as any)?.id;
         return this.billingService.recordPayment(id, dto, userId);
     }
 
@@ -92,7 +93,7 @@ export class BillingController {
         @Param("id", ParseUUIDPipe) id: string,
         @Req() req: any
     ) {
-        const userId = req.user?.sub;
+        const userId = req.user?.id;
         return this.billingService.cancelBill(id, userId);
     }
 }

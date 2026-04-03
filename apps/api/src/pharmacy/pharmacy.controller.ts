@@ -10,12 +10,14 @@ export class PharmacyController {
     constructor(private readonly pharmacyService: PharmacyService) { }
 
     @Get('inventory')
+    @Roles('ADMIN', 'PHARMACIST', 'DOCTOR')
     async getInventory() {
         const result = await this.pharmacyService.getInventory();
         return { data: result };
     }
 
     @Get('inventory/low-stock')
+    @Roles('ADMIN', 'PHARMACIST')
     async getLowStockInventory() {
         const result = await this.pharmacyService.getLowStockInventory();
         return { data: result };
@@ -56,21 +58,22 @@ export class PharmacyController {
         @Body() dto: AdjustStockDto,
         @Req() req: any
     ) {
-        // Fix NEW-4: JWT claim is 'sub', not 'id' or 'name'
         const result = await this.pharmacyService.adjustStock(
             medicationId,
-            { ...dto, performedBy: req.user?.sub ?? 'SYSTEM' }
+            { ...dto, performedBy: req.user?.id ?? 'SYSTEM' }
         );
         return { success: true, data: result };
     }
 
     @Get('prescriptions')
+    @Roles('ADMIN', 'PHARMACIST', 'DOCTOR', 'NURSE')
     async getPrescriptions(@Query() query: GetPrescriptionsQueryDto) {
         const result = await this.pharmacyService.getPrescriptions(query);
         return { data: result };
     }
 
     @Get('prescriptions/:id')
+    @Roles('ADMIN', 'PHARMACIST', 'DOCTOR', 'NURSE')
     async getPrescription(@Param('id') id: string) {
         const result = await this.pharmacyService.getPrescription(id);
         return { data: result };
@@ -78,8 +81,8 @@ export class PharmacyController {
 
     @Post('prescriptions')
     @Roles('DOCTOR', 'ADMIN')
-    async createPrescription(@Body() dto: CreatePrescriptionDto) {
-        const result = await this.pharmacyService.createPrescription(dto);
+    async createPrescription(@Body() dto: CreatePrescriptionDto, @Req() req: any) {
+        const result = await this.pharmacyService.createPrescription(dto, req.user?.id);
         return { data: result };
     }
 
@@ -90,8 +93,7 @@ export class PharmacyController {
         @Body() dto: DispensePrescriptionDto,
         @Req() req: any
     ) {
-        // Fix NEW-4: JWT claim is 'sub' (user UUID), not 'name' or 'id'
-        const dispensedBy = req.user?.sub ?? 'unknown';
+        const dispensedBy = req.user?.id ?? 'unknown';
         const result = await this.pharmacyService.dispensePrescription(id, dto, dispensedBy);
         return { data: result };
     }
@@ -99,19 +101,20 @@ export class PharmacyController {
     @Post('prescriptions/:id/return')
     @Roles('PHARMACIST', 'ADMIN')
     async returnPrescription(@Param('id') id: string, @Req() req: any) {
-        // Fix NEW-4: JWT claim is 'sub' (user UUID), not 'name' or 'id'
-        const returnedBy = req.user?.sub ?? 'unknown';
+        const returnedBy = req.user?.id ?? 'unknown';
         const result = await this.pharmacyService.returnPrescription(id, returnedBy);
         return { data: result };
     }
 
     @Get('stats')
+    @Roles('ADMIN', 'PHARMACIST')
     async getStats() {
         const result = await this.pharmacyService.getStats();
         return { data: result };
     }
 
     @Get('admission/:admissionId/clearance')
+    @Roles('ADMIN', 'PHARMACIST', 'DOCTOR', 'NURSE')
     async checkClearance(@Param('admissionId') admissionId: string) {
         const result = await this.pharmacyService.checkClearance(admissionId);
         return { data: result };

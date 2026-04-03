@@ -25,6 +25,7 @@ export interface ApiPayment {
     billId: string;
     amount: number;          // Decimal
     paymentMode: PaymentMode;
+    idempotencyKey?: string | null;
     transactionRef?: string | null;
     notes?: string | null;
     paymentDate: string;
@@ -109,6 +110,7 @@ export interface RecordPaymentDto {
     amount: number;
     paymentMode: PaymentMode;
     transactionRef?: string;
+    idempotencyKey?: string;
     notes?: string;
 }
 

@@ -16,6 +16,7 @@
         "db:migrate": "turbo run db:migrate",
         "db:reset": "turbo run db:reset",
         "db:seed": "turbo run db:seed",
+        "db:seed:test-data": "npm --workspace @carenest/database run db:seed:test-data",
         "db:studio": "turbo run db:studio",
         "clean": "turbo run clean && rm -rf node_modules",
         "test:e2e": "turbo run test:e2e --filter=@carenest/web",
