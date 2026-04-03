@@ -41,20 +41,21 @@ export class LabsEventsService {
 
         this.logger.log(`Advancing ${pendingOrders.length} lab order(s) to AWAITING_SAMPLE for OPVisit ${opVisitId}`);
 
-        for (const order of pendingOrders) {
-            await prisma.$transaction(async (tx: any) => {
-                await tx.labOrder.update({
-                    where: { id: order.id },
-                    data: { status: 'AWAITING_SAMPLE' }
-                });
-                await tx.auditLog.create({
-                    data: {
-                        entity: 'LabOrder', entityId: order.id, action: 'STATUS_CHANGE',
-                        oldValue: 'PENDING_CLEARANCE', newValue: 'AWAITING_SAMPLE',
-                        userId: null // System-driven event
-                    }
-                });
+        await prisma.$transaction(async (tx: any) => {
+            await tx.labOrder.updateMany({
+                where: { id: { in: pendingOrders.map((o: any) => o.id) } },
+                data: { status: 'AWAITING_SAMPLE' }
             });
-        }
+            await tx.auditLog.createMany({
+                data: pendingOrders.map((o: any) => ({
+                    entity: 'LabOrder',
+                    entityId: o.id,
+                    action: 'STATUS_CHANGE',
+                    oldValue: 'PENDING_CLEARANCE',
+                    newValue: 'AWAITING_SAMPLE',
+                    userId: null,
+                }))
+            });
+        });
     }
 }

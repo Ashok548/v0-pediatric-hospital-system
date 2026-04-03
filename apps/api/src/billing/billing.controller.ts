@@ -3,6 +3,7 @@ import {
     Body, Param, Query, UseGuards, Req,
     HttpCode, HttpStatus, ParseUUIDPipe
 } from "@nestjs/common";
+import { Roles } from '../auth/decorators/roles.decorator';
 import type { Request } from "express";
 import { BillingService } from "./billing.service";
 import {
@@ -18,17 +19,20 @@ export class BillingController {
     constructor(private readonly billingService: BillingService) { }
 
     @Post()
+    @Roles('RECEPTIONIST', 'BILLING', 'ADMIN')
     @HttpCode(HttpStatus.CREATED)
     create(@Body() dto: CreateBillDto) {
         return this.billingService.create(dto);
     }
 
     @Get()
+    @Roles('BILLING', 'RECEPTIONIST', 'ADMIN', 'DOCTOR')
     findAll(@Query() query: QueryBillsDto) {
         return this.billingService.findAll(query);
     }
 
     @Get("stats")
+    @Roles('BILLING', 'ADMIN')
     getStats(@Query() query: BillingStatsQueryDto) {
         return this.billingService.getStats(query);
     }
@@ -39,6 +43,7 @@ export class BillingController {
     }
 
     @Post(":id/items")
+    @Roles('RECEPTIONIST', 'BILLING', 'ADMIN')
     @HttpCode(HttpStatus.OK)
     addItem(
         @Param("id", ParseUUIDPipe) id: string,
@@ -48,6 +53,7 @@ export class BillingController {
     }
 
     @Delete(":id/items/:itemId")
+    @Roles('RECEPTIONIST', 'BILLING', 'ADMIN')
     @HttpCode(HttpStatus.OK)
     removeItem(
         @Param("id", ParseUUIDPipe) id: string,
@@ -57,12 +63,18 @@ export class BillingController {
     }
 
     @Post(":id/finalize")
+    @Roles('BILLING', 'ADMIN')
     @HttpCode(HttpStatus.OK)
-    finalizeBill(@Param("id", ParseUUIDPipe) id: string) {
-        return this.billingService.finalizeBill(id);
+    finalizeBill(
+        @Param("id", ParseUUIDPipe) id: string,
+        @Req() req: any
+    ) {
+        const userId = req.user?.sub;
+        return this.billingService.finalizeBill(id, userId);
     }
 
     @Post(":id/payments")
+    @Roles('RECEPTIONIST', 'BILLING', 'ADMIN')
     @HttpCode(HttpStatus.OK)
     recordPayment(
         @Param("id", ParseUUIDPipe) id: string,
@@ -74,8 +86,13 @@ export class BillingController {
     }
 
     @Delete(":id")
+    @Roles('ADMIN')
     @HttpCode(HttpStatus.OK)
-    cancelBill(@Param("id", ParseUUIDPipe) id: string) {
-        return this.billingService.cancelBill(id);
+    cancelBill(
+        @Param("id", ParseUUIDPipe) id: string,
+        @Req() req: any
+    ) {
+        const userId = req.user?.sub;
+        return this.billingService.cancelBill(id, userId);
     }
 }

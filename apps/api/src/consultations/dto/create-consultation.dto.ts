@@ -13,6 +13,10 @@ export class CreateConsultationDto {
     @IsOptional()
     admissionId?: string;
 
+    @IsUUID()
+    @IsOptional()
+    opVisitId?: string;
+
     @IsString()
     @IsOptional()
     chiefComplaint?: string;

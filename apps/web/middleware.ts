@@ -3,9 +3,15 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
 const ROLE_ROUTES: Record<string, string[]> = {
-    "/pharmacy": ["PHARMACIST", "ADMIN"],
-    "/nursing": ["NURSE", "DOCTOR", "ADMIN"],
-    "/reports": ["ADMIN"],
+    "/pharmacy":   ["PHARMACIST", "ADMIN"],
+    "/nursing":    ["NURSE", "DOCTOR", "ADMIN"],
+    "/reports":    ["ADMIN"],
+    "/billing":    ["BILLING", "RECEPTIONIST", "ADMIN"],
+    "/admissions": ["RECEPTIONIST", "ADMIN", "NURSE", "DOCTOR"],
+    "/lab":        ["LAB_TECHNICIAN", "DOCTOR", "ADMIN"],
+    "/nicu":       ["NURSE", "DOCTOR", "ADMIN"],
+    "/op-visits":  ["RECEPTIONIST", "ADMIN", "NURSE", "DOCTOR"],
+    "/appointments": ["RECEPTIONIST", "ADMIN", "NURSE", "DOCTOR"],
 };
 
 const PUBLIC_PATHS = ["/login", "/unauthorized"];

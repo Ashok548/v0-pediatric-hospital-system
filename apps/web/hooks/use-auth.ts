@@ -28,7 +28,8 @@ export type UserRole =
     | "NURSE"
     | "PHARMACIST"
     | "RECEPTIONIST"
-    | "LAB_TECHNICIAN";
+    | "LAB_TECHNICIAN"
+    | "BILLING";
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
 

@@ -237,7 +237,7 @@ export class AppointmentsService {
         const lastAppt = await this.prisma.appointment.findFirst({
             where: { 
                 patientId,
-                status: { in: [ApptStatus.COMPLETED, ApptStatus.SCHEDULED] }
+                status: ApptStatus.COMPLETED
             },
             orderBy: [{ appointmentDate: 'desc' }, { createdAt: 'desc' }],
             include: { doctor: true },
@@ -254,19 +254,28 @@ export class AppointmentsService {
         };
     }
 
-    async updateStatus(id: string, dto: UpdateAppointmentStatusDto) {
+    public static readonly ALLOWED_TRANSITIONS: Record<string, string[]> = {
+        SCHEDULED: ['IN_PROGRESS', 'CANCELLED', 'NO_SHOW'],
+        IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+        COMPLETED: [],
+        CANCELLED: [],
+        NO_SHOW: [] // Terminal state, require new booking
+    };
+
+    async updateStatus(id: string, dto: UpdateAppointmentStatusDto, userId?: string) {
         const existing = await this.prisma.appointment.findUnique({ where: { id } });
         if (!existing) throw new NotFoundException('Appointment not found');
 
         const current = existing.status;
         const target = this.mapInputStatus(dto.status);
 
-        // Basic transition logic
-        if (current === ApptStatus.COMPLETED || current === ApptStatus.CANCELLED) {
-            if (target !== current) {
-                // allow recovering cancelled perhaps, but for now block it
-                throw new BadRequestException(`Cannot change status from ${current} to ${target}`);
-            }
+        if (current === target) {
+            return this.formatResponse(existing as AppointmentWithRelations);
+        }
+
+        const allowed = AppointmentsService.ALLOWED_TRANSITIONS[current] || [];
+        if (!allowed.includes(target)) {
+            throw new BadRequestException(`Invalid status transition from ${current} to ${target}`);
         }
 
         const appt = await this.prisma.appointment.update({
@@ -275,7 +284,38 @@ export class AppointmentsService {
             include: { patient: true, doctor: true },
         });
 
-        return this.formatResponse(appt);
+        // Smart Cascade: If Appointment is NO_SHOW or CANCELLED, cascade to active OPVisit
+        if (target === 'NO_SHOW' || target === 'CANCELLED') {
+            const opVisit = await this.prisma.oPVisit.findUnique({
+                where: { appointmentId: id }
+            });
+            if (opVisit && !['COMPLETED', 'BILLED', 'CANCELLED'].includes(opVisit.status)) {
+                await this.prisma.oPVisit.update({
+                    where: { id: opVisit.id },
+                    data: { status: 'CANCELLED' }
+                });
+                await this.prisma.auditLog.create({
+                    data: {
+                        entity: 'OPVisit', entityId: opVisit.id, action: 'STATUS_CHANGE',
+                        oldValue: opVisit.status, newValue: 'CANCELLED', userId: userId ?? null
+                    }
+                });
+            }
+        }
+
+        // Audit Trail (Compliance)
+        await this.prisma.auditLog.create({
+            data: {
+                entity: 'Appointment',
+                entityId: id,
+                action: 'STATUS_CHANGE',
+                oldValue: current,
+                newValue: target,
+                userId: userId ?? null
+            }
+        });
+
+        return this.formatResponse(appt as AppointmentWithRelations);
     }
 
     async getCalendar(month?: string, doctorId?: string) {
@@ -380,7 +420,15 @@ export class AppointmentsService {
         const existing = await this.prisma.appointment.findUnique({ where: { id } });
         if (!existing) throw new NotFoundException('Appointment not found');
 
-        await this.prisma.appointment.delete({ where: { id } });
-        return { success: true };
+        if (existing.status === ApptStatus.COMPLETED) {
+            throw new BadRequestException('Cannot delete a completed appointment');
+        }
+
+        await this.prisma.appointment.update({
+            where: { id },
+            data: { status: ApptStatus.CANCELLED },
+        });
+
+        return { success: true, message: 'Appointment cancelled' };
     }
 }

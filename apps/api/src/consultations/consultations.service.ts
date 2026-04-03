@@ -21,6 +21,24 @@ export class ConsultationsService {
             await tx.auditLog.create({
                 data: { entity: 'Consultation', entityId: consultation.id, action: 'CREATE', oldValue: null, newValue: ConsultationStatus.DRAFT, userId: doctorId }
             });
+
+            // Automate OPVisit state to CONSULTING when doctor starts writing notes
+            if (dto.opVisitId) {
+                const visit = await tx.oPVisit.findUnique({ where: { id: dto.opVisitId } });
+                if (visit && OPVisitsService.ALLOWED_TRANSITIONS[visit.status]?.includes('CONSULTING')) {
+                    await tx.oPVisit.update({
+                        where: { id: dto.opVisitId },
+                        data: { status: 'CONSULTING' }
+                    });
+                    await tx.auditLog.create({
+                        data: {
+                            entity: 'OPVisit', entityId: dto.opVisitId, action: 'STATUS_CHANGE',
+                            oldValue: visit.status, newValue: 'CONSULTING', userId: doctorId,
+                        }
+                    });
+                }
+            }
+
             return consultation;
         });
     }
@@ -163,20 +181,31 @@ export class ConsultationsService {
                 }
             });
 
-            // Cascade OPVisit to ORDERS_PLACED if transition is allowed
+            // Smart Completion Cascade: Check if Patient actually has active orders
             if (existing.opVisitId) {
                 const visit = await tx.oPVisit.findUnique({ where: { id: existing.opVisitId } });
                 if (visit) {
                     const allowedTransitions = OPVisitsService.ALLOWED_TRANSITIONS[visit.status] || [];
-                    if (allowedTransitions.includes('ORDERS_PLACED')) {
+                    
+                    const pendingPrescriptions = await tx.prescription.count({
+                        where: { opVisitId: existing.opVisitId, status: { in: ['PENDING', 'PARTIAL'] } }
+                    });
+                    const pendingLabs = await tx.labOrder.count({
+                        where: { opVisitId: existing.opVisitId, status: { in: ['PENDING', 'SAMPLE_COLLECTED', 'READY_FOR_VERIFICATION'] } }
+                    });
+
+                    const hasPendingOrders = (pendingPrescriptions > 0 || pendingLabs > 0);
+                    const targetStatus = hasPendingOrders ? 'ORDERS_PLACED' : 'COMPLETED';
+
+                    if (allowedTransitions.includes(targetStatus)) {
                         await tx.oPVisit.update({
                             where: { id: existing.opVisitId },
-                            data: { status: 'ORDERS_PLACED' }
+                            data: { status: targetStatus }
                         });
                         await tx.auditLog.create({
                             data: {
                                 entity: 'OPVisit', entityId: existing.opVisitId, action: 'STATUS_CHANGE',
-                                oldValue: visit.status, newValue: 'ORDERS_PLACED', userId: doctorId,
+                                oldValue: visit.status, newValue: targetStatus, userId: doctorId,
                             }
                         });
                     }

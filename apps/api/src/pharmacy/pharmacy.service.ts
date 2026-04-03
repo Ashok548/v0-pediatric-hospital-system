@@ -1,6 +1,18 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { prisma, PrescriptionStatus, MasterStatus } from '@carenest/database';
 import { CreatePrescriptionDto, DispensePrescriptionDto, CreateMedicationDto, BulkCreateMedicationsDto, UpdateMedicationDto } from './dto/pharmacy.dto';
+import { nextSequenceValue } from '../common/sequence.util';
+
+const PHARMACY_SERVICE_CODE = 'PHARM-DISPENSE';
+
+let _pharmacyServiceId: string | null = null;
+async function getPharmacyServiceId(): Promise<string> {
+    if (_pharmacyServiceId !== null) return _pharmacyServiceId;
+    const svc = await prisma.service.findUnique({ where: { code: PHARMACY_SERVICE_CODE } });
+    if (!svc) throw new Error('PHARM-DISPENSE master service not found. Run db seed first.');
+    _pharmacyServiceId = svc.id;
+    return svc.id;
+}
 
 @Injectable()
 export class PharmacyService {
@@ -52,14 +64,28 @@ export class PharmacyService {
     }
 
     async deactivateMedication(id: string) {
-        try {
-            return await this.prisma.medication.update({
+        // Fix RESIDUAL-1: Wrap count + update in one transaction to eliminate TOCTOU race.
+        // Without this, a new prescription could be created between the count check and the deactivation.
+        return this.prisma.$transaction(async (tx: any) => {
+            const medication = await tx.medication.findUnique({ where: { id } });
+            if (!medication) throw new NotFoundException('Medication not found');
+
+            const pending = await tx.prescriptionItem.count({
+                where: {
+                    medicationId: id,
+                    prescription: { status: { in: ['PENDING', 'PARTIAL'] } }
+                }
+            });
+
+            if (pending > 0) {
+                throw new BadRequestException(`Cannot deactivate: ${pending} pending/partial prescriptions use this medication.`);
+            }
+
+            return tx.medication.update({
                 where: { id },
                 data: { status: 'INACTIVE' },
             });
-        } catch (error) {
-            throw new NotFoundException('Medication not found');
-        }
+        });
     }
 
 
@@ -110,13 +136,11 @@ export class PharmacyService {
     async createPrescription(dto: CreatePrescriptionDto) {
         return this.prisma.$transaction(async (tx: any) => {
             // 1. Generate unique prescription number
+            // Fix NEW-1: Use the canonical nextSequenceValue atomic helper (INSERT ... ON CONFLICT RETURNING)
+            // instead of the racy Prisma upsert pattern which had a two-trip SELECT race.
             const currentYear = new Date().getFullYear();
-            const seq = await tx.prescriptionSequence.upsert({
-                where: { id_year: { id: 1, year: currentYear } },
-                update: { lastValue: { increment: 1 } },
-                create: { id: 1, year: currentYear, lastValue: 1 },
-            });
-            const rxNumber = `RX-${currentYear}-${seq.lastValue.toString().padStart(6, '0')}`;
+            const seqVal = await nextSequenceValue(tx, 'prescription_sequences', currentYear);
+            const rxNumber = `RX-${currentYear}-${String(seqVal).padStart(6, '0')}`;
 
             // 2. Create Prescription
             return tx.prescription.create({
@@ -124,6 +148,7 @@ export class PharmacyService {
                     prescriptionNumber: rxNumber,
                     patientId: dto.patientId,
                     admissionId: dto.admissionId,
+                    opVisitId: dto.opVisitId,
                     doctorId: dto.doctorId,
                     notes: dto.notes,
                     status: 'PENDING',
@@ -170,20 +195,25 @@ export class PharmacyService {
                 const qtyToDispenseThisTime = dispenseInput.dispensedQty;
                 if (qtyToDispenseThisTime <= 0) continue; // No new dispensing
 
-                if (rxItem.medication.stockAvailable < qtyToDispenseThisTime) {
-                    throw new BadRequestException(`Insufficient stock for ${rxItem.medication.drugName}. Available: ${rxItem.medication.stockAvailable}, Requested: ${qtyToDispenseThisTime}`);
-                }
-
                 const newTotalDispensed = rxItem.dispensedQty + qtyToDispenseThisTime;
                 if (newTotalDispensed < rxItem.prescribedQty) {
                     allFullyDispensed = false;
                 }
 
-                // 1. Deduct Stock
-                await tx.medication.update({
-                    where: { id: rxItem.medication.id },
-                    data: { stockAvailable: { decrement: qtyToDispenseThisTime } }
-                });
+                // 1. Deduct Stock - Atomic conditional decrement
+                const stockResult: number = await tx.$executeRaw`
+                    UPDATE medications
+                    SET stock_available = stock_available - ${qtyToDispenseThisTime},
+                        updated_at = NOW()
+                    WHERE id = ${rxItem.medication.id}
+                      AND stock_available >= ${qtyToDispenseThisTime}
+                `;
+                if (stockResult === 0) {
+                    throw new BadRequestException(
+                        `Insufficient stock for ${rxItem.medication.drugName}. ` +
+                        `Requested: ${qtyToDispenseThisTime} — stock may have changed. Please refresh and retry.`
+                    );
+                }
 
                 // 2. Update Prescription Item
                 await tx.prescriptionItem.update({
@@ -193,12 +223,13 @@ export class PharmacyService {
 
                 // 3. Prepare Bill Item (if IP admission exists)
                 if (rx.admissionId) {
+                    const pharmServiceId = await getPharmacyServiceId();
                     const itemTotal = Number(rxItem.medication.unitPrice) * qtyToDispenseThisTime;
                     totalAmountToBill += itemTotal;
                     billedItemsToCreate.push({
-                        serviceId: rxItem.medication.id, // using medication ID as service ID
-                        serviceName: `Pharmacy: ${rxItem.medication.drugName}`,
-                        serviceCode: `PHARM-${rxItem.medication.id.substring(0, 6)}`,
+                        serviceId: pharmServiceId,
+                        serviceName: `Pharmacy: ${rxItem.medication.drugName} (${rxItem.medication.strength})`,
+                        serviceCode: `RX-${rxItem.medication.id.substring(0, 8).toUpperCase()}`,
                         quantity: qtyToDispenseThisTime,
                         unitPrice: rxItem.medication.unitPrice,
                         totalPrice: itemTotal,
@@ -237,14 +268,22 @@ export class PharmacyService {
                         }))
                     });
 
-                    // Update bill totals
+                    // Recalculate all totals properly
+                    const allItems = await tx.billItem.findMany({ where: { billId: activeBill.id } });
+                    let totalAmt = 0, discAmt = 0, taxAmt = 0, netAmt = 0;
+                    for (const item of allItems) {
+                        const gross = parseFloat(item.unitPrice.toString()) * item.quantity;
+                        const disc = gross * parseFloat(item.discountPercent.toString()) / 100;
+                        const preTax = gross - disc;
+                        const tax = preTax * parseFloat(item.taxPercent.toString()) / 100;
+                        totalAmt += gross; discAmt += disc; taxAmt += tax; netAmt += preTax + tax;
+                    }
+                    const payments = await tx.payment.findMany({ where: { billId: activeBill.id } });
+                    const paidAmt = payments.reduce((s: number, p: any) => s + parseFloat(p.amount.toString()), 0);
+                    
                     await tx.bill.update({
                         where: { id: activeBill.id },
-                        data: {
-                            totalAmount: { increment: totalAmountToBill },
-                            netAmount: { increment: totalAmountToBill },
-                            dueAmount: { increment: totalAmountToBill }
-                        }
+                        data: { totalAmount: totalAmt, discountAmount: discAmt, taxAmount: taxAmt, netAmount: netAmt, paidAmount: paidAmt, dueAmount: Math.max(0, netAmt - paidAmt) }
                     });
                 }
             }
@@ -278,12 +317,13 @@ export class PharmacyService {
 
                     // 2. Prepare refund line (if IP admission)
                     if (rx.admissionId) {
+                        const pharmServiceId = await getPharmacyServiceId();
                         const refundTotal = Number(item.medication.unitPrice) * item.dispensedQty;
                         totalAmountToRefund += refundTotal;
                         billedItemsToCreate.push({
-                            serviceId: item.medication.id,
-                            serviceName: `Pharmacy Return: ${item.medication.drugName}`,
-                            serviceCode: `RET-${item.medication.id.substring(0, 6)}`,
+                            serviceId: pharmServiceId,
+                            serviceName: `Pharmacy Return: ${item.medication.drugName} (${item.medication.strength})`,
+                            serviceCode: `RET-${item.medication.id.substring(0, 8).toUpperCase()}`,
                             quantity: -item.dispensedQty,
                             unitPrice: item.medication.unitPrice,
                             totalPrice: -refundTotal,
@@ -310,13 +350,23 @@ export class PharmacyService {
                     await tx.billItem.createMany({
                         data: billedItemsToCreate.map(item => ({ ...item, billId: activeBill.id }))
                     });
+
+                    // Recalculate all totals properly (handles tax/discount correctly)
+                    const allItems = await tx.billItem.findMany({ where: { billId: activeBill.id } });
+                    let totalAmt = 0, discAmt = 0, taxAmt = 0, netAmt = 0;
+                    for (const item of allItems) {
+                        const gross = parseFloat(item.unitPrice.toString()) * item.quantity;
+                        const disc = gross * parseFloat(item.discountPercent.toString()) / 100;
+                        const preTax = gross - disc;
+                        const tax = preTax * parseFloat(item.taxPercent.toString()) / 100;
+                        totalAmt += gross; discAmt += disc; taxAmt += tax; netAmt += preTax + tax;
+                    }
+                    const payments = await tx.payment.findMany({ where: { billId: activeBill.id } });
+                    const paidAmt = payments.reduce((s: number, p: any) => s + parseFloat(p.amount.toString()), 0);
+                    
                     await tx.bill.update({
                         where: { id: activeBill.id },
-                        data: {
-                            totalAmount: { decrement: totalAmountToRefund },
-                            netAmount: { decrement: totalAmountToRefund },
-                            dueAmount: { decrement: totalAmountToRefund }
-                        }
+                        data: { totalAmount: totalAmt, discountAmount: discAmt, taxAmount: taxAmt, netAmount: netAmt, paidAmount: paidAmt, dueAmount: Math.max(0, netAmt - paidAmt) }
                     });
                 }
             }
@@ -457,15 +507,35 @@ export class PharmacyService {
             });
 
             if (!medication) {
-                throw new Error('Medication not found');
-            }
-
-            const newStock = medication.stockAvailable + dto.quantity;
-            if (newStock < 0) {
-                throw new Error(`Insufficient stock for ${medication.drugName}. Current: ${medication.stockAvailable}, Attempted deduction: ${Math.abs(dto.quantity)}`);
+                throw new NotFoundException('Medication not found');
             }
 
             const adjustmentType = dto.quantity > 0 ? 'RESTOCK' : 'WRITE_OFF';
+
+            // Fix RESIDUAL-3: For write-offs (negative qty), use atomic conditional SQL UPDATE
+            // to prevent concurrent over-deduction — same pattern as dispensePrescription.
+            if (dto.quantity < 0) {
+                const absQty = Math.abs(dto.quantity);
+                const affected: number = await tx.$executeRaw`
+                    UPDATE medications
+                    SET stock_available = stock_available - ${absQty},
+                        updated_at = NOW()
+                    WHERE id = ${medicationId}
+                      AND stock_available >= ${absQty}
+                `;
+                if (affected === 0) {
+                    throw new BadRequestException(
+                        `Insufficient stock for ${medication.drugName}. ` +
+                        `Requested deduction: ${absQty}. Refresh and retry.`
+                    );
+                }
+            } else {
+                // Restocks are always safe — no contention risk
+                await tx.medication.update({
+                    where: { id: medicationId },
+                    data: { stockAvailable: { increment: dto.quantity } },
+                });
+            }
 
             const adjustment = await tx.stockAdjustment.create({
                 data: {
@@ -476,11 +546,6 @@ export class PharmacyService {
                     reason: dto.reason,
                     performedBy: dto.performedBy
                 }
-            });
-
-            await tx.medication.update({
-                where: { id: medicationId },
-                data: { stockAvailable: newStock }
             });
 
             return adjustment;

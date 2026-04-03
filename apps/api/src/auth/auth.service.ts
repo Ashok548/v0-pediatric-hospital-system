@@ -124,9 +124,7 @@ export class AuthService {
         let inpatients = 0;
         try {
             inpatients = await prisma.admission.count({
-                // In future, uncomment below line when admittingDoctorId is fully enforced
-                // where: { status: 'ADMITTED', admittingDoctorId: userId }
-                where: { status: 'ADMITTED' }
+                where: { status: 'ADMITTED', admittingDoctorId: userId }
             });
         } catch (e) { }
 

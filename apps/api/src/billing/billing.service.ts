@@ -10,6 +10,7 @@ import { prisma } from "@carenest/database";
 import { CreateBillDto, AddBillItemDto, RecordPaymentDto, QueryBillsDto, BillingStatsQueryDto } from "./dto/billing.dto";
 import { BillStatus, PaymentMode } from "@carenest/database";
 import { OPVisitsService } from "../op-visits/op-visits.service";
+import { nextSequenceValue } from "../common/sequence.util";
 
 // Reusable Include Projection
 const BILL_INCLUDE = {
@@ -77,24 +78,14 @@ export class BillingService {
         return prisma.$transaction(async (tx: any) => {
             // FIX P0-2: Bill number is now generated inside the transaction to prevent burned sequences on rollback
             const year = new Date().getFullYear();
-            const seqUpdated = await tx.$executeRaw`
-                UPDATE bill_sequences SET last_value = last_value + 1, updated_at = NOW() WHERE id = 1 AND year = ${year}
-            `;
-            if (seqUpdated === 0) {
-                await tx.billSequence.upsert({
-                    where: { id_year: { id: 1, year } },
-                    update: { year, lastValue: 1 },
-                    create: { id: 1, year, lastValue: 1 },
-                });
-            }
-            const billSeq = await tx.billSequence.findUnique({ where: { id_year: { id: 1, year } } });
-            const billNumber = `BILL-${year}-${String(billSeq!.lastValue).padStart(6, "0")}`;
+            const seqVal = await nextSequenceValue(tx, 'bill_sequences', year);
+            const billNumber = `BILL-${year}-${String(seqVal).padStart(6, '0')}`;
 
             let resolvedOpVisitId = dto.opVisitId;
 
             // FIX P0-2: If OP visit creation is needed, delegate to OPVisitsService to enforce state machine + audit
             if (!dto.admissionId && !dto.opVisitId && dto.doctorId && dto.department) {
-                const opVisit = await this.opVisitsService.create({
+                const opVisit = await this.opVisitsService.createWithTx(tx, {
                     patientId: dto.patientId,
                     appointmentId: dto.appointmentId,
                     doctorId: dto.doctorId,
@@ -104,12 +95,15 @@ export class BillingService {
                 resolvedOpVisitId = opVisit.id;
             }
 
-            // Sync Appointment Status to IN_PROGRESS when billing starts
+            // Fix GAP-4: Sync Appointment Status to IN_PROGRESS only if it's currently SCHEDULED
             if (dto.appointmentId) {
-                await tx.appointment.update({
-                    where: { id: dto.appointmentId },
-                    data: { status: 'IN_PROGRESS' }
-                });
+                const existingAppt = await tx.appointment.findUnique({ where: { id: dto.appointmentId } });
+                if (existingAppt && existingAppt.status === 'SCHEDULED') {
+                    await tx.appointment.update({
+                        where: { id: dto.appointmentId },
+                        data: { status: 'IN_PROGRESS' }
+                    });
+                }
             }
 
             const newBill = await tx.bill.create({
@@ -554,17 +548,21 @@ export class BillingService {
                 throw new BadRequestException("Cannot finalize an empty bill");
             }
 
-            // Transition parent components upon finalizing
+            // Fix NEW-2: Guard appointment COMPLETED transition — only apply if in a valid pre-completion state.
+            // Without this, a CANCELLED appointment could be silently un-cancelled by bill finalization.
             if (bill.appointmentId) {
-                await tx.appointment.update({
-                    where: { id: bill.appointmentId },
-                    data: { status: "COMPLETED" }
-                });
+                const apptToComplete = await tx.appointment.findUnique({ where: { id: bill.appointmentId } });
+                if (apptToComplete && ['SCHEDULED', 'IN_PROGRESS'].includes(apptToComplete.status)) {
+                    await tx.appointment.update({
+                        where: { id: bill.appointmentId },
+                        data: { status: "COMPLETED" }
+                    });
+                }
             }
 
             // FIX P0-3: Route OPVisit status update through OPVisitsService to enforce ALLOWED_TRANSITIONS guard
             if (bill.opVisitId) {
-                await this.opVisitsService.updateStatus(bill.opVisitId, { status: 'BILLED' }, userId);
+                await this.opVisitsService.updateStatusWithTx(tx, bill.opVisitId, 'BILLED', userId);
             }
 
             const updated = await tx.bill.update({

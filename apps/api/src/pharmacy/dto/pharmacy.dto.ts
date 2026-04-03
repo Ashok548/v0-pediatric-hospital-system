@@ -1,4 +1,4 @@
-import { IsString, IsInt, Min, IsArray, ValidateNested, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsInt, Min, IsArray, ValidateNested, IsOptional, IsEnum, IsUUID, ArrayMinSize } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PrescriptionStatus, MasterStatus } from '@carenest/database';
 
@@ -28,14 +28,18 @@ export class CreatePrescriptionItemDto {
 }
 
 export class CreatePrescriptionDto {
-    @IsString()
+    @IsUUID()
     patientId: string;
 
     @IsOptional()
     @IsString()
     admissionId?: string;
 
+    @IsOptional()
     @IsString()
+    opVisitId?: string;
+
+    @IsUUID()
     doctorId: string;
 
     @IsOptional()
@@ -43,6 +47,7 @@ export class CreatePrescriptionDto {
     notes?: string;
 
     @IsArray()
+    @ArrayMinSize(1, { message: 'Prescription must have at least one medication item' })
     @ValidateNested({ each: true })
     @Type(() => CreatePrescriptionItemDto)
     items: CreatePrescriptionItemDto[];

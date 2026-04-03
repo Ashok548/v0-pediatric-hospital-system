@@ -4,7 +4,8 @@ import {
     ConflictException,
     BadRequestException,
 } from "@nestjs/common";
-import { prisma } from "@carenest/database";
+import { prisma, Prisma } from "@carenest/database";
+import { nextSequenceValue } from '../common/sequence.util';
 import { CreateOPVisitDto, UpdateOPVisitStatusDto, QueryOPVisitsDto } from "./dto/op-visit.dto";
 
 const OP_VISIT_INCLUDE = {
@@ -22,95 +23,58 @@ const OP_VISIT_INCLUDE = {
 @Injectable()
 export class OPVisitsService {
 
-    // ─── Atomic OP Number Generator ─────────────────────────────────────────────
-    private async generateOPNumber(): Promise<string> {
-        const year = new Date().getFullYear();
+    // ─── NEW: Tx-aware internal methods (used by BillingService) ────────────
+    async createWithTx(tx: Prisma.TransactionClient, dto: CreateOPVisitDto, userId?: string): Promise<any> {
+        const patient = await tx.patient.findUnique({ where: { id: dto.patientId } });
+        if (!patient) throw new NotFoundException(`Patient ${dto.patientId} not found`);
 
-        const updated = await prisma.$executeRaw`
-            UPDATE op_visit_sequences
-            SET last_value = last_value + 1, updated_at = NOW()
-            WHERE id = 1 AND year = ${year}
-        `;
-
-        if (updated === 0) {
-            await prisma.oPVisitSequence.upsert({
-                where: { id_year: { id: 1, year } },
-                update: { year, lastValue: 1 },
-                create: { id: 1, year, lastValue: 1 },
-            });
+        if (dto.appointmentId) {
+            const appt = await tx.appointment.findUnique({ where: { id: dto.appointmentId } });
+            if (!appt) throw new NotFoundException(`Appointment ${dto.appointmentId} not found`);
+            if (appt.patientId !== dto.patientId)
+                throw new BadRequestException('Appointment does not belong to this patient');
+            const existing = await tx.oPVisit.findUnique({ where: { appointmentId: dto.appointmentId } });
+            if (existing)
+                throw new ConflictException(`OP visit already exists for this appointment: ${existing.opNumber}`);
         }
 
-        const seq = await prisma.oPVisitSequence.findUnique({
-            where: { id_year: { id: 1, year } },
+        const year = new Date().getFullYear();
+        const seqVal = await nextSequenceValue(tx, 'op_visit_sequences', year);
+        const opNumber = `OP-${year}-${String(seqVal).padStart(6, '0')}`;
+
+        const opVisit = await tx.oPVisit.create({
+            data: { opNumber, patientId: dto.patientId, appointmentId: dto.appointmentId, doctorId: dto.doctorId, department: dto.department, notes: dto.notes },
+            include: OP_VISIT_INCLUDE,
         });
 
-        return `OP-${year}-${String(seq!.lastValue).padStart(6, "0")}`;
+        await tx.auditLog.create({
+            data: { entity: 'OPVisit', entityId: opVisit.id, action: 'CREATE', oldValue: null, newValue: 'REGISTERED', userId: userId ?? null }
+        });
+        return opVisit;
+    }
+
+    async updateStatusWithTx(tx: Prisma.TransactionClient, id: string, newStatus: string, userId?: string): Promise<any> {
+        const visit = await tx.oPVisit.findUnique({ where: { id } });
+        if (!visit) throw new NotFoundException(`OP Visit ${id} not found`);
+
+        const allowed = OPVisitsService.ALLOWED_TRANSITIONS[visit.status] || [];
+        if (!allowed.includes(newStatus))
+            throw new BadRequestException(`Invalid transition from ${visit.status} to ${newStatus}`);
+
+        const updated = await tx.oPVisit.update({
+            where: { id },
+            data: { status: newStatus as any },
+            include: OP_VISIT_INCLUDE,
+        });
+        await tx.auditLog.create({
+            data: { entity: 'OPVisit', entityId: id, action: 'STATUS_CHANGE', oldValue: visit.status, newValue: newStatus, userId: userId ?? null }
+        });
+        return updated;
     }
 
     // ─── Create OP Visit ─────────────────────────────────────────────────────────
     async create(dto: CreateOPVisitDto, userId?: string) {
-        // Validate patient
-        const patient = await prisma.patient.findUnique({ where: { id: dto.patientId } });
-        if (!patient) throw new NotFoundException(`Patient ${dto.patientId} not found`);
-
-        // Validate appointment if provided & check for duplicate
-        if (dto.appointmentId) {
-            const appt = await prisma.appointment.findUnique({ where: { id: dto.appointmentId } });
-            if (!appt) throw new NotFoundException(`Appointment ${dto.appointmentId} not found`);
-            if (appt.patientId !== dto.patientId) {
-                throw new BadRequestException("Appointment does not belong to this patient");
-            }
-            // Check if an OP visit already exists for this appointment
-            const existing = await prisma.oPVisit.findUnique({ where: { appointmentId: dto.appointmentId } });
-            if (existing) {
-                throw new ConflictException(`OP visit already generated for this appointment: ${existing.opNumber}`);
-            }
-        }
-
-        return prisma.$transaction(async (tx: any) => {
-            const year = new Date().getFullYear();
-            const updated = await tx.$executeRaw`
-                UPDATE op_visit_sequences SET last_value = last_value + 1, updated_at = NOW() WHERE id = 1 AND year = ${year}
-            `;
-
-            if (updated === 0) {
-                await tx.oPVisitSequence.upsert({
-                    where: { id_year: { id: 1, year } },
-                    update: { year, lastValue: 1 },
-                    create: { id: 1, year, lastValue: 1 },
-                });
-            }
-
-            const seq = await tx.oPVisitSequence.findUnique({
-                where: { id_year: { id: 1, year } },
-            });
-            const opNumber = `OP-${year}-${String(seq!.lastValue).padStart(6, "0")}`;
-
-            const opVisit = await tx.oPVisit.create({
-                data: {
-                    opNumber,
-                    patientId: dto.patientId,
-                    appointmentId: dto.appointmentId,
-                    doctorId: dto.doctorId,
-                    department: dto.department,
-                    notes: dto.notes,
-                },
-                include: OP_VISIT_INCLUDE,
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    entity: 'OPVisit',
-                    entityId: opVisit.id,
-                    action: 'CREATE',
-                    oldValue: null,
-                    newValue: 'REGISTERED',
-                    userId: userId ?? null,
-                }
-            });
-
-            return opVisit;
-        });
+        return prisma.$transaction(async (tx: any) => this.createWithTx(tx, dto, userId));
     }
 
     // ─── Find All ────────────────────────────────────────────────────────────────
@@ -125,17 +89,18 @@ export class OPVisitsService {
         if (query.status) where.status = query.status;
 
         if (query.date) {
-            const start = new Date(query.date);
-            start.setUTCHours(0, 0, 0, 0);
-            const end = new Date(start);
-            end.setUTCHours(23, 59, 59, 999);
+            const dateStr = query.date.split('T')[0];
+            const start = new Date(`${dateStr}T00:00:00.000Z`);
+            const end = new Date(`${dateStr}T23:59:59.999Z`);
             where.visitDate = { gte: start, lte: end };
         } else if (!query.patientId) {
-            // Default to today in UTC
-            const start = new Date();
-            start.setUTCHours(0, 0, 0, 0);
-            const end = new Date(start);
-            end.setUTCHours(23, 59, 59, 999);
+            // Default to today mapped to UTC
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            const start = new Date(`${year}-${month}-${day}T00:00:00.000Z`);
+            const end = new Date(`${year}-${month}-${day}T23:59:59.999Z`);
             where.visitDate = { gte: start, lte: end };
         }
 
@@ -175,50 +140,6 @@ export class OPVisitsService {
 
     // ─── Update Status ───────────────────────────────────────────────────────────
     async updateStatus(id: string, dto: UpdateOPVisitStatusDto, userId?: string) {
-        return prisma.$transaction(async (tx: any) => {
-            const visit = await tx.oPVisit.findUnique({ where: { id } });
-            if (!visit) throw new NotFoundException(`OP Visit ${id} not found`);
-
-            const currentStatus = visit.status;
-            const newStatus = dto.status;
-
-            if (currentStatus === newStatus) {
-                await tx.auditLog.create({
-                    data: {
-                        entity: 'OPVisit',
-                        entityId: id,
-                        action: 'STATUS_NOOP',
-                        oldValue: currentStatus,
-                        newValue: newStatus,
-                        userId: userId,
-                    }
-                });
-                return tx.oPVisit.findUnique({ where: { id }, include: OP_VISIT_INCLUDE });
-            }
-
-            const allowed = OPVisitsService.ALLOWED_TRANSITIONS[currentStatus] || [];
-            if (!allowed.includes(newStatus)) {
-                throw new BadRequestException(`Invalid transition from ${currentStatus} to ${newStatus}`);
-            }
-
-            const updatedVisit = await tx.oPVisit.update({
-                where: { id },
-                data: { status: newStatus as any },
-                include: OP_VISIT_INCLUDE,
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    entity: 'OPVisit',
-                    entityId: id,
-                    action: 'STATUS_CHANGE',
-                    oldValue: currentStatus,
-                    newValue: newStatus,
-                    userId: userId,
-                }
-            });
-
-            return updatedVisit;
-        });
+        return prisma.$transaction(async (tx: any) => this.updateStatusWithTx(tx, id, dto.status, userId));
     }
 }

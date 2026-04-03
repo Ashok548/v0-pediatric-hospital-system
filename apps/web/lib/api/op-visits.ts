@@ -11,7 +11,7 @@ export interface OPVisit {
     doctorId?: string;
     department: string;
     visitDate: string;
-    status: "REGISTERED" | "IN_PROGRESS" | "COMPLETED" | "BILLED" | "CANCELLED";
+    status: "REGISTERED" | "TRIAGED" | "PRE_CONSULT" | "CONSULTING" | "ORDERS_PLACED" | "IN_PROGRESS" | "COMPLETED" | "BILLED" | "CANCELLED" | "CONVERTED_TO_ER";
     notes?: string;
     patient: {
         id: string;

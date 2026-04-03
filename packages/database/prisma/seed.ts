@@ -10,6 +10,8 @@ const ROLES = [
     { name: "NURSE", description: "Nursing staff — patient care and vitals" },
     { name: "RECEPTIONIST", description: "Front desk — appointments and admissions" },
     { name: "BILLING", description: "Billing department — invoicing and payments" },
+    { name: "PHARMACIST", description: "Pharmacy staff — dispensing and inventory" },
+    { name: "LAB_TECHNICIAN", description: "Lab staff — sample processing and results" },
 ];
 
 const USERS = [
@@ -18,6 +20,8 @@ const USERS = [
     { name: "Nurse Anita", email: "nurse@carenest.com", phone: "9000000003", password: "Nurse@1234", roleName: "NURSE" },
     { name: "Reception Desk", email: "reception@carenest.com", phone: "9000000004", password: "Recept@1234", roleName: "RECEPTIONIST" },
     { name: "Billing Staff", email: "billing@carenest.com", phone: "9000000005", password: "Billing@1234", roleName: "BILLING" },
+    { name: "Pharmacy Staff", email: "pharmacy@carenest.com", phone: "9000000006", password: "Pharma@1234", roleName: "PHARMACIST" },
+    { name: "Lab Technician", email: "lab@carenest.com", phone: "9000000007", password: "Lab@1234", roleName: "LAB_TECHNICIAN" },
 ];
 
 async function main() {
@@ -182,6 +186,29 @@ async function main() {
         });
         console.log(`✅ Lab Profile: ${profile.panelName}`);
     }
+
+    // Seed pharmacy dispensing sentinel service (used by pharmacy billing)
+    const pharmService = await prisma.service.upsert({
+        where: { code: 'PHARM-DISPENSE' },
+        update: {},
+        create: {
+            code: 'PHARM-DISPENSE',
+            name: 'Pharmacy Dispensing',
+            category: 'MISC',
+            billingType: 'PROCEDURE',
+            careType: 'BOTH',
+            basePrice: 0,
+            taxPercent: 0,
+            intent: 'PHARMACY',
+            status: 'ACTIVE',
+            autoAddTrigger: 'NONE',
+            isDefault: false,
+            uiGroup: 'Pharmacy',
+            displayOrder: 999,
+            autoAddPriority: 999,
+        }
+    });
+    console.log(`✅ Pharmacy sentinel service: ${pharmService.id} (PHARM-DISPENSE)`);
 
     console.log("✨ Seed complete.");
 }

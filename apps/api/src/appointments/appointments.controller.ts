@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Body, Patch, Param, Query, Delete, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Query, Delete, HttpCode, HttpStatus, Request } from '@nestjs/common';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { AppointmentsService } from './appointments.service';
 import { CreateAppointmentDto, UpdateAppointmentStatusDto, RescheduleAppointmentDto } from './dto/create-appointment.dto';
 import { ApptStatus } from '@carenest/database';
@@ -8,6 +9,7 @@ export class AppointmentsController {
     constructor(private readonly appointmentsService: AppointmentsService) { }
 
     @Post()
+    @Roles('RECEPTIONIST', 'ADMIN', 'DOCTOR')
     create(@Body() createAppointmentDto: CreateAppointmentDto) {
         return this.appointmentsService.create(createAppointmentDto);
     }
@@ -65,14 +67,17 @@ export class AppointmentsController {
     }
 
     @Patch(':id/status')
+    @Roles('RECEPTIONIST', 'ADMIN', 'DOCTOR', 'NURSE')
     updateStatus(
         @Param('id') id: string,
         @Body() updateDto: UpdateAppointmentStatusDto,
+        @Request() req: any,
     ) {
-        return this.appointmentsService.updateStatus(id, updateDto);
+        return this.appointmentsService.updateStatus(id, updateDto, req.user?.sub);
     }
 
     @Patch(':id/reschedule')
+    @Roles('RECEPTIONIST', 'ADMIN', 'DOCTOR')
     reschedule(
         @Param('id') id: string,
         @Body() dto: RescheduleAppointmentDto,
@@ -81,6 +86,7 @@ export class AppointmentsController {
     }
 
     @Delete(':id')
+    @Roles('ADMIN', 'RECEPTIONIST')
     @HttpCode(HttpStatus.OK)
     remove(@Param('id') id: string) {
         return this.appointmentsService.remove(id);

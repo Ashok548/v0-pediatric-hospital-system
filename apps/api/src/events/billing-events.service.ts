@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { prisma } from '@carenest/database';
 import { BillStatus } from '@carenest/database';
+import { nextSequenceValue } from '../common/sequence.util';
 
 interface OrdersSignedPayload {
     consultationId: string;
@@ -29,31 +30,28 @@ export class BillingEventsService {
             return;
         }
 
-        // Guard: If a non-cancelled bill already exists for this OP visit, do not create a duplicate
-        const existingBill = await prisma.bill.findFirst({
-            where: { opVisitId, status: { not: BillStatus.CANCELLED } }
-        });
-
-        if (existingBill) {
-            this.logger.debug(`Bill ${existingBill.billNumber} already exists for OPVisit ${opVisitId} — skipping.`);
-            return;
-        }
-
-        // Auto-generate bill number inside a transaction
+        // Fix RESIDUAL-2: Move the idempotency check INSIDE the transaction.
+        // The previous pattern had a TOCTOU race: two concurrent OrdersSigned events for the same
+        // opVisitId could both pass the outer findFirst check and then both create a bill.
+        // Inside the transaction we lock the oPVisit row first (SELECT FOR UPDATE via $executeRaw),
+        // ensuring only one concurrent path can proceed.
         await prisma.$transaction(async (tx: any) => {
-            const year = new Date().getFullYear();
-            const seqUpdated = await tx.$executeRaw`
-                UPDATE bill_sequences SET last_value = last_value + 1, updated_at = NOW() WHERE id = 1 AND year = ${year}
-            `;
-            if (seqUpdated === 0) {
-                await tx.billSequence.upsert({
-                    where: { id_year: { id: 1, year } },
-                    update: { year, lastValue: 1 },
-                    create: { id: 1, year, lastValue: 1 },
-                });
+            // Acquire row-level lock on the OP visit to serialize concurrent events
+            await tx.$executeRaw`SELECT id FROM op_visits WHERE id = ${opVisitId} FOR UPDATE`;
+
+            // Re-check inside the transaction — this is now safe against concurrent events
+            const existingBill = await tx.bill.findFirst({
+                where: { opVisitId, status: { not: BillStatus.CANCELLED } }
+            });
+
+            if (existingBill) {
+                this.logger.debug(`Bill ${existingBill.billNumber} already exists for OPVisit ${opVisitId} — skipping.`);
+                return;
             }
-            const billSeq = await tx.billSequence.findUnique({ where: { id_year: { id: 1, year } } });
-            const billNumber = `BILL-${year}-${String(billSeq!.lastValue).padStart(6, '0')}`;
+
+            const year = new Date().getFullYear();
+            const seqVal = await nextSequenceValue(tx, 'bill_sequences', year);
+            const billNumber = `BILL-${year}-${String(seqVal).padStart(6, '0')}`;
 
             const newBill = await tx.bill.create({
                 data: {
@@ -65,11 +63,70 @@ export class BillingEventsService {
                 }
             });
 
+            let auditUserId = payload.doctorId;
+
+            // Auto-add ON_OP_CREATION services for the visit's department
+            const visit = await tx.oPVisit.findUnique({
+                where: { id: opVisitId },
+                include: { doctor: { select: { name: true, consultationFee: true } } }
+            });
+
+            if (visit) {
+                let billGross = 0;
+                let billTax = 0;
+
+                const autoServices = await tx.service.findMany({
+                    where: {
+                        autoAddTrigger: 'ON_OP_CREATION',
+                        isDefault: true,
+                        status: 'ACTIVE',
+                        departments: { some: { department: { name: visit.department } } }
+                    },
+                    orderBy: { autoAddPriority: 'asc' }
+                });
+
+                for (const svc of autoServices) {
+                    const price = parseFloat(svc.basePrice.toString());
+                    const tax = price * parseFloat(svc.taxPercent.toString()) / 100;
+                    await tx.billItem.create({
+                        data: {
+                            billId: newBill.id,
+                            serviceId: svc.id,
+                            serviceName: svc.name,
+                            serviceCode: svc.code,
+                            quantity: 1,
+                            unitPrice: price,
+                            discountPercent: 0,
+                            discountAmount: 0,
+                            taxPercent: parseFloat(svc.taxPercent.toString()),
+                            taxAmount: tax,
+                            totalPrice: price + tax,
+                        }
+                    });
+                    billGross += price;
+                    billTax += tax;
+                }
+
+                // Update bill totals
+                const netAmount = billGross + billTax;
+                if (netAmount > 0) {
+                    await tx.bill.update({
+                        where: { id: newBill.id },
+                        data: { 
+                            totalAmount: billGross, 
+                            taxAmount: billTax, 
+                            netAmount: netAmount, 
+                            dueAmount: netAmount 
+                        }
+                    });
+                }
+            }
+
             await tx.auditLog.create({
                 data: {
                     entity: 'Bill', entityId: newBill.id, action: 'AUTO_CREATE',
                     oldValue: null, newValue: BillStatus.DRAFT,
-                    userId: payload.doctorId
+                    userId: auditUserId
                 }
             });
 
