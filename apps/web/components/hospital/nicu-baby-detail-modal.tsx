@@ -410,6 +410,12 @@ export function NicuBabyDetailModal({ admission, onClose }: { admission: ApiNicu
                                 <tr><td colSpan={8} className="p-8 text-center text-muted-foreground">No vitals recorded</td></tr>
                             ) : vitals.map(v => {
                                 const ts = deriveNicuStatus(v, null)
+                                const temperatureLevel = v.temperature != null
+                                    ? getVitalLevel("temperature", Number(v.temperature))
+                                    : "normal"
+                                const respiratoryLevel = v.respiratoryRate != null
+                                    ? getVitalLevel("respiratoryRate", v.respiratoryRate)
+                                    : "normal"
                                 return (
                                     <tr key={v.id} className={cn("hover:bg-muted/30 transition-colors", v.isCritical && "bg-destructive/5")}>
                                         <td className="px-4 py-3 whitespace-nowrap">
@@ -420,8 +426,8 @@ export function NicuBabyDetailModal({ admission, onClose }: { admission: ApiNicu
                                         </td>
                                         <td className="px-4 py-3"><VitalTxt val={v.heartRate} lvl={getVitalLevel("heartRate", v.heartRate)} /></td>
                                         <td className="px-4 py-3"><VitalTxt val={v.spo2} lvl={getVitalLevel("spo2", v.spo2)} sfx="%" /></td>
-                                        <td className="px-4 py-3"><VitalTxt val={v.temperature ? Number(v.temperature).toFixed(1) : null} lvl={getVitalLevel("temperature", Number(v.temperature))} sfx="°" /></td>
-                                        <td className="px-4 py-3"><VitalTxt val={v.respiratoryRate} lvl={getVitalLevel("respiratoryRate", v.respiratoryRate)} /></td>
+                                        <td className="px-4 py-3"><VitalTxt val={v.temperature != null ? Number(v.temperature).toFixed(1) : null} lvl={temperatureLevel} sfx="°" /></td>
+                                        <td className="px-4 py-3"><VitalTxt val={v.respiratoryRate} lvl={respiratoryLevel} /></td>
                                         <td className="px-4 py-3">{v.bloodPressureSystolic ? `${v.bloodPressureSystolic}/${v.bloodPressureDiastolic}` : "—"}</td>
                                         <td className="px-4 py-3">{v.weight ? `${v.weight}kg` : "—"}</td>
                                         <td className="px-4 py-3 text-right">

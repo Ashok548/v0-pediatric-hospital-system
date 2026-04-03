@@ -31,6 +31,7 @@ export interface ApiPrescriptionItem {
     frequency?: string;
     duration?: number;
     instructions?: string;
+    route?: string;
 }
 
 export interface ApiPrescription {
@@ -60,10 +61,34 @@ export interface ApiPrescription {
     };
     status: 'PENDING' | 'PARTIAL' | 'DISPENSED' | 'RETURNED' | 'CANCELLED';
     notes?: string;
+    advice?: string;
+    followUpDays?: number;
     orderedAt: string;
     dispensedAt?: string;
     dispensedBy?: string;
     items: ApiPrescriptionItem[];
+}
+
+export interface CreatePrescriptionItemPayload {
+    medicationId: string;
+    prescribedQty: number;
+    dose?: string;
+    frequency?: string;
+    duration?: number;
+    instructions?: string;
+    route?: string;
+}
+
+export interface CreatePrescriptionPayload {
+    patientId: string;
+    admissionId?: string;
+    appointmentId?: string;
+    opVisitId?: string;
+    doctorId?: string;
+    notes?: string;
+    advice?: string;
+    followUpDays?: number;
+    items: CreatePrescriptionItemPayload[];
 }
 
 export interface PharmacyStats {
@@ -148,8 +173,8 @@ export async function returnPrescription(id: string, reason: string) {
     return apiClient<{ success: boolean }>(`/pharmacy/prescriptions/${id}/return`, { method: "POST", body: JSON.stringify({ reason }) });
 }
 
-export async function createPrescription(payload: any) {
-    return apiClient(`/pharmacy/prescriptions`, { method: "POST", body: JSON.stringify(payload) });
+export async function createPrescription(payload: CreatePrescriptionPayload) {
+    return apiClient<{ data: ApiPrescription }>(`/pharmacy/prescriptions`, { method: "POST", body: JSON.stringify(payload) });
 }
 
 export async function adjustStock(medicationId: string, payload: { quantity: number; batchNumber?: string; reason?: string }) {

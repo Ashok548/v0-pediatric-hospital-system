@@ -25,6 +25,10 @@ export class CreatePrescriptionItemDto {
     @IsOptional()
     @IsString()
     instructions?: string;
+
+    @IsOptional()
+    @IsString()
+    route?: string;
 }
 
 export class CreatePrescriptionDto {
@@ -50,6 +54,15 @@ export class CreatePrescriptionDto {
     @IsOptional()
     @IsString()
     notes?: string;
+
+    @IsOptional()
+    @IsString()
+    advice?: string;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    followUpDays?: number;
 
     @IsArray()
     @ArrayMinSize(1, { message: 'Prescription must have at least one medication item' })

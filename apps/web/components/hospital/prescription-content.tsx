@@ -1,41 +1,42 @@
 "use client"
 
-import { useState, useCallback } from "react"
-import {
-  ArrowLeft,
-  Baby,
-  CalendarDays,
-  User2,
-  Stethoscope,
-  Weight,
-  Plus,
-  Trash2,
-  AlertTriangle,
-  ShieldAlert,
-  CheckCircle2,
-  Printer,
-  Download,
-  Pill,
-  Clock,
-  Info,
-  Search,
-  XCircle,
-  AlertOctagon,
-  Loader2,
-} from "lucide-react"
+import { type Dispatch, type SetStateAction, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { cn } from "@/lib/utils"
-import { usePharmacyInventory, createPrescription } from "@/lib/api/pharmacy"
-import { usePatients, usePatient } from "@/lib/api/patients"
-import { useAuthStore } from "@/lib/store/auth-store"
-import { VoiceRecorder } from "@/components/VoiceRecorder"
-import { appendTranscript } from "@/lib/utils/transcript"
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Loader2,
+  Mic,
+  Plus,
+  Printer,
+  Save,
+  ShieldAlert,
+} from "lucide-react"
 import { toast } from "sonner"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+
+import { PatientHeader } from "@/components/hospital/patient-header-rx"
+import {
+  InvestigationRow,
+  type InvestigationRowData,
+  type InvestigationReferenceType,
+  type InvestigationSuggestion,
+  type InvestigationType,
+} from "@/components/hospital/investigation-row"
+import {
+  PrescriptionRow,
+  type PrescriptionDrugSuggestion,
+  type PrescriptionRowData,
+} from "@/components/hospital/prescription-row"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   Select,
   SelectContent,
@@ -43,31 +44,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog"
+import { Textarea } from "@/components/ui/textarea"
+import { usePatientAdmissions } from "@/lib/api/admissions"
+import { createLabOrder, useLabMasterProfiles } from "@/lib/api/labs"
+import { useAdmissionVitals, usePatientGrowth } from "@/lib/api/nicu"
+import type { PaginatedOPVisits } from "@/lib/api/op-visits"
+import { type ApiMedication, createPrescription, usePharmacyInventory } from "@/lib/api/pharmacy"
+import { usePatient } from "@/lib/api/patients"
+import { useServices } from "@/lib/api/services"
+import { useAuthStore } from "@/lib/store/auth-store"
+import { appendTranscript } from "@/lib/utils/transcript"
+import { cn } from "@/lib/utils"
+import { useQuery } from "@/hooks/use-query"
 
-// ─── Patient Data ──────────────────────────────────────────────
-function calcAgeDisplay(dateOfBirth: string): string {
-    if (!dateOfBirth) return "Unknown"
-    const dob = new Date(dateOfBirth)
-    const now = new Date()
-    let years = now.getFullYear() - dob.getFullYear()
-    let months = now.getMonth() - dob.getMonth()
-    let days = now.getDate() - dob.getDate()
-    if (days < 0) { months--; days += 30 }
-    if (months < 0) { years--; months += 12 }
-    if (years === 0 && months === 0) return `${days} days`
-    if (years === 0) return `${months} month${months !== 1 ? "s" : ""}`
-    return `${years}y ${months}mo`
-}
-
-// ─── Drug Database ─────────────────────────────────────────────
 interface Drug {
   id: string
   name: string
@@ -113,14 +102,14 @@ const drugDatabase: Drug[] = [
     defaultFrequency: "QID (6-hourly)",
     contraindications: ["Severe hepatic impairment"],
     interactions: ["Warfarin", "Carbamazepine"],
-    notes: "Do not exceed 60mg/kg/day. Min interval 4 hours between doses.",
+    notes: "Do not exceed 60mg/kg/day. Minimum interval 4 hours between doses.",
   },
   {
     id: "azithromycin",
     name: "Azithromycin",
     generic: "Azithromycin Dihydrate",
     category: "Antibiotic (Macrolide)",
-    forms: ["Suspension 100mg/5ml", "Suspension 200mg/5ml", "Tablet 250mg", "Tablet 500mg"],
+    forms: ["Suspension 100mg/5ml", "Suspension 200mg/5ml", "Tablet 250mg"],
     defaultForm: "Suspension 200mg/5ml",
     maxDosePerKg: 10,
     unit: "mg/kg/day",
@@ -128,7 +117,7 @@ const drugDatabase: Drug[] = [
     defaultFrequency: "OD (once daily)",
     contraindications: ["Hepatic dysfunction", "QT prolongation"],
     interactions: ["Amoxicillin", "Warfarin", "Antacids"],
-    notes: "Give 1 hour before or 2 hours after meals. Usual course: 3-5 days.",
+    notes: "Give 1 hour before or 2 hours after meals. Usual course is 3-5 days.",
   },
   {
     id: "cetirizine",
@@ -156,16 +145,16 @@ const drugDatabase: Drug[] = [
     unit: "mg/kg/day",
     frequencies: ["OD (once daily at bedtime)"],
     defaultFrequency: "OD (once daily at bedtime)",
-    contraindications: ["Phenylketonuria (chewable tablets contain phenylalanine)"],
+    contraindications: ["Phenylketonuria"],
     interactions: ["Phenobarbital", "Rifampicin"],
-    notes: "Administer in the evening. For children 2-5 years: 4mg/day.",
+    notes: "Administer in the evening. For children 2-5 years: 4mg daily.",
   },
   {
     id: "prednisolone",
     name: "Prednisolone",
     generic: "Prednisolone",
     category: "Corticosteroid",
-    forms: ["Syrup 5mg/5ml", "Syrup 15mg/5ml", "Tablet 5mg", "Tablet 10mg"],
+    forms: ["Syrup 5mg/5ml", "Tablet 5mg", "Tablet 10mg"],
     defaultForm: "Syrup 5mg/5ml",
     maxDosePerKg: 2,
     unit: "mg/kg/day",
@@ -173,7 +162,7 @@ const drugDatabase: Drug[] = [
     defaultFrequency: "OD (once daily)",
     contraindications: ["Systemic fungal infections", "Live vaccines"],
     interactions: ["NSAIDs", "Phenytoin", "Carbamazepine"],
-    notes: "Administer with food. Taper dose if used for > 5 days.",
+    notes: "Administer with food. Taper dose if used for more than 5 days.",
   },
   {
     id: "ondansetron",
@@ -186,9 +175,9 @@ const drugDatabase: Drug[] = [
     unit: "mg/kg/dose",
     frequencies: ["TID (8-hourly)", "BID (12-hourly)", "PRN (as needed)"],
     defaultFrequency: "TID (8-hourly)",
-    contraindications: ["QT prolongation", "Congenital long QT syndrome"],
+    contraindications: ["QT prolongation"],
     interactions: ["Apomorphine", "Tramadol"],
-    notes: "Max single dose: 4mg for children < 12 years.",
+    notes: "Maximum single dose is 4mg for children under 12 years.",
   },
   {
     id: "salbutamol",
@@ -198,872 +187,1130 @@ const drugDatabase: Drug[] = [
     forms: ["MDI 100mcg/puff", "Nebulisation 2.5mg/2.5ml", "Syrup 2mg/5ml"],
     defaultForm: "MDI 100mcg/puff",
     maxDosePerKg: 0.15,
-    unit: "mg/kg/dose (neb)",
+    unit: "mg/kg/dose",
     frequencies: ["QID (6-hourly)", "PRN (as needed)"],
-    defaultFrequency: "PRN (as needed)",
+    defaultFrequency: "QID (6-hourly)",
     contraindications: ["Hypertrophic obstructive cardiomyopathy"],
     interactions: ["Beta-blockers", "Digoxin"],
-    notes: "Use with spacer for MDI. 2 puffs standard for children 2-5 years.",
+    notes: "Use with spacer for inhaler delivery in younger children.",
   },
 ]
 
-// ─── Prescription Row Type ─────────────────────────────────────
-interface PrescriptionRow {
-  id: number
-  drugId: string // This will now be the DB medication.id
-  drugName: string
-  genericName: string
-  form: string
-  dose: string
-  frequency: string
-  duration: string
-  route: string
-  instructions: string
+const ADVICE_CHIPS = [
+  { label: "Hydration", value: "Ensure adequate hydration." },
+  { label: "Rest", value: "Ensure adequate rest." },
+  { label: "Breastfeeding", value: "Continue breastfeeding as usual." },
+  { label: "Steam", value: "Steam inhalation twice daily." },
+]
+
+const FOLLOW_UP_OPTIONS = [
+  { label: "2 days", value: "2" },
+  { label: "3 days", value: "3" },
+  { label: "5 days", value: "5" },
+  { label: "1 week", value: "7" },
+]
+
+const TABLE_COLUMNS = "minmax(220px,2.4fr) minmax(120px,1fr) minmax(170px,1.2fr) minmax(160px,1.1fr) minmax(110px,0.8fr) minmax(220px,1.8fr) 40px"
+const INVESTIGATION_TABLE_COLUMNS = "minmax(280px,2fr) minmax(260px,1.5fr) 40px"
+
+function createEmptyRow(): PrescriptionRowData {
+  return {
+    id: crypto.randomUUID(),
+    drugId: "",
+    drugName: "",
+    genericName: "",
+    dose: "",
+    frequency: "",
+    duration: "",
+    route: "Oral",
+    instructions: "",
+  }
 }
 
-// ─── Helpers ───────────────────────────────────────────────────
+function isRowBlank(row: PrescriptionRowData) {
+  return !row.drugName && !row.dose && !row.frequency && !row.duration && !row.instructions
+}
+
+function ensureTrailingEmptyRow(rows: PrescriptionRowData[]) {
+  if (rows.length === 0) return [createEmptyRow()]
+  return isRowBlank(rows[rows.length - 1]) ? rows : [...rows, createEmptyRow()]
+}
+
+function defaultSampleTypeForInvestigation(type: InvestigationType) {
+  return type === "SCAN" ? "Imaging" : "Blood"
+}
+
+function createEmptyInvestigationRow(type: InvestigationType): InvestigationRowData {
+  return {
+    id: crypto.randomUUID(),
+    testName: "",
+    referenceId: "",
+    referenceType: "" as InvestigationReferenceType,
+    type,
+    sampleType: defaultSampleTypeForInvestigation(type),
+    notes: "",
+  }
+}
+
+function isInvestigationRowBlank(row: InvestigationRowData) {
+  return !row.testName && !row.notes
+}
+
+function ensureTrailingEmptyInvestigationRow(rows: InvestigationRowData[], type: InvestigationType) {
+  if (rows.length === 0) return [createEmptyInvestigationRow(type)]
+  return isInvestigationRowBlank(rows[rows.length - 1]) ? rows : [...rows, createEmptyInvestigationRow(type)]
+}
+
+function normalizeFrequencyValue(value?: string) {
+  if (!value) return ""
+  const normalized = value.toLowerCase()
+  if (normalized.includes("qid")) return "QID"
+  if (normalized.includes("tid") || normalized.includes("tds")) return "TDS"
+  if (normalized.includes("bid") || normalized.includes("bd")) return "BD"
+  if (normalized.includes("od")) return "OD"
+  return ""
+}
+
+function parseDurationDays(duration: string) {
+  const parsed = Number.parseInt(duration.replace(/\D/g, ""), 10)
+  return Number.isNaN(parsed) ? 0 : parsed
+}
+
+function dosesPerDay(frequency: string) {
+  switch (frequency) {
+    case "BD":
+      return 2
+    case "TDS":
+      return 3
+    case "QID":
+      return 4
+    case "OD":
+    default:
+      return 1
+  }
+}
+
 function getClinicalDrug(drugName: string, genericName: string) {
-  return drugDatabase.find((d) => 
-    drugName.toLowerCase().includes(d.name.toLowerCase()) || 
-    d.generic.toLowerCase().includes(genericName.toLowerCase()) ||
-    genericName.toLowerCase().includes(d.generic.toLowerCase())
+  return drugDatabase.find((drug) =>
+    drugName.toLowerCase().includes(drug.name.toLowerCase()) ||
+    genericName.toLowerCase().includes(drug.generic.toLowerCase()) ||
+    drug.generic.toLowerCase().includes(genericName.toLowerCase())
   )
-}
-
-function checkOverdose(drugName: string, genericName: string, doseStr: string, weightKg: number) {
-  const clinical = getClinicalDrug(drugName, genericName)
-  if (!clinical || !doseStr) return null
-  const dose = parseFloat(doseStr)
-  if (isNaN(dose)) return null
-  const maxTotal = clinical.maxDosePerKg * weightKg
-  if (dose > maxTotal) {
-    return {
-      entered: dose,
-      max: maxTotal,
-      maxPerKg: clinical.maxDosePerKg,
-      unit: clinical.unit,
-    }
-  }
-  return null
-}
-
-function checkInteractions(medications: { name: string; generic: string }[]): { drugA: string; drugB: string; reason: string }[] {
-  const results: { drugA: string; drugB: string; reason: string }[] = []
-  for (let i = 0; i < medications.length; i++) {
-    for (let j = i + 1; j < medications.length; j++) {
-      const drugA = getClinicalDrug(medications[i].name, medications[i].generic)
-      const drugB = getClinicalDrug(medications[j].name, medications[j].generic)
-      if (!drugA || !drugB) continue
-      
-      if (drugA.interactions.some((x) => drugB.name.toLowerCase().includes(x.toLowerCase()))) {
-        results.push({
-          drugA: medications[i].name,
-          drugB: medications[j].name,
-          reason: `${drugA.name} has a known interaction with ${drugB.name}. Concurrent use may alter efficacy or increase adverse effects.`,
-        })
-      }
-      if (drugB.interactions.some((x) => drugA.name.toLowerCase().includes(x.toLowerCase()))) {
-        if (!results.find((r) => r.drugA === medications[j].name && r.drugB === medications[i].name)) {
-          results.push({
-            drugA: medications[j].name,
-            drugB: medications[i].name,
-            reason: `${drugB.name} has a known interaction with ${drugA.name}. Review dosing and monitor closely.`,
-          })
-        }
-      }
-    }
-  }
-  return results
 }
 
 function checkAllergyConflict(drugName: string, genericName: string, allergies: string[]) {
   const clinical = getClinicalDrug(drugName, genericName)
+
   for (const allergy of allergies) {
-    if (drugName.toLowerCase().includes(allergy.toLowerCase()) ||
-      genericName.toLowerCase().includes(allergy.toLowerCase()) ||
-      (clinical && clinical.contraindications.some((c) => c.toLowerCase().includes(allergy.toLowerCase())))) {
+    const normalizedAllergy = allergy.toLowerCase()
+    if (
+      drugName.toLowerCase().includes(normalizedAllergy) ||
+      genericName.toLowerCase().includes(normalizedAllergy) ||
+      clinical?.contraindications.some((entry) => entry.toLowerCase().includes(normalizedAllergy))
+    ) {
       return { drug: drugName, allergy }
     }
   }
+
   return null
 }
 
-// ─── Component ─────────────────────────────────────────────────
-export function PrescriptionContent({ patientId }: { patientId?: string } = {}) {
-  const { currentUser } = useAuthStore()
-  const { inventory } = usePharmacyInventory()
-  const { patients } = usePatients(patientId ? { search: patientId } : undefined)
-  const activePatientId = patientId || (patients?.[0]?.id)
-  const { patient: realPatient, isLoading: patientLoading } = usePatient(activePatientId || null)
+function checkInteractions(medications: { name: string; generic: string }[]) {
+  const results: { drugA: string; drugB: string; reason: string }[] = []
 
-  const patientData = realPatient ? {
-    id: realPatient.uhid || realPatient.id,
-    name: `${realPatient.firstName || ''} ${realPatient.lastName || ''}`.trim(),
-    dob: realPatient.dateOfBirth ? new Date(realPatient.dateOfBirth).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—",
-    age: realPatient.dateOfBirth ? calcAgeDisplay(realPatient.dateOfBirth) : "—",
-    gender: realPatient.gender === "MALE" ? "Male" : realPatient.gender === "FEMALE" ? "Female" : "Other",
-    bloodGroup: (realPatient as any).bloodGroup || "—",
-    weight: (realPatient as any).birthWeight ? parseFloat((realPatient as any).birthWeight) : 10,
-    bsa: "—",
-    allergies: (realPatient as any).allergies || [],
-    guardian: (realPatient as any).guardianName || "—",
-    phone: realPatient.phone || "—",
-    diagnosis: "General Checkup",
-    doctor: currentUser?.name || "Dr. Priya Reddy",
-  } : null
+  for (let index = 0; index < medications.length; index++) {
+    for (let secondIndex = index + 1; secondIndex < medications.length; secondIndex++) {
+      const drugA = getClinicalDrug(medications[index].name, medications[index].generic)
+      const drugB = getClinicalDrug(medications[secondIndex].name, medications[secondIndex].generic)
+      if (!drugA || !drugB) continue
 
-  const [prescriptions, setPrescriptions] = useState<PrescriptionRow[]>([])
-  const [nextId, setNextId] = useState(3)
-  const [interactionDialogOpen, setInteractionDialogOpen] = useState(false)
-  const [pendingInteractions, setPendingInteractions] = useState<{ drugA: string; drugB: string; reason: string }[]>([])
-  const [allergyDialogOpen, setAllergyDialogOpen] = useState(false)
-  const [pendingAllergyConflict, setPendingAllergyConflict] = useState<{ drug: string; allergy: string } | null>(null)
-  const [drugSearchQuery, setDrugSearchQuery] = useState("")
-  const [showDrugSearch, setShowDrugSearch] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-
-  const filteredDrugs = (drugSearchQuery.trim()
-    ? inventory.filter(
-      (m) =>
-        m.drugName.toLowerCase().includes(drugSearchQuery.toLowerCase()) ||
-        m.genericName.toLowerCase().includes(drugSearchQuery.toLowerCase())
-    )
-    : inventory).filter(m => m.status !== 'INACTIVE')
-
-  const addDrug = useCallback(
-    (medicationId: string) => {
-      const dbMed = inventory.find(m => m.id === medicationId)
-      if (!dbMed) return
-
-      // Allergy check
-      const allergyConflict = checkAllergyConflict(dbMed.drugName, dbMed.genericName, patientData?.allergies || [])
-      if (allergyConflict) {
-        setPendingAllergyConflict(allergyConflict)
-        setAllergyDialogOpen(true)
-        setShowDrugSearch(false)
-        setDrugSearchQuery("")
-        return
+      if (drugA.interactions.some((item) => drugB.name.toLowerCase().includes(item.toLowerCase()))) {
+        results.push({
+          drugA: medications[index].name,
+          drugB: medications[secondIndex].name,
+          reason: `${drugA.name} has a known interaction with ${drugB.name}. Review the combination before signing.`,
+        })
       }
 
-      // Add the drug
-      const clinicalInfo = getClinicalDrug(dbMed.drugName, dbMed.genericName)
-      const newRow: PrescriptionRow = {
-        id: nextId,
-        drugId: dbMed.id,
-        drugName: dbMed.drugName,
-        genericName: dbMed.genericName,
-        form: clinicalInfo?.defaultForm || dbMed.form,
-        dose: "",
-        frequency: clinicalInfo?.defaultFrequency || "OD (once daily)",
-        duration: "",
-        route: "Oral",
-        instructions: "",
-      }
-
-      const updatedList = [...prescriptions, newRow]
-      setNextId((p) => p + 1)
-
-      // Interaction check
-      const allMedsForInteraction = updatedList.map((r) => ({ name: r.drugName, generic: r.genericName }))
-      const interactions = checkInteractions(allMedsForInteraction)
-      if (interactions.length > 0) {
-        setPendingInteractions(interactions)
-        setInteractionDialogOpen(true)
-      }
-
-      setPrescriptions(updatedList)
-      setShowDrugSearch(false)
-      setDrugSearchQuery("")
-    },
-    [prescriptions, nextId]
-  )
-
-  const removeDrug = useCallback((id: number) => {
-    setPrescriptions((prev) => prev.filter((r) => r.id !== id))
-  }, [])
-
-  const updateRow = useCallback((id: number, field: keyof PrescriptionRow, value: string) => {
-    setPrescriptions((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, [field]: value } : r))
-    )
-  }, [])
-
-  const [isSubmitting, setIsSubmitting] = useState(false)
-
-  const handleSubmit = async (bypassInteractions = false) => {
-    const isBypass = typeof bypassInteractions === 'boolean' ? bypassInteractions : false;
-    
-    if (!isBypass) {
-      const interactions = checkInteractions(prescriptions.map((r) => ({ name: r.drugName, generic: r.genericName })))
-      if (interactions.length > 0) {
-        setPendingInteractions(interactions)
-        setInteractionDialogOpen(true)
-        toast.error(`Detected ${interactions.length} drug interaction warning${interactions.length !== 1 ? 's' : ''}. Please review before continuing.`)
-        return
+      if (drugB.interactions.some((item) => drugA.name.toLowerCase().includes(item.toLowerCase()))) {
+        results.push({
+          drugA: medications[secondIndex].name,
+          drugB: medications[index].name,
+          reason: `${drugB.name} may alter the effect of ${drugA.name}. Consider dose review or closer monitoring.`,
+        })
       }
     }
+  }
 
-    if (!activePatientId && !patientId) {
-      toast.error("Valid patient required to send prescription.")
+  return results.filter(
+    (value, index, array) =>
+      index === array.findIndex((entry) => entry.drugA === value.drugA && entry.drugB === value.drugB)
+  )
+}
+
+function checkOverdose(drugName: string, genericName: string, doseStr: string, weightKg: number | null) {
+  if (!weightKg) return null
+  const clinical = getClinicalDrug(drugName, genericName)
+  if (!clinical || !doseStr) return null
+
+  const dose = Number.parseFloat(doseStr)
+  if (Number.isNaN(dose)) return null
+
+  const maximum = clinical.maxDosePerKg * weightKg
+  if (dose <= maximum) return null
+
+  return {
+    entered: dose,
+    max: maximum,
+    maxPerKg: clinical.maxDosePerKg,
+    unit: clinical.unit,
+  }
+}
+
+function calculatePrescribedQty(row: PrescriptionRowData, medication?: ApiMedication) {
+  const days = parseDurationDays(row.duration) || 1
+  const totalDoses = days * dosesPerDay(row.frequency)
+  if (!medication) return totalDoses
+
+  const enteredDose = Number.parseFloat(row.dose)
+  if (Number.isNaN(enteredDose)) return totalDoses
+
+  const form = medication.form.toLowerCase()
+  const strength = medication.strength.toLowerCase()
+  const isLiquid =
+    form.includes("syrup") ||
+    form.includes("suspension") ||
+    form.includes("drops") ||
+    strength.includes("/ml")
+
+  if (isLiquid) {
+    const concentrationMatch = medication.strength.match(/(\d+)\s*mg\s*\/\s*(\d+)\s*ml/i)
+    if (!concentrationMatch) return totalDoses
+
+    const mgInConcentration = Number.parseFloat(concentrationMatch[1])
+    const mlInConcentration = Number.parseFloat(concentrationMatch[2])
+    const mlPerDose = (enteredDose / mgInConcentration) * mlInConcentration
+    return Math.max(1, Math.ceil(mlPerDose * totalDoses))
+  }
+
+  const tabletStrengthMatch = medication.strength.match(/(\d+)\s*mg/i)
+  if (!tabletStrengthMatch) return totalDoses
+
+  const mgPerUnit = Number.parseFloat(tabletStrengthMatch[1])
+  return Math.max(1, Math.ceil((enteredDose / mgPerUnit) * totalDoses))
+}
+
+function resolveWeightKg(
+  birthWeight: number | undefined,
+  growthRecords: { recordedAt: string; weight: number | null }[],
+  vitals: { recordedAt: string; weight?: number }[]
+) {
+  const measurements = [
+    ...growthRecords
+      .filter((record) => typeof record.weight === "number")
+      .map((record) => ({ value: record.weight as number, recordedAt: record.recordedAt })),
+    ...vitals
+      .filter((record) => typeof record.weight === "number")
+      .map((record) => ({ value: record.weight as number, recordedAt: record.recordedAt })),
+  ].sort((left, right) => new Date(right.recordedAt).getTime() - new Date(left.recordedAt).getTime())
+
+  if (measurements.length > 0) return measurements[0].value
+  return typeof birthWeight === "number" ? birthWeight : null
+}
+
+export function PrescriptionContent({ patientId }: { patientId?: string } = {}) {
+  const { currentUser } = useAuthStore()
+  const { patient, isLoading: patientLoading } = usePatient(patientId || null)
+  const { inventory, isLoading: inventoryLoading } = usePharmacyInventory()
+  const { profiles: labProfiles, isLoading: labProfilesLoading } = useLabMasterProfiles()
+  const { admissions } = usePatientAdmissions(patient?.id)
+  const { data: opVisitsResponse } = useQuery<PaginatedOPVisits>(
+    patient?.id ? `/op-visits?patientId=${patient.id}` : null
+  )
+  const opVisits = opVisitsResponse?.data ?? []
+  const activeAdmission = useMemo(
+    () => admissions.find((entry) => entry.status === "ADMITTED" || entry.status === "BED_ASSIGNED") ?? null,
+    [admissions]
+  )
+  const { vitals } = useAdmissionVitals(
+    activeAdmission?.department?.toUpperCase().includes("NICU") ? activeAdmission.id : null
+  )
+  const { records: growthRecords } = usePatientGrowth(patient?.id ?? null)
+
+  const activeOpVisit = useMemo(() => {
+    const sorted = [...opVisits].sort(
+      (left, right) => new Date(right.visitDate).getTime() - new Date(left.visitDate).getTime()
+    )
+
+    return (
+      sorted.find(
+        (visit) => !["COMPLETED", "BILLED", "CANCELLED", "CONVERTED_TO_ER"].includes(visit.status)
+      ) ?? null
+    )
+  }, [opVisits])
+
+  const currentWeightKg = useMemo(
+    () => resolveWeightKg(patient?.birthWeight, growthRecords, vitals),
+    [growthRecords, patient?.birthWeight, vitals]
+  )
+
+  const diagnosis = activeAdmission?.initialDiagnosis || activeOpVisit?.notes || "Diagnosis pending"
+  const encounterLabel = activeAdmission
+    ? `Linked to active admission ${activeAdmission.admissionNumber}`
+    : activeOpVisit
+      ? `Linked to OP visit ${activeOpVisit.opNumber}`
+      : "No active encounter linked"
+  const imagingCareType = activeAdmission ? "IP" : activeOpVisit ? "OP" : "BOTH"
+  const { services: imagingServices, isLoading: imagingServicesLoading } = useServices({
+    category: "IMAGING",
+    careType: imagingCareType,
+    limit: 150,
+  })
+
+  const [rows, setRows] = useState<PrescriptionRowData[]>(() => [createEmptyRow()])
+  const [labRows, setLabRows] = useState<InvestigationRowData[]>(() => [createEmptyInvestigationRow("LAB")])
+  const [scanRows, setScanRows] = useState<InvestigationRowData[]>(() => [createEmptyInvestigationRow("SCAN")])
+  const [advice, setAdvice] = useState("")
+  const [followUpDays, setFollowUpDays] = useState<string>("")
+  const [notes, setNotes] = useState("")
+  const [activeRowId, setActiveRowId] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [interactionDialogOpen, setInteractionDialogOpen] = useState(false)
+  const [printAfterInteractionOverride, setPrintAfterInteractionOverride] = useState(false)
+  const fieldRefs = useRef<Record<string, Record<string, HTMLInputElement | null>>>({})
+  const investigationFieldRefs = useRef<Record<string, Record<string, HTMLInputElement | null>>>({})
+  const hasAutoFocusedInitialRow = useRef(false)
+
+  useEffect(() => {
+    if (hasAutoFocusedInitialRow.current) return
+
+    const firstRowId = rows[0]?.id
+    if (!firstRowId) return
+
+    const timer = window.setTimeout(() => {
+      fieldRefs.current[firstRowId]?.drug?.focus()
+      hasAutoFocusedInitialRow.current = true
+    }, 80)
+
+    return () => window.clearTimeout(timer)
+  }, [rows])
+
+  const filledRows = useMemo(() => rows.filter((row) => !isRowBlank(row)), [rows])
+  const filledLabRows = useMemo(() => labRows.filter((row) => !isInvestigationRowBlank(row)), [labRows])
+  const filledScanRows = useMemo(() => scanRows.filter((row) => !isInvestigationRowBlank(row)), [scanRows])
+  const filledInvestigationRows = useMemo(
+    () => [...filledLabRows, ...filledScanRows],
+    [filledLabRows, filledScanRows]
+  )
+  const interactionWarnings = useMemo(
+    () =>
+      checkInteractions(
+        filledRows
+          .filter((row) => row.drugName)
+          .map((row) => ({ name: row.drugName, generic: row.genericName }))
+      ),
+    [filledRows]
+  )
+
+  const registerRef = (rowId: string, field: string, element: HTMLInputElement | null) => {
+    fieldRefs.current[rowId] ??= {}
+    fieldRefs.current[rowId][field] = element
+  }
+
+  const focusField = (rowId: string, field: string) => {
+    window.setTimeout(() => {
+      fieldRefs.current[rowId]?.[field]?.focus()
+    }, 40)
+  }
+
+  const registerInvestigationRef = (rowId: string, field: string, element: HTMLInputElement | null) => {
+    investigationFieldRefs.current[rowId] ??= {}
+    investigationFieldRefs.current[rowId][field] = element
+  }
+
+  const focusInvestigationField = (rowId: string, field: string) => {
+    window.setTimeout(() => {
+      investigationFieldRefs.current[rowId]?.[field]?.focus()
+    }, 40)
+  }
+
+  const handleAddRow = () => {
+    setRows((current) => ensureTrailingEmptyRow(current))
+  }
+
+  const handleRemoveRow = (rowId: string) => {
+    setRows((current) => {
+      const next = current.filter((row) => row.id !== rowId)
+      return ensureTrailingEmptyRow(next)
+    })
+  }
+
+  const handleChange = (rowId: string, field: keyof PrescriptionRowData, value: string) => {
+    setRows((current) => {
+      const next = current.map((row) => {
+        if (row.id !== rowId) return row
+
+        if (field === "drugName") {
+          return {
+            ...row,
+            drugName: value,
+            drugId: "",
+            genericName: "",
+          }
+        }
+
+        return { ...row, [field]: value }
+      })
+
+      const changedRow = next.find((row) => row.id === rowId)
+      if (!changedRow) return next
+
+      const isLastRow = next[next.length - 1]?.id === rowId
+      if (isLastRow && !isRowBlank(changedRow) && field === "instructions" && value.trim()) {
+        return ensureTrailingEmptyRow(next)
+      }
+
+      return next
+    })
+  }
+
+  const handleDrugSelect = (rowId: string, suggestion: PrescriptionDrugSuggestion) => {
+    const allergyConflict = checkAllergyConflict(
+      suggestion.drugName,
+      suggestion.genericName,
+      patient?.allergies ?? []
+    )
+
+    if (allergyConflict) {
+      toast.error(`${allergyConflict.drug} is blocked because of ${allergyConflict.allergy}.`)
+      return
+    }
+
+    const clinicalDrug = getClinicalDrug(suggestion.drugName, suggestion.genericName)
+
+    setRows((current) => {
+      const next = current.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              drugId: suggestion.drugId,
+              drugName: suggestion.drugName,
+              genericName: suggestion.genericName,
+              frequency: row.frequency || normalizeFrequencyValue(clinicalDrug?.defaultFrequency),
+              route: row.route || "Oral",
+            }
+          : row
+      )
+
+      const selectedLastRow = current[current.length - 1]?.id === rowId
+      return selectedLastRow ? ensureTrailingEmptyRow(next) : next
+    })
+
+    if (!suggestion.medication) {
+      toast.error("This suggestion is not mapped to pharmacy inventory yet, so it cannot be saved.")
+    }
+
+    setActiveRowId(rowId)
+    focusField(rowId, "dose")
+  }
+
+  const updateInvestigationSection = (
+    setSectionRows: Dispatch<SetStateAction<InvestigationRowData[]>>,
+    sectionType: InvestigationType,
+    rowId: string,
+    field: keyof InvestigationRowData,
+    value: string
+  ) => {
+    setSectionRows((current) => {
+      const next: InvestigationRowData[] = current.map((row): InvestigationRowData => {
+        if (row.id !== rowId) return row
+
+        const clearedReference: Pick<InvestigationRowData, "referenceId" | "referenceType"> = {
+          referenceId: "",
+          referenceType: "",
+        }
+
+        if (field === "testName") {
+          return {
+            ...row,
+            testName: value,
+            ...clearedReference,
+            sampleType: row.sampleType || defaultSampleTypeForInvestigation(sectionType),
+          }
+        }
+
+        return { ...row, [field]: value } as InvestigationRowData
+      })
+
+      const changedRow = next.find((row) => row.id === rowId)
+      if (!changedRow) return next
+
+      const isLastRow = next[next.length - 1]?.id === rowId
+      if (isLastRow && !isInvestigationRowBlank(changedRow) && field === "notes" && value.trim()) {
+        return ensureTrailingEmptyInvestigationRow(next, sectionType)
+      }
+
+      return next
+    })
+  }
+
+  const selectInvestigationSuggestion = (
+    setSectionRows: Dispatch<SetStateAction<InvestigationRowData[]>>,
+    sectionType: InvestigationType,
+    rowId: string,
+    suggestion: InvestigationSuggestion
+  ) => {
+    setSectionRows((current) => {
+      const next = current.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              testName: suggestion.testName,
+              referenceId: suggestion.referenceId,
+              referenceType: suggestion.referenceType,
+              type: sectionType,
+              sampleType: suggestion.sampleType,
+            }
+          : row
+      )
+
+      const selectedLastRow = current[current.length - 1]?.id === rowId
+      return selectedLastRow ? ensureTrailingEmptyInvestigationRow(next, sectionType) : next
+    })
+
+    focusInvestigationField(rowId, "notes")
+  }
+
+  const handleInvestigationSectionKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    sectionRows: InvestigationRowData[],
+    setSectionRows: Dispatch<SetStateAction<InvestigationRowData[]>>,
+    sectionType: InvestigationType,
+    rowId: string,
+    field: string
+  ) => {
+    if (event.key !== "Enter") return
+
+    event.preventDefault()
+
+    const fieldOrder = ["test", "notes"]
+    const rowIndex = sectionRows.findIndex((row) => row.id === rowId)
+    const fieldIndex = fieldOrder.indexOf(field)
+
+    if (fieldIndex === -1) return
+    if (fieldIndex < fieldOrder.length - 1) {
+      focusInvestigationField(rowId, fieldOrder[fieldIndex + 1])
+      return
+    }
+
+    const nextRow = sectionRows[rowIndex + 1]
+    if (nextRow) {
+      focusInvestigationField(nextRow.id, "test")
+      return
+    }
+
+    setSectionRows((current) => {
+      const next = ensureTrailingEmptyInvestigationRow(current, sectionType)
+      const appendedRow = next[next.length - 1]
+      focusInvestigationField(appendedRow.id, "test")
+      return next
+    })
+  }
+
+  const handleAddLabRow = () => {
+    setLabRows((current) => ensureTrailingEmptyInvestigationRow(current, "LAB"))
+  }
+
+  const handleAddScanRow = () => {
+    setScanRows((current) => ensureTrailingEmptyInvestigationRow(current, "SCAN"))
+  }
+
+  const handleRemoveLabRow = (rowId: string) => {
+    setLabRows((current) => {
+      const next = current.filter((row) => row.id !== rowId)
+      return ensureTrailingEmptyInvestigationRow(next, "LAB")
+    })
+  }
+
+  const handleRemoveScanRow = (rowId: string) => {
+    setScanRows((current) => {
+      const next = current.filter((row) => row.id !== rowId)
+      return ensureTrailingEmptyInvestigationRow(next, "SCAN")
+    })
+  }
+
+  const handleLabInvestigationChange = (
+    rowId: string,
+    field: keyof InvestigationRowData,
+    value: string
+  ) => {
+    updateInvestigationSection(setLabRows, "LAB", rowId, field, value)
+  }
+
+  const handleScanInvestigationChange = (
+    rowId: string,
+    field: keyof InvestigationRowData,
+    value: string
+  ) => {
+    updateInvestigationSection(setScanRows, "SCAN", rowId, field, value)
+  }
+
+  const handleLabInvestigationSelect = (rowId: string, suggestion: InvestigationSuggestion) => {
+    selectInvestigationSuggestion(setLabRows, "LAB", rowId, suggestion)
+  }
+
+  const handleScanInvestigationSelect = (rowId: string, suggestion: InvestigationSuggestion) => {
+    selectInvestigationSuggestion(setScanRows, "SCAN", rowId, suggestion)
+  }
+
+  const handleFieldKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>,
+    rowId: string,
+    field: string
+  ) => {
+    if (event.key !== "Enter") return
+
+    event.preventDefault()
+
+    const fieldOrder = ["drug", "dose", "instructions"]
+    const rowIndex = rows.findIndex((row) => row.id === rowId)
+    const fieldIndex = fieldOrder.indexOf(field)
+
+    if (fieldIndex === -1) return
+    if (fieldIndex < fieldOrder.length - 1) {
+      focusField(rowId, fieldOrder[fieldIndex + 1])
+      return
+    }
+
+    const nextRow = rows[rowIndex + 1]
+    if (nextRow) {
+      focusField(nextRow.id, "drug")
+      return
+    }
+
+    setRows((current) => {
+      const next = ensureTrailingEmptyRow(current)
+      const appendedRow = next[next.length - 1]
+      focusField(appendedRow.id, "drug")
+      return next
+    })
+  }
+
+  const handleDictatePrescription = () => {
+    const targetRow = rows.find((row) => row.id === activeRowId) ?? filledRows[filledRows.length - 1] ?? rows[0]
+    if (!targetRow) return
+
+    const generated = targetRow.drugName
+      ? `Give ${targetRow.drugName} as prescribed. Continue fluids and return if symptoms worsen.`
+      : "After food. Encourage fluids, rest, and review if fever persists."
+
+    setRows((current) =>
+      current.map((row) =>
+        row.id === targetRow.id
+          ? { ...row, instructions: appendTranscript(row.instructions, generated) }
+          : row
+      )
+    )
+    setActiveRowId(targetRow.id)
+    toast.success("Dictation inserted into the active row.")
+    focusField(targetRow.id, "instructions")
+  }
+
+  const handleSave = async (printAfterSave = false, allowInteractionOverride = false) => {
+    if (!patientId || !patient) {
+      toast.error("Patient context is missing.")
       return
     }
 
     if (!currentUser?.id) {
-      toast.error("You must be logged in as a valid Doctor to prescribe medications.")
+      toast.error("Doctor login is required to save prescriptions.")
+      return
+    }
+
+    const medicationRowsToSave = rows.filter((row) => row.drugName || row.dose || row.instructions)
+    const investigationsToSave = [...labRows, ...scanRows].filter((row) => row.testName || row.notes)
+
+    if (medicationRowsToSave.length === 0 && investigationsToSave.length === 0) {
+      toast.error("Add at least one medication or investigation.")
+      return
+    }
+
+    const incompleteRows = medicationRowsToSave.filter((row) => !row.drugId)
+    if (incompleteRows.length > 0) {
+      toast.error("Every medication row must be selected from pharmacy inventory before saving.")
+      return
+    }
+
+    if (!activeAdmission?.id && !activeOpVisit?.id) {
+      toast.error("No active admission or outpatient visit is available for this prescription.")
+      return
+    }
+
+    if (interactionWarnings.length > 0 && !allowInteractionOverride) {
+      setPrintAfterInteractionOverride(printAfterSave)
+      setInteractionDialogOpen(true)
       return
     }
 
     setIsSubmitting(true)
+
     try {
-      const itemsPayload = []
-      for (const row of prescriptions) {
-        // Find fresh medication object to ensure we have valid reference
-        const dbMed = inventory.find(m => m.id === row.drugId)
+      const saveOperations: Promise<unknown>[] = []
 
-        if (!dbMed) {
-          toast.error(`Medication for ${row.drugName} not found in Pharmacy Inventory. Please alert admin to add it to Data Master.`)
-          setIsSubmitting(false)
-          return
-        }
-
-        // Intelligent quantity calculation
-        const days = parseInt(row.duration) || 1
-        let dosesPerDay = 1
-        const freq = row.frequency.toLowerCase()
-        if (freq.includes('bid') || freq.includes('12-hourly')) dosesPerDay = 2
-        if (freq.includes('tid') || freq.includes('8-hourly')) dosesPerDay = 3
-        if (freq.includes('qid') || freq.includes('6-hourly')) dosesPerDay = 4
-        
-        let qty = dosesPerDay * days // Default to dose count (e.g. tablets)
-        
-        const formLower = dbMed.form.toLowerCase();
-        const strengthStr = dbMed.strength.toLowerCase();
-        const isLiquid = formLower.includes('syrup') || formLower.includes('suspension') || formLower.includes('liquid') || strengthStr.includes('/ml');
-        const doseMg = parseFloat(row.dose);
-
-        if (isLiquid && !isNaN(doseMg)) {
-            // Try to parse concentration (e.g. "125mg/5ml")
-            const concentrationMatch = dbMed.strength.match(/(\d+)\s*mg\s*\/\s*(\d+)\s*ml/i);
-            if (concentrationMatch) {
-                const mgInConcentration = parseFloat(concentrationMatch[1]);
-                const mlInConcentration = parseFloat(concentrationMatch[2]);
-                const mlPerDose = (doseMg / mgInConcentration) * mlInConcentration;
-                const totalMlNeeded = mlPerDose * dosesPerDay * days;
-                
-                // If unit is "bottles", we need to know bottle size
-                if (dbMed.unit.toLowerCase().includes('bottle')) {
-                    const bottleSizeMatch = dbMed.strength.match(/\((\d+)\s*ml\)/i) || dbMed.strength.match(/(\d+)\s*ml/);
-                    const bottleSize = bottleSizeMatch ? parseFloat(bottleSizeMatch[1]) : 60; // Fallback to 60ml
-                    qty = Math.ceil(totalMlNeeded / bottleSize);
-                } else {
-                    qty = Math.ceil(totalMlNeeded); // MLs
-                }
-            }
-        } else if (!isNaN(doseMg)) {
-            // For tablets/capsules, check if dose matches strength
-            const strengthMatch = dbMed.strength.match(/(\d+)\s*mg/i);
-            if (strengthMatch) {
-                const mgPerTab = parseFloat(strengthMatch[1]);
-                const tabsPerDose = doseMg / mgPerTab;
-                qty = Math.ceil(tabsPerDose * dosesPerDay * days);
-            }
-        }
-
-        itemsPayload.push({
-          medicationId: dbMed.id,
-          prescribedQty: qty > 0 ? qty : 1,
-          dose: row.dose,
-          frequency: row.frequency,
-          duration: days,
-          instructions: row.instructions
-        })
+      if (medicationRowsToSave.length > 0) {
+        saveOperations.push(
+          createPrescription({
+            patientId,
+            doctorId: currentUser.id,
+            admissionId: activeAdmission?.id || undefined,
+            opVisitId: activeAdmission ? undefined : activeOpVisit?.id || undefined,
+            notes: notes || undefined,
+            advice: advice || undefined,
+            followUpDays: followUpDays ? Number.parseInt(followUpDays, 10) : undefined,
+            items: medicationRowsToSave.map((row) => {
+              const medication = inventory.find((item) => item.id === row.drugId)
+              return {
+                medicationId: row.drugId,
+                prescribedQty: calculatePrescribedQty(row, medication),
+                dose: row.dose || undefined,
+                frequency: row.frequency || undefined,
+                duration: parseDurationDays(row.duration) || undefined,
+                route: row.route || undefined,
+                instructions: row.instructions || undefined,
+              }
+            }),
+          })
+        )
       }
 
-      await createPrescription({
-        patientId: activePatientId,
-        doctorId: currentUser?.id,
-        notes: prescriptions[0]?.instructions || "Generated from Dashboard",
-        items: itemsPayload
-      })
+      if (investigationsToSave.length > 0) {
+        const technicianNotes = investigationsToSave
+          .filter((row) => row.notes.trim())
+          .map((row) => `${row.testName}: ${row.notes.trim()}`)
+          .join("\n")
 
-      toast.success("Prescription signed and sent to Pharmacy successfully.")
+        saveOperations.push(
+          createLabOrder({
+            patientId,
+            admissionId: activeAdmission?.id || undefined,
+            opVisitId: activeAdmission ? undefined : activeOpVisit?.id || undefined,
+            panels: investigationsToSave.map((row) => ({
+              panelName: row.testName,
+              category: row.type === "SCAN" ? "IMAGING" : "LAB",
+              sampleType: row.sampleType || defaultSampleTypeForInvestigation(row.type),
+              testProfileId:
+                row.referenceType === "LAB_PROFILE" && row.referenceId ? row.referenceId : undefined,
+            })),
+            technicianNotes: technicianNotes || undefined,
+          })
+        )
+      }
+
+      await Promise.all(saveOperations)
       setSubmitted(true)
-    } catch (err: any) {
-      toast.error(err.message || "Failed to submit prescription")
+      toast.success("Prescription saved successfully.")
+
+      if (printAfterSave) {
+        window.setTimeout(() => window.print(), 80)
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save prescription.")
     } finally {
       setIsSubmitting(false)
+      setInteractionDialogOpen(false)
     }
   }
 
-  // current interactions for display
-  const currentInteractions = checkInteractions(prescriptions.map((r) => ({ name: r.drugName, generic: r.genericName })))
+  if (patientLoading || !patient) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center p-6">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  const usedDrugIds = rows.filter((row) => row.drugId).map((row) => row.drugId)
+  const usedDrugNames = rows.filter((row) => row.drugName).map((row) => row.drugName.toLowerCase())
+  const readyMedicationCount = filledRows.filter((row) => row.drugId).length
+  const readyInvestigationCount = filledInvestigationRows.length
 
   return (
-    <div className="p-4 lg:p-6 flex flex-col gap-5 max-w-[1200px] mx-auto">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm">
+    <div className="mx-auto flex max-w-[1360px] flex-col gap-5 p-4 lg:p-6">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
         <Link
           href={patientId ? `/patients/${patientId}` : "/patients"}
-          className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
+          className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-3.5" />
           {patientId ? "Patient" : "Patients"}
         </Link>
-        <span className="text-muted-foreground">/</span>
-        <span className="text-foreground font-medium">Prescription Entry</span>
+        <span>/</span>
+        <span className="font-medium text-foreground">Prescription Entry</span>
       </div>
 
-      {/* ─── Patient Header ──────────────────────────────────── */}
-      {patientLoading || !patientData ? (
-        <Card className="gap-0 py-0">
-          <CardContent className="px-5 py-10 flex justify-center">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
-          </CardContent>
-        </Card>
-      ) : (
-      <Card className="gap-0 py-0">
-        <CardContent className="px-5 py-5">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex items-start gap-4">
-              <div className="flex items-center justify-center size-14 rounded-full bg-primary/10 shrink-0">
-                <Baby className="size-7 text-primary" />
-              </div>
-              <div className="flex flex-col gap-1.5 min-w-0">
-                <div className="flex items-center gap-2.5 flex-wrap">
-                  <h1 className="text-lg font-bold text-foreground tracking-tight">
-                    {patientData.name}
-                  </h1>
-                  <Badge variant="secondary" className="text-[11px] font-medium">
-                    {patientData.id}
-                  </Badge>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                  <span className="flex items-center gap-1">
-                    <CalendarDays className="size-3" />
-                    DOB: {patientData.dob}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <User2 className="size-3" />
-                    {patientData.age} &middot; {patientData.gender}
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <Stethoscope className="size-3" />
-                    {patientData.doctor}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
-                  <span>Dx: {patientData.diagnosis}</span>
-                </div>
-              </div>
-            </div>
+      <PatientHeader
+        patient={patient}
+        diagnosis={diagnosis}
+        doctorName={currentUser?.name || "Attending doctor"}
+        weightKg={currentWeightKg}
+      />
 
-            {/* Weight Display -- prominent */}
-            <div className="flex items-center gap-3 shrink-0">
-              <div className="flex flex-col items-center justify-center rounded-xl border-2 border-primary/30 bg-primary/5 px-5 py-3">
-                <div className="flex items-center gap-1.5 text-primary">
-                  <Weight className="size-4" />
-                  <span className="text-[11px] font-semibold uppercase tracking-wider">Weight</span>
-                </div>
-                <span className="text-2xl font-bold text-foreground mt-0.5">{patientData.weight} <span className="text-sm font-medium text-muted-foreground">kg</span></span>
-                <span className="text-[10px] text-muted-foreground mt-0.5">BSA: {patientData.bsa}</span>
-              </div>
-            </div>
+      <div className="rounded-2xl border border-border/70 bg-card px-4 py-3 text-sm text-muted-foreground shadow-sm">
+        <span className="font-semibold text-foreground">Encounter:</span> {encounterLabel}
+        {!currentWeightKg && (
+          <span className="ml-3 inline-flex items-center gap-1.5 text-amber-700">
+            <AlertTriangle className="size-4" />
+            Current weight is missing, so overdose checks are limited.
+          </span>
+        )}
+      </div>
+
+      {interactionWarnings.length > 0 && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 shadow-sm">
+          <div className="mb-2 inline-flex items-center gap-2 text-sm font-semibold text-amber-800">
+            <ShieldAlert className="size-4" />
+            Drug interaction warning
           </div>
-
-          {/* Allergy Banner */}
-          {patientData.allergies.length > 0 && (
-            <div className="mt-4 flex items-center gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5">
-              <AlertOctagon className="size-4 text-destructive shrink-0" />
-              <span className="text-xs font-semibold text-destructive">KNOWN ALLERGIES:</span>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {patientData.allergies.map((a: string) => (
-                  <Badge
-                    key={a}
-                    className="text-[10px] font-semibold bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/10"
-                  >
-                    {a}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-      )}
-
-      {/* ─── Drug Interaction Alert (persistent) ─────────────── */}
-      {currentInteractions.length > 0 && (
-        <div className="flex flex-col gap-2 rounded-lg border-2 border-destructive/40 bg-destructive/5 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <ShieldAlert className="size-5 text-destructive shrink-0" />
-            <span className="text-sm font-bold text-destructive">Drug Interaction Warning</span>
-          </div>
-          {currentInteractions.map((interaction, idx) => (
-            <div key={idx} className="flex items-start gap-2 ml-7 text-xs text-foreground leading-relaxed">
-              <XCircle className="size-3.5 text-destructive shrink-0 mt-0.5" />
-              <span>
-                <strong>{interaction.drugA}</strong> + <strong>{interaction.drugB}</strong>: {interaction.reason}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ─── Prescription Table ──────────────────────────────── */}
-      <Card className="gap-0 py-0">
-        <CardHeader className="px-5 py-4 border-b border-border">
-          <div className="flex items-center justify-between flex-wrap gap-3">
-            <div className="flex flex-col gap-1">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <Pill className="size-4 text-primary" />
-                Prescription
-              </CardTitle>
-              <CardDescription className="text-xs">
-                {prescriptions.length} medication{prescriptions.length !== 1 ? "s" : ""} prescribed
-              </CardDescription>
-            </div>
-            <div className="relative">
-              <Button
-                size="sm"
-                className="gap-1.5 text-xs"
-                onClick={() => setShowDrugSearch(!showDrugSearch)}
-              >
-                <Plus className="size-3.5" />
-                Add Medicine
-              </Button>
-
-              {/* Drug search dropdown */}
-              {showDrugSearch && (
-                <div className="absolute right-0 top-full mt-2 w-80 rounded-lg border border-border bg-card shadow-lg z-50">
-                  <div className="p-3 border-b border-border">
-                    <div className="flex items-center gap-2 bg-muted rounded-lg px-3 py-2">
-                      <Search className="size-4 text-muted-foreground shrink-0" />
-                      <input
-                        type="text"
-                        placeholder="Search medicine name or category..."
-                        className="bg-transparent text-sm text-foreground placeholder:text-muted-foreground outline-none w-full"
-                        value={drugSearchQuery}
-                        onChange={(e) => setDrugSearchQuery(e.target.value)}
-                        autoFocus
-                        aria-label="Search medicines"
-                      />
-                    </div>
-                  </div>
-                  <ul className="max-h-64 overflow-y-auto py-1" role="listbox">
-                    {filteredDrugs.length === 0 ? (
-                      <li className="px-4 py-6 text-center text-sm text-muted-foreground">
-                        No medicines found
-                      </li>
-                    ) : (
-                      filteredDrugs.map((medication) => {
-                        const alreadyAdded = prescriptions.some((r) => r.drugId === medication.id)
-                        const isLowStock = medication.stockAvailable <= medication.reorderLevel;
-                        
-                        return (
-                          <li key={medication.id}>
-                            <button
-                              className={cn(
-                                "w-full text-left px-4 py-2.5 hover:bg-muted/60 transition-colors flex flex-col gap-0.5",
-                                alreadyAdded && "opacity-50 pointer-events-none"
-                              )}
-                              onClick={() => addDrug(medication.id)}
-                              disabled={alreadyAdded}
-                              role="option"
-                              aria-selected={false}
-                            >
-                              <div className="flex items-center justify-between">
-                                <span className="text-sm font-medium text-foreground">{medication.drugName}</span>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                    <span className={cn("text-xs flex items-center gap-1 font-medium", isLowStock ? "text-amber-600 dark:text-amber-500" : "text-green-600 dark:text-green-500")}>
-                                        Stock: {medication.stockAvailable}
-                                    </span>
-                                </div>
-                              </div>
-                              <span className="text-xs text-muted-foreground">{medication.genericName} • {medication.form} {medication.strength}</span>
-                              {alreadyAdded && (
-                                <span className="text-[10px] text-primary font-medium">Already added</span>
-                              )}
-                            </button>
-                          </li>
-                        )
-                      })
-                    )}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        </CardHeader>
-
-        <CardContent className="px-0 py-0">
-          {prescriptions.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <div className="flex items-center justify-center size-14 rounded-full bg-muted">
-                <Pill className="size-6 text-muted-foreground" />
-              </div>
-              <p className="text-sm text-muted-foreground">No medications added yet</p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="gap-1.5 text-xs"
-                onClick={() => setShowDrugSearch(true)}
-              >
-                <Plus className="size-3.5" />
-                Add First Medicine
-              </Button>
-            </div>
-          ) : (
-            <div className="divide-y divide-border">
-              {prescriptions.map((row, index) => {
-                const clinicalInfo = getClinicalDrug(row.drugName, row.genericName)
-                const overdose = checkOverdose(row.drugName, row.genericName, row.dose, patientData?.weight || 10)
-                const allergyConflict = checkAllergyConflict(row.drugName, row.genericName, patientData?.allergies || [])
-                
-                const forms = clinicalInfo?.forms || [row.form]
-
-                return (
-                  <div key={row.id} className="px-5 py-5">
-                    {/* Drug Header Row */}
-                    <div className="flex items-start justify-between gap-3 mb-4">
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center justify-center size-7 rounded-full bg-primary/10 text-primary text-xs font-bold shrink-0">
-                          {index + 1}
-                        </span>
-                        <div className="flex flex-col gap-0.5">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-sm font-semibold text-foreground">{row.drugName}</span>
-                            {clinicalInfo?.category && <Badge variant="secondary" className="text-[10px]">{clinicalInfo.category}</Badge>}
-                          </div>
-                          <span className="text-xs text-muted-foreground">{row.genericName}</span>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-muted-foreground hover:text-destructive shrink-0"
-                        onClick={() => removeDrug(row.id)}
-                        aria-label={`Remove ${row.drugName}`}
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    </div>
-
-                    {/* Allergy Conflict Alert */}
-                    {allergyConflict && (
-                      <div className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 mb-4">
-                        <AlertOctagon className="size-4 text-destructive shrink-0" />
-                        <span className="text-xs font-semibold text-destructive">
-                          ALLERGY CONFLICT: Patient is allergic to {allergyConflict.allergy}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Input Grid */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-                      {/* Form */}
-                      <div className="flex flex-col gap-1.5 col-span-2 md:col-span-1 lg:col-span-2">
-                        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-                          Form / Strength
-                        </Label>
-                        <Select
-                          value={row.form}
-                          onValueChange={(val) => updateRow(row.id, "form", val)}
-                        >
-                          <SelectTrigger className="h-9 text-xs w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {forms.map((f) => (
-                              <SelectItem key={f} value={f} className="text-xs">
-                                {f}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Dose */}
-                      <div className="flex flex-col gap-1.5">
-                        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-                          Dose (mg)
-                        </Label>
-                        <div className="relative">
-                          <Input
-                            type="number"
-                            placeholder="e.g. 250"
-                            className={cn(
-                              "h-9 text-xs pr-8",
-                              overdose && "border-destructive ring-destructive/20 ring-2"
-                            )}
-                            value={row.dose}
-                            onChange={(e) => updateRow(row.id, "dose", e.target.value)}
-                            aria-label="Dose"
-                            aria-invalid={!!overdose}
-                          />
-                          {overdose && (
-                            <AlertTriangle className="absolute right-2.5 top-1/2 -translate-y-1/2 size-3.5 text-destructive" />
-                          )}
-                        </div>
-                        {/* Computed safe range */}
-                        {clinicalInfo?.maxDosePerKg && (
-                          <span className="text-[10px] text-muted-foreground">
-                            Max: {(clinicalInfo.maxDosePerKg * (patientData?.weight || 10)).toFixed(0)} mg/day ({clinicalInfo.maxDosePerKg} {clinicalInfo.unit})
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Frequency */}
-                      <div className="flex flex-col gap-1.5">
-                        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-                          Frequency
-                        </Label>
-                        <Select
-                          value={row.frequency}
-                          onValueChange={(val) => updateRow(row.id, "frequency", val)}
-                        >
-                          <SelectTrigger className="h-9 text-xs w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(clinicalInfo?.frequencies || ["OD (once daily)", "BID (12-hourly)", "TID (8-hourly)", "QID (6-hourly)", "PRN (as needed)"]).map((f) => (
-                              <SelectItem key={f} value={f} className="text-xs">
-                                {f}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Duration */}
-                      <div className="flex flex-col gap-1.5">
-                        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-                          Duration (days)
-                        </Label>
-                        <div className="flex items-center gap-1.5">
-                          <Input
-                            type="number"
-                            placeholder="e.g. 5"
-                            className="h-9 text-xs"
-                            value={row.duration}
-                            onChange={(e) => updateRow(row.id, "duration", e.target.value)}
-                            aria-label="Duration in days"
-                          />
-                          <Clock className="size-3.5 text-muted-foreground shrink-0" />
-                        </div>
-                      </div>
-
-                      {/* Route */}
-                      <div className="flex flex-col gap-1.5">
-                        <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-                          Route
-                        </Label>
-                        <Select
-                          value={row.route}
-                          onValueChange={(val) => updateRow(row.id, "route", val)}
-                        >
-                          <SelectTrigger className="h-9 text-xs w-full">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="Oral" className="text-xs">Oral</SelectItem>
-                            <SelectItem value="IV" className="text-xs">Intravenous</SelectItem>
-                            <SelectItem value="IM" className="text-xs">Intramuscular</SelectItem>
-                            <SelectItem value="Topical" className="text-xs">Topical</SelectItem>
-                            <SelectItem value="Inhaled" className="text-xs">Inhaled</SelectItem>
-                            <SelectItem value="Rectal" className="text-xs">Rectal</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
-
-                    {/* Overdose Warning */}
-                    {overdose && (
-                      <div className="mt-3 flex items-start gap-2.5 rounded-lg border-2 border-destructive/50 bg-destructive/5 px-3 py-2.5">
-                        <AlertTriangle className="size-4 text-destructive shrink-0 mt-0.5" />
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-xs font-bold text-destructive">OVERDOSE WARNING</span>
-                          <span className="text-xs text-foreground leading-relaxed">
-                            Entered dose ({overdose.entered} mg) exceeds the maximum safe dose for this patient
-                            ({overdose.max.toFixed(0)} mg/day based on {patientData?.weight || 10} kg x {overdose.maxPerKg} {overdose.unit}).
-                            Please review and correct the dosage.
-                          </span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Drug notes */}
-                    {clinicalInfo?.notes && (
-                      <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-                        <Info className="size-3 shrink-0 mt-0.5" />
-                        <span>{clinicalInfo.notes}</span>
-                      </div>
-                    )}
-
-                    {/* Instructions */}
-                    <div className="mt-3">
-                      <Label className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5 block">
-                        Special Instructions
-                      </Label>
-                      <Input
-                        placeholder="e.g. After food, with plenty of water..."
-                        className="h-9 text-xs"
-                        value={row.instructions}
-                        onChange={(e) => updateRow(row.id, "instructions", e.target.value)}
-                        aria-label="Special instructions"
-                      />
-                      <VoiceRecorder
-                        disabled={isSubmitting || submitted}
-                        onTextGenerated={(text) => {
-                          setPrescriptions((prev) =>
-                            prev.map((item) =>
-                              item.id === row.id
-                                ? { ...item, instructions: appendTranscript(item.instructions, text) }
-                                : item
-                            )
-                          )
-                        }}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ─── Action Footer ───────────────────────────────────── */}
-      {prescriptions.length > 0 && !submitted && (
-        <div className="sticky bottom-0 z-[100] bg-background/95 backdrop-blur-sm border-t border-border -mx-4 lg:-mx-6 px-4 lg:px-6 py-4 mt-auto">
-          <div className="flex items-center justify-between flex-wrap gap-3 max-w-[1200px] mx-auto">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Info className="size-3.5" />
-              <span>All doses are validated against patient weight ({patientData?.weight || 10} kg). Review drug notes before signing.</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                <Printer className="size-3.5" />
-                Preview
-              </Button>
-              <Button variant="outline" size="sm" className="gap-1.5 text-xs">
-                <Download className="size-3.5" />
-                Save Draft
-              </Button>
-              <Button
-                size="sm"
-                className="gap-1.5 text-xs shadow-md"
-                onClick={() => handleSubmit(false)}
-                disabled={isSubmitting}
-                type="button"
-              >
-                {isSubmitting ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle2 className="size-3.5" />}
-                {isSubmitting ? "Submitting..." : "Submit Prescription"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Submitted confirmation */}
-      {submitted && (
-        <div className="flex items-center gap-3 rounded-lg border-2 border-[#22a06b]/40 bg-[#22a06b]/5 px-5 py-4">
-          <CheckCircle2 className="size-6 text-[#22a06b] shrink-0" />
-          <div className="flex flex-col gap-0.5">
-            <span className="text-sm font-bold text-[#1a7f5a]">Prescription Submitted Successfully</span>
-            <span className="text-xs text-foreground">
-              {prescriptions.length} medication{prescriptions.length !== 1 ? "s" : ""} prescribed for {patientData?.name} ({patientData?.id}).
-              Sent to pharmacy for dispensing.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Drug Interaction Dialog ─────────────────────────── */}
-      <Dialog open={interactionDialogOpen} onOpenChange={setInteractionDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <ShieldAlert className="size-5" />
-              Drug Interaction Detected
-            </DialogTitle>
-            <DialogDescription>
-              The following potential drug interactions were found in this prescription.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-3 py-2">
-            {pendingInteractions.map((interaction, idx) => (
-              <div key={idx} className="flex items-start gap-2.5 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-3">
-                <XCircle className="size-4 text-destructive shrink-0 mt-0.5" />
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-semibold text-foreground">
-                    {interaction.drugA} + {interaction.drugB}
-                  </span>
-                  <span className="text-xs text-muted-foreground leading-relaxed">
-                    {interaction.reason}
-                  </span>
-                </div>
+          <div className="space-y-1.5 text-sm text-amber-900">
+            {interactionWarnings.map((warning, index) => (
+              <div key={`${warning.drugA}-${warning.drugB}-${index}`}>
+                <span className="font-medium">{warning.drugA}</span> + <span className="font-medium">{warning.drugB}</span>: {warning.reason}
               </div>
             ))}
           </div>
-          <DialogFooter>
-            <Button variant="outline" size="sm" onClick={() => setInteractionDialogOpen(false)}>
-              Review Prescription
-            </Button>
-            <Button variant="destructive" size="sm" onClick={() => {
-              setInteractionDialogOpen(false);
-              handleSubmit(true);
-            }}>
-              Acknowledge & Continue
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
 
-      {/* ─── Allergy Conflict Dialog ─────────────────────────── */}
-      <Dialog open={allergyDialogOpen} onOpenChange={setAllergyDialogOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-destructive">
-              <AlertOctagon className="size-5" />
-              Allergy Conflict - Medication Blocked
-            </DialogTitle>
-            <DialogDescription>
-              This medication cannot be added due to a known patient allergy.
-            </DialogDescription>
-          </DialogHeader>
-          {pendingAllergyConflict && (
-            <div className="flex items-start gap-2.5 rounded-lg border-2 border-destructive/40 bg-destructive/5 px-4 py-4">
-              <AlertOctagon className="size-5 text-destructive shrink-0 mt-0.5" />
-              <div className="flex flex-col gap-1.5">
-                <span className="text-sm font-bold text-destructive">
-                  {pendingAllergyConflict.drug} is contraindicated
-                </span>
-                <span className="text-xs text-foreground leading-relaxed">
-                  Patient has a documented allergy to <strong>{pendingAllergyConflict.allergy}</strong>.
-                  This medication has been blocked from being added to the prescription to prevent a potentially severe adverse reaction.
-                </span>
+      <Card className="overflow-hidden border-border/70 shadow-sm">
+        <CardHeader className="border-b border-border/70 bg-slate-50/60">
+          <div className="flex flex-col gap-1">
+            <CardTitle className="text-base">Prescription</CardTitle>
+            <CardDescription>
+              Keyboard-first entry with inline search, dosing checks, and one ready row at all times.
+            </CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <div className="min-w-[1120px]">
+              <div
+                className="grid gap-3 border-b border-border/70 bg-muted/40 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+                style={{ gridTemplateColumns: TABLE_COLUMNS }}
+              >
+                <div>Drug</div>
+                <div>Dose</div>
+                <div>Frequency</div>
+                <div>Duration</div>
+                <div>Route</div>
+                <div>Instructions</div>
+                <div />
+              </div>
+
+              {rows.map((row, index) => {
+                const clinicalDrug = getClinicalDrug(row.drugName, row.genericName)
+                const overdose = checkOverdose(row.drugName, row.genericName, row.dose, currentWeightKg)
+
+                return (
+                  <PrescriptionRow
+                    key={row.id}
+                    row={row}
+                    index={index}
+                    inventory={inventory}
+                    isLast={index === rows.length - 1}
+                    usedDrugIds={usedDrugIds}
+                    usedDrugNames={usedDrugNames}
+                    onChange={handleChange}
+                    onDrugSelect={handleDrugSelect}
+                    onRemove={handleRemoveRow}
+                    onFocusRow={setActiveRowId}
+                    registerRef={registerRef}
+                    onFieldKeyDown={handleFieldKeyDown}
+                    inventoryMissing={!!row.drugName && !row.drugId}
+                    note={clinicalDrug?.notes || null}
+                    overdoseMessage={
+                      overdose
+                        ? `Entered dose ${overdose.entered} exceeds the safe limit of ${overdose.max.toFixed(0)} based on ${currentWeightKg?.toFixed(1)} kg and ${overdose.maxPerKg} ${overdose.unit}.`
+                        : null
+                    }
+                  />
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-background px-4 py-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" className="gap-2" onClick={handleAddRow}>
+                <Plus className="size-4" />
+                Add Row
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="gap-2"
+                onClick={handleDictatePrescription}
+                disabled={submitted}
+              >
+                <Mic className="size-4" />
+                Dictate Prescription
+              </Button>
+            </div>
+
+            <div className="text-xs text-muted-foreground">
+              {inventoryLoading ? "Loading pharmacy inventory..." : `${inventory.length} medicines available from inventory`}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="overflow-hidden border-border/70 shadow-sm">
+        <CardHeader className="border-b border-border/70 bg-slate-50/60">
+          <div className="flex flex-col gap-1">
+            <CardTitle className="text-base">Investigations</CardTitle>
+            <CardDescription>
+              Add lab tests and scans in the same visit flow, with one ready row at all times.
+            </CardDescription>
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <div className="min-w-[760px]">
+              <div className="border-b border-border/70">
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/25 px-4 py-4">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Lab</div>
+                    <div className="text-xs text-muted-foreground">Order lab investigations from the test catalog.</div>
+                  </div>
+                  <Button type="button" variant="outline" className="gap-2" onClick={handleAddLabRow}>
+                    <Plus className="size-4" />
+                    Add Lab Test
+                  </Button>
+                </div>
+                <div
+                  className="grid gap-3 border-t border-border/70 bg-muted/40 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+                  style={{ gridTemplateColumns: INVESTIGATION_TABLE_COLUMNS }}
+                >
+                  <div>Test Name</div>
+                  <div>Notes</div>
+                  <div />
+                </div>
+                {labRows.map((row, index) => (
+                  <InvestigationRow
+                    key={row.id}
+                    row={row}
+                    index={index}
+                    profiles={labProfiles}
+                    imagingServices={imagingServices}
+                    sectionType="LAB"
+                    isLast={index === labRows.length - 1}
+                    onChange={handleLabInvestigationChange}
+                    onSelect={handleLabInvestigationSelect}
+                    onRemove={handleRemoveLabRow}
+                    onFocusRow={setActiveRowId}
+                    registerRef={registerInvestigationRef}
+                    onFieldKeyDown={(event, rowId, field) =>
+                      handleInvestigationSectionKeyDown(event, labRows, setLabRows, "LAB", rowId, field)
+                    }
+                  />
+                ))}
+              </div>
+
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/25 px-4 py-4">
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">Scan</div>
+                    <div className="text-xs text-muted-foreground">Order scans from the imaging service catalog.</div>
+                  </div>
+                  <Button type="button" variant="outline" className="gap-2" onClick={handleAddScanRow}>
+                    <Plus className="size-4" />
+                    Add Scan
+                  </Button>
+                </div>
+                <div
+                  className="grid gap-3 border-t border-border/70 bg-muted/40 px-4 py-3 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground"
+                  style={{ gridTemplateColumns: INVESTIGATION_TABLE_COLUMNS }}
+                >
+                  <div>Test Name</div>
+                  <div>Notes</div>
+                  <div />
+                </div>
+                {scanRows.map((row, index) => (
+                  <InvestigationRow
+                    key={row.id}
+                    row={row}
+                    index={index}
+                    profiles={labProfiles}
+                    imagingServices={imagingServices}
+                    sectionType="SCAN"
+                    isLast={index === scanRows.length - 1}
+                    onChange={handleScanInvestigationChange}
+                    onSelect={handleScanInvestigationSelect}
+                    onRemove={handleRemoveScanRow}
+                    onFocusRow={setActiveRowId}
+                    registerRef={registerInvestigationRef}
+                    onFieldKeyDown={(event, rowId, field) =>
+                      handleInvestigationSectionKeyDown(event, scanRows, setScanRows, "SCAN", rowId, field)
+                    }
+                  />
+                ))}
               </div>
             </div>
-          )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-background px-4 py-4">
+            <div className="text-xs text-muted-foreground">
+              {labProfilesLoading || imagingServicesLoading
+                ? "Loading investigation catalogs..."
+                : `${labProfiles.length} lab profile(s), ${imagingServices.length} imaging service(s) available`}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-border/70 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base">Advice</CardTitle>
+          <CardDescription>Tap common guidance to append it, then edit freely.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {ADVICE_CHIPS.map((chip) => {
+              const selected = advice.includes(chip.value)
+              return (
+                <button
+                  key={chip.label}
+                  type="button"
+                  className={cn(
+                    "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                    selected
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                  onClick={() => setAdvice((current) => appendTranscript(current, chip.value))}
+                >
+                  {chip.label}
+                </button>
+              )
+            })}
+          </div>
+          <Textarea
+            value={advice}
+            onChange={(event) => setAdvice(event.target.value)}
+            placeholder="Diet, hydration, home care, warning signs..."
+            className="min-h-28"
+          />
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Follow-up</CardTitle>
+            <CardDescription>Choose a quick follow-up interval.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Select value={followUpDays} onValueChange={setFollowUpDays}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select follow-up" />
+              </SelectTrigger>
+              <SelectContent>
+                {FOLLOW_UP_OPTIONS.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border/70 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-base">Notes</CardTitle>
+            <CardDescription>Internal notes for the prescription and pharmacy handoff.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="Clinical notes, escalation guidance, monitoring points..."
+              className="min-h-28"
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {submitted && (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-sm">
+          Prescription saved. Orders are now linked to the current encounter.
+        </div>
+      )}
+
+      <div className="sticky bottom-0 z-20 -mx-4 border-t border-border/70 bg-background/95 px-4 py-4 backdrop-blur lg:-mx-6 lg:px-6">
+        <div className="mx-auto flex max-w-[1360px] flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-muted-foreground">
+            {readyMedicationCount} medication row(s), {readyInvestigationCount} investigation row(s) ready to save
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              disabled={isSubmitting || submitted}
+              onClick={() => void handleSave(false)}
+            >
+              {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              Save
+            </Button>
+            <Button
+              type="button"
+              className="gap-2"
+              disabled={isSubmitting || submitted}
+              onClick={() => void handleSave(true)}
+            >
+              {isSubmitting ? <Loader2 className="size-4 animate-spin" /> : <Printer className="size-4" />}
+              Save & Print
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <Dialog open={interactionDialogOpen} onOpenChange={setInteractionDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-800">
+              <ShieldAlert className="size-5" />
+              Review drug interactions
+            </DialogTitle>
+            <DialogDescription>
+              Potential interactions were detected in this prescription. Review them before you continue.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            {interactionWarnings.map((warning, index) => (
+              <div key={`${warning.drugA}-${warning.drugB}-${index}`} className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                <div className="font-medium">
+                  {warning.drugA} + {warning.drugB}
+                </div>
+                <div className="mt-1 text-amber-800">{warning.reason}</div>
+              </div>
+            ))}
+          </div>
+
           <DialogFooter>
-            <Button size="sm" onClick={() => setAllergyDialogOpen(false)}>
-              Understood
+            <Button type="button" variant="outline" onClick={() => setInteractionDialogOpen(false)}>
+              Review Rows
+            </Button>
+            <Button type="button" onClick={() => void handleSave(printAfterInteractionOverride, true)}>
+              Continue Anyway
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Click-away overlay for drug search */}
-      {showDrugSearch && (
-        <div
-          className="fixed inset-0 z-40 bg-transparent"
-          onClick={() => {
-            setShowDrugSearch(false)
-            setDrugSearchQuery("")
-          }}
-          aria-hidden="true"
-        />
-      )}
     </div>
   )
 }

@@ -913,6 +913,8 @@ model Prescription {
   doctor             User               @relation(fields: [doctorId], references: [id])
   status             PrescriptionStatus @default(PENDING)
   notes              String?            @db.Text
+  advice             String?            @db.Text
+  followUpDays       Int?               @map("follow_up_days")
   orderedAt          DateTime           @default(now()) @map("ordered_at")
   dispensedAt        DateTime?          @map("dispensed_at")
   dispensedBy        String?            @map("dispensed_by")
@@ -940,6 +942,7 @@ model PrescriptionItem {
   frequency      String?      @db.VarChar(100)
   duration       Int?         // in days
   instructions   String?      @db.Text
+  route          String?      @db.VarChar(20)
   
   createdAt      DateTime     @default(now()) @map("created_at")
 

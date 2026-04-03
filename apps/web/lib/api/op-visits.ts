@@ -38,6 +38,14 @@ export interface OPVisit {
     };
 }
 
+export interface PaginatedOPVisits {
+    data: OPVisit[];
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+}
+
 interface OPVisitsQuery {
     date?: string;
     patientId?: string;
@@ -52,13 +60,13 @@ export function useOPVisits(query: OPVisitsQuery = {}) {
 
     const qs = params.toString() ? `?${params}` : "";
 
-    const { data, error, isLoading, mutate } = useSWR<OPVisit[]>(
+    const { data, error, isLoading, mutate } = useSWR<PaginatedOPVisits>(
         `/op-visits${qs}`,
         fetcher,
         { keepPreviousData: true }
     );
 
-    return { opVisits: data || [], isLoading, error, mutate };
+    return { opVisits: data?.data || [], isLoading, error, mutate };
 }
 
 export async function createOPVisit(data: {

@@ -226,6 +226,8 @@ export class PharmacyService {
                     opVisitId: resolvedOpVisitId,
                     doctorId,
                     notes: dto.notes,
+                    advice: dto.advice,
+                    followUpDays: dto.followUpDays,
                     status: 'PENDING',
                     items: {
                         create: dto.items.map(item => ({
@@ -235,6 +237,7 @@ export class PharmacyService {
                             frequency: item.frequency,
                             duration: item.duration,
                             instructions: item.instructions,
+                            route: item.route,
                         }))
                     }
                 },

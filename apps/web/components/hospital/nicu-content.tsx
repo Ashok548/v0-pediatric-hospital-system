@@ -5,20 +5,22 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import {
   Baby, HeartPulse, AlertTriangle, CheckCircle2, Search, RefreshCw,
   ArrowRight, Clock, Activity, Thermometer, Droplets, Wind, Plus
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { NicuBabyCard } from "./nicu-baby-card"
+import { CreateLabOrderDialog } from "./dialogs/create-lab-order-dialog"
+import { CreateMedicationOrderDialog } from "./dialogs/create-medication-order-dialog"
+import { CreateServiceOrderDialog } from "./dialogs/create-service-order-dialog"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { useNicuAdmissions, useAdmissionVitals, useRecordVitals } from "@/lib/api/nicu"
 import { deriveNicuStatus, getVitalLevel } from "@/lib/utils/vitals"
 import type { ApiNicuAdmission, CreateVitalsPayload } from "@/lib/types/nicu"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { usePrecriptions } from "@/lib/api/pharmacy" // (assuming used elsewhere if needed, else delete soon)
 import { NicuBabyDetailModal } from "./nicu-baby-detail-modal"
 
 type FilterOption = "all" | "stable" | "warning" | "critical"

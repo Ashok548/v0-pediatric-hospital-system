@@ -3,8 +3,32 @@ import { apiClient } from "@/lib/api-client";
 
 const fetcher = (url: string) => apiClient(url) as Promise<any>;
 
+export interface ApiLabTestProfile {
+    id: string;
+    panelName: string;
+    category: string;
+    sampleType: string;
+    description?: string | null;
+}
+
+export interface CreateLabOrderPanelPayload {
+    panelName: string;
+    category: string;
+    sampleType: string;
+    testProfileId?: string;
+}
+
+export interface CreateLabOrderPayload {
+    patientId: string;
+    admissionId?: string;
+    appointmentId?: string;
+    opVisitId?: string;
+    panels: CreateLabOrderPanelPayload[];
+    technicianNotes?: string;
+}
+
 export function useLabMasterProfiles() {
-    const { data, error, isLoading, mutate } = useSWR(
+    const { data, error, isLoading, mutate } = useSWR<ApiLabTestProfile[]>(
         '/master/lab-profiles',
         fetcher
     );
@@ -43,7 +67,7 @@ export function useLabOrder(orderId: string | null) {
     return { order: data ?? null, isLoading, error, mutate };
 }
 
-export async function createLabOrder(payload: any) {
+export async function createLabOrder(payload: CreateLabOrderPayload) {
     return apiClient("/labs/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
