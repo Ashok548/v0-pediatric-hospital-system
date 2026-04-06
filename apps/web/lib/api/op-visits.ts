@@ -13,6 +13,10 @@ export interface OPVisit {
     visitDate: string;
     status: "REGISTERED" | "TRIAGED" | "PRE_CONSULT" | "CONSULTING" | "ORDERS_PLACED" | "IN_PROGRESS" | "COMPLETED" | "BILLED" | "CANCELLED" | "CONVERTED_TO_ER";
     notes?: string;
+    triageLevel?: string;
+    triageNotes?: string;
+    triagedAt?: string;
+    triagedBy?: string;
     patient: {
         id: string;
         uhid: string;
@@ -84,10 +88,11 @@ export async function createOPVisit(data: {
 
 export async function updateOPVisitStatus(
     id: string,
-    status: string
+    status: string,
+    triageData?: { triageLevel?: string; triageNotes?: string },
 ): Promise<OPVisit> {
     return apiClient<OPVisit>(`/op-visits/${id}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status, ...triageData }),
     });
 }

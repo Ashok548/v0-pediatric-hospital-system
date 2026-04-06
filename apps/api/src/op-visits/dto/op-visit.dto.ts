@@ -4,6 +4,7 @@ import {
     IsUUID,
     IsOptional,
     IsEnum,
+    IsIn,
 } from "class-validator";
 import { OPVisitStatus } from "@carenest/database";
 
@@ -31,6 +32,14 @@ export class CreateOPVisitDto {
 export class UpdateOPVisitStatusDto {
     @IsEnum(OPVisitStatus)
     status: OPVisitStatus;
+
+    @IsOptional()
+    @IsIn(['RED', 'ORANGE', 'YELLOW', 'GREEN'])
+    triageLevel?: string;
+
+    @IsOptional()
+    @IsString()
+    triageNotes?: string;
 }
 
 export class QueryOPVisitsDto {

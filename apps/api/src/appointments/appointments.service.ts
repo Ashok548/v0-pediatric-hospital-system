@@ -1,6 +1,7 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { ApptStatus, Prisma, prisma, Appointment, Patient, User } from '@carenest/database';
 import { CreateAppointmentDto, UpdateAppointmentStatusDto, RescheduleAppointmentDto } from './dto/create-appointment.dto';
+import { OPVisitsService } from '../op-visits/op-visits.service';
 
 type AppointmentWithRelations = Appointment & {
     patient: Patient;
@@ -289,17 +290,20 @@ export class AppointmentsService {
             const opVisit = await this.prisma.oPVisit.findUnique({
                 where: { appointmentId: id }
             });
-            if (opVisit && !['COMPLETED', 'BILLED', 'CANCELLED'].includes(opVisit.status)) {
-                await this.prisma.oPVisit.update({
-                    where: { id: opVisit.id },
-                    data: { status: 'CANCELLED' }
-                });
-                await this.prisma.auditLog.create({
-                    data: {
-                        entity: 'OPVisit', entityId: opVisit.id, action: 'STATUS_CHANGE',
-                        oldValue: opVisit.status, newValue: 'CANCELLED', userId: userId ?? null
-                    }
-                });
+            if (opVisit) {
+                const allowed = OPVisitsService.ALLOWED_TRANSITIONS[opVisit.status] || [];
+                if (allowed.includes('CANCELLED')) {
+                    await this.prisma.oPVisit.update({
+                        where: { id: opVisit.id },
+                        data: { status: 'CANCELLED' }
+                    });
+                    await this.prisma.auditLog.create({
+                        data: {
+                            entity: 'OPVisit', entityId: opVisit.id, action: 'STATUS_CHANGE',
+                            oldValue: opVisit.status, newValue: 'CANCELLED', userId: userId ?? null
+                        }
+                    });
+                }
             }
         }
 

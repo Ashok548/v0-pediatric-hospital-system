@@ -619,15 +619,8 @@ export class BillingService {
         throw new BadRequestException('Cannot finalize an empty bill');
       }
 
-      // FIX P0-3: Route OPVisit status update through OPVisitsService to enforce ALLOWED_TRANSITIONS guard
-      if (bill.opVisitId) {
-        await this.opVisitsService.updateStatusWithTx(
-          tx,
-          bill.opVisitId,
-          'BILLED',
-          userId,
-        );
-      }
+        // Bill finalization is financial only. OP visit state changes remain part
+        // of the clinical workflow and must not be forced here.
 
       const updated = await tx.bill.update({
         where: { id },

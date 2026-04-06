@@ -19,8 +19,45 @@ import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
 import { useLabOrders } from "@/lib/api/labs"
+import {
+    getLabOrderDashboardBucket,
+    getLabOrderStatusLabel,
+    type LabOrderDashboardBucket,
+} from "@/lib/utils/lab-order-status"
 
-type OrderStatus = "PENDING" | "PARTIAL" | "FINALIZED" | "ALL"
+type OrderStatus = LabOrderDashboardBucket
+
+function renderStatusBadge(status?: string) {
+    if (status === "VERIFIED") {
+        return (
+            <Badge variant="secondary" className="text-[10px] bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border-emerald-200">
+                {getLabOrderStatusLabel(status)}
+            </Badge>
+        )
+    }
+
+    if (status === "CANCELLED") {
+        return (
+            <Badge variant="secondary" className="text-[10px] bg-rose-50 text-rose-700 hover:bg-rose-50 border-rose-200">
+                {getLabOrderStatusLabel(status)}
+            </Badge>
+        )
+    }
+
+    if (status === "PARTIAL" || status === "RESULT_ENTERED" || status === "PROCESSING" || status === "SAMPLE_COLLECTED") {
+        return (
+            <Badge variant="secondary" className="text-[10px] bg-amber-50 text-amber-700 hover:bg-amber-50 border-amber-200">
+                {getLabOrderStatusLabel(status)}
+            </Badge>
+        )
+    }
+
+    return (
+        <Badge variant="secondary" className="text-[10px] bg-sky-50 text-sky-700 hover:bg-sky-50 border-sky-200">
+            {getLabOrderStatusLabel(status)}
+        </Badge>
+    )
+}
 
 export function LabDashboardContent() {
     const { orders, isLoading } = useLabOrders()
@@ -28,11 +65,11 @@ export function LabDashboardContent() {
     const [search, setSearch] = useState("")
 
     const counts = useMemo(() => {
-        if (!orders) return { PENDING: 0, PARTIAL: 0, FINALIZED: 0 }
+        if (!orders) return { AWAITING_SAMPLE: 0, IN_PROGRESS: 0, VERIFIED: 0 }
         return {
-            PENDING: orders.filter((o: any) => o.status === "PENDING").length,
-            PARTIAL: orders.filter((o: any) => o.status === "PARTIAL").length,
-            FINALIZED: orders.filter((o: any) => o.status === "FINALIZED").length,
+            AWAITING_SAMPLE: orders.filter((o: any) => getLabOrderDashboardBucket(o.status) === "AWAITING_SAMPLE").length,
+            IN_PROGRESS: orders.filter((o: any) => getLabOrderDashboardBucket(o.status) === "IN_PROGRESS").length,
+            VERIFIED: orders.filter((o: any) => o.status === "VERIFIED").length,
         }
     }, [orders])
 
@@ -40,7 +77,7 @@ export function LabDashboardContent() {
         if (!orders) return []
         const q = search.toLowerCase()
         return orders.filter((o: any) => {
-            if (statusFilter !== "ALL" && o.status !== statusFilter) return false
+            if (statusFilter !== "ALL" && getLabOrderDashboardBucket(o.status) !== statusFilter) return false
             const patientName = `${o.patient?.firstName || ''} ${o.patient?.lastName || ''}`.toLowerCase()
             const uhid = (o.patient?.uhid || '').toLowerCase()
             const orderNum = (o.orderNumber || '').toLowerCase()
@@ -69,9 +106,9 @@ export function LabDashboardContent() {
             {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
-                    { label: "Pending Collection", value: counts.PENDING, icon: Clock, iconColor: "text-[#1a6fb5]", iconBg: "bg-[#e8f4fd]", filter: "PENDING" as OrderStatus },
-                    { label: "Awaiting Results", value: counts.PARTIAL, icon: AlertTriangle, iconColor: "text-[#d97706]", iconBg: "bg-[#fef3c7]", filter: "PARTIAL" as OrderStatus },
-                    { label: "Finalized", value: counts.FINALIZED, icon: CheckCircle2, iconColor: "text-primary", iconBg: "bg-primary/10", filter: "FINALIZED" as OrderStatus },
+                    { label: "Awaiting Sample", value: counts.AWAITING_SAMPLE, icon: Clock, iconColor: "text-[#1a6fb5]", iconBg: "bg-[#e8f4fd]", filter: "AWAITING_SAMPLE" as OrderStatus },
+                    { label: "In Progress", value: counts.IN_PROGRESS, icon: AlertTriangle, iconColor: "text-[#d97706]", iconBg: "bg-[#fef3c7]", filter: "IN_PROGRESS" as OrderStatus },
+                    { label: "Verified", value: counts.VERIFIED, icon: CheckCircle2, iconColor: "text-primary", iconBg: "bg-primary/10", filter: "VERIFIED" as OrderStatus },
                     { label: "All Orders", value: orders?.length || 0, icon: CalendarDays, iconColor: "text-muted-foreground", iconBg: "bg-muted", filter: "ALL" as OrderStatus },
                 ].map(stat => (
                     <button
@@ -208,21 +245,7 @@ export function LabDashboardContent() {
                                             </div>
                                         </td>
                                         <td className="px-5 py-3.5">
-                                            {order.status === "PENDING" && (
-                                                <Badge variant="secondary" className="text-[10px] bg-sky-50 text-sky-700 hover:bg-sky-50 border-sky-200">
-                                                    Pending
-                                                </Badge>
-                                            )}
-                                            {order.status === "PARTIAL" && (
-                                                <Badge variant="secondary" className="text-[10px] bg-amber-50 text-amber-700 hover:bg-amber-50 border-amber-200">
-                                                    Partial
-                                                </Badge>
-                                            )}
-                                            {order.status === "FINALIZED" && (
-                                                <Badge variant="secondary" className="text-[10px] bg-emerald-50 text-emerald-700 hover:bg-emerald-50 border-emerald-200">
-                                                    Finalized
-                                                </Badge>
-                                            )}
+                                            {renderStatusBadge(order.status)}
                                         </td>
                                         <td className="px-5 py-3.5 text-right">
                                             <Link href={`/lab/${order.id}`}>

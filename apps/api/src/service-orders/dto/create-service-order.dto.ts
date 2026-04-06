@@ -16,6 +16,14 @@ export class CreateServiceOrderDto {
   admissionId?: string;
 
   @IsString()
+  @IsOptional()
+  appointmentId?: string;
+
+  @IsString()
+  @IsOptional()
+  opVisitId?: string;
+
+  @IsString()
   @IsNotEmpty()
   serviceId: string;
 

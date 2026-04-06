@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { prisma } from '@carenest/database';
 import { Prisma } from '@carenest/database';
 import { CreateServiceOrderDto } from './dto/create-service-order.dto';
+import { BadRequestException } from '@nestjs/common';
 
 @Injectable()
 export class ServiceOrdersService {
@@ -24,12 +25,23 @@ export class ServiceOrdersService {
     }
 
     async createOrder(dto: CreateServiceOrderDto, doctorId: string) {
+        if (!dto.admissionId && !dto.appointmentId && !dto.opVisitId) {
+            throw new BadRequestException('A service order must be linked to an admission, appointment, or OP visit.');
+        }
+
+        const anchorCount = [dto.admissionId, dto.appointmentId, dto.opVisitId].filter(Boolean).length;
+        if (anchorCount > 1) {
+            throw new BadRequestException('A service order cannot be linked to more than one encounter context.');
+        }
+
         const orderNumber = await this.generateOrderNumber();
         return prisma.serviceOrder.create({
             data: {
                 orderNumber,
                 patientId: dto.patientId,
                 admissionId: dto.admissionId,
+                appointmentId: dto.appointmentId,
+                opVisitId: dto.opVisitId,
                 serviceId: dto.serviceId,
                 quantity: dto.quantity || 1,
                 priority: dto.priority || 'NORMAL',
@@ -37,7 +49,13 @@ export class ServiceOrdersService {
                 doctorId,
                 status: 'PENDING'
             },
-            include: { service: true }
+            include: {
+                service: true,
+                doctor: { select: { id: true, name: true } },
+                admission: true,
+                appointment: { include: { doctor: { select: { id: true, name: true } } } },
+                opVisit: true,
+            }
         });
     }
 
@@ -46,7 +64,24 @@ export class ServiceOrdersService {
             where: { admissionId },
             include: {
                 service: true,
-                doctor: { select: { id: true, name: true } }
+                doctor: { select: { id: true, name: true } },
+                admission: true,
+                appointment: { include: { doctor: { select: { id: true, name: true } } } },
+                opVisit: true,
+            },
+            orderBy: { orderDate: 'desc' }
+        });
+    }
+
+    async findByPatient(patientId: string) {
+        return prisma.serviceOrder.findMany({
+            where: { patientId },
+            include: {
+                service: true,
+                doctor: { select: { id: true, name: true } },
+                admission: true,
+                appointment: { include: { doctor: { select: { id: true, name: true } } } },
+                opVisit: true,
             },
             orderBy: { orderDate: 'desc' }
         });

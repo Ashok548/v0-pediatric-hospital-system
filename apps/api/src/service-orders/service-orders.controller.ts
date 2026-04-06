@@ -17,4 +17,9 @@ export class ServiceOrdersController {
     findByAdmission(@Param('admissionId') admissionId: string) {
         return this.serviceOrdersService.findByAdmission(admissionId);
     }
+
+    @Get('patient/:patientId')
+    findByPatient(@Param('patientId') patientId: string) {
+        return this.serviceOrdersService.findByPatient(patientId);
+    }
 }

@@ -53,7 +53,13 @@ export class OPVisitsService {
         return opVisit;
     }
 
-    async updateStatusWithTx(tx: Prisma.TransactionClient, id: string, newStatus: string, userId?: string): Promise<any> {
+    async updateStatusWithTx(
+        tx: Prisma.TransactionClient,
+        id: string,
+        newStatus: string,
+        userId?: string,
+        triageData?: { triageLevel?: string; triageNotes?: string },
+    ): Promise<any> {
         const visit = await tx.oPVisit.findUnique({ where: { id } });
         if (!visit) throw new NotFoundException(`OP Visit ${id} not found`);
 
@@ -61,9 +67,17 @@ export class OPVisitsService {
         if (!allowed.includes(newStatus))
             throw new BadRequestException(`Invalid transition from ${visit.status} to ${newStatus}`);
 
+        const updateData: any = { status: newStatus as any };
+        if (newStatus === 'TRIAGED') {
+            if (triageData?.triageLevel) updateData.triageLevel = triageData.triageLevel;
+            if (triageData?.triageNotes) updateData.triageNotes = triageData.triageNotes;
+            updateData.triagedAt = new Date();
+            updateData.triagedBy = userId ?? null;
+        }
+
         const updated = await tx.oPVisit.update({
             where: { id },
-            data: { status: newStatus as any },
+            data: updateData,
             include: OP_VISIT_INCLUDE,
         });
         await tx.auditLog.create({
@@ -126,20 +140,25 @@ export class OPVisitsService {
     }
 
     public static readonly ALLOWED_TRANSITIONS: Record<string, string[]> = {
-        REGISTERED:     ['TRIAGED', 'CANCELLED', 'BILLED'],
-        TRIAGED:        ['PRE_CONSULT', 'CONVERTED_TO_ER', 'CANCELLED', 'BILLED'],
-        PRE_CONSULT:    ['CONSULTING', 'CANCELLED', 'BILLED'],
-        CONSULTING:     ['ORDERS_PLACED', 'COMPLETED', 'CANCELLED', 'BILLED'],
-        ORDERS_PLACED:  ['COMPLETED', 'BILLED'],
-        IN_PROGRESS:    ['COMPLETED', 'CANCELLED', 'BILLED'], // legacy compat
-        COMPLETED:      ['BILLED'],
-        BILLED:         [],
-        CANCELLED:      [],
-        CONVERTED_TO_ER:[],
+        REGISTERED:      ['TRIAGED', 'CANCELLED'],
+        TRIAGED:         ['PRE_CONSULT', 'CONVERTED_TO_ER', 'CANCELLED'],
+        PRE_CONSULT:     ['CONSULTING', 'CANCELLED'],
+        CONSULTING:      ['ORDERS_PLACED', 'COMPLETED', 'CANCELLED', 'BILLED'],
+        ORDERS_PLACED:   ['COMPLETED', 'CANCELLED', 'BILLED'],
+        IN_PROGRESS:     ['COMPLETED', 'CANCELLED', 'BILLED'], // legacy compat
+        COMPLETED:       ['BILLED'],
+        BILLED:          [],
+        CANCELLED:       [],
+        CONVERTED_TO_ER: [],
     };
 
     // ─── Update Status ───────────────────────────────────────────────────────────
     async updateStatus(id: string, dto: UpdateOPVisitStatusDto, userId?: string) {
-        return prisma.$transaction(async (tx: any) => this.updateStatusWithTx(tx, id, dto.status, userId));
+        return prisma.$transaction(async (tx: any) =>
+            this.updateStatusWithTx(tx, id, dto.status, userId, {
+                triageLevel: dto.triageLevel,
+                triageNotes: dto.triageNotes,
+            })
+        );
     }
 }

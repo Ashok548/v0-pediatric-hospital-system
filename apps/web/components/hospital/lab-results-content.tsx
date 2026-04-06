@@ -4,7 +4,6 @@ import { useState, useMemo, useEffect } from "react"
 import {
   ArrowLeft,
   Baby,
-  CalendarDays,
   User2,
   Stethoscope,
   FlaskConical,
@@ -16,16 +15,17 @@ import {
   ArrowDown,
   ArrowUp,
   Minus,
-  ChevronDown,
   CircleDot,
   RotateCcw,
   Clock,
 } from "lucide-react"
 import Link from "next/link"
 import { useLabOrder, updateLabPanelResults, finalizeLabOrder } from "@/lib/api/labs"
+import { ApiError } from "@/lib/api-client"
 import { useAuth } from "@/hooks/use-auth"
 import { useToast } from "@/hooks/use-toast"
 import { VoiceRecorder } from "@/components/VoiceRecorder"
+import { getLabOrderStatusLabel, isTerminalLabOrderStatus } from "@/lib/utils/lab-order-status"
 import { appendTranscript } from "@/lib/utils/transcript"
 import { cn } from "@/lib/utils"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -33,13 +33,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -53,6 +46,20 @@ import {
 
 // ─── Test Panels ────────────────────────────────────────────────
 type StatusType = "normal" | "low" | "high" | "critical-low" | "critical-high" | "pending"
+type LabPanelStatus = "PENDING" | "SAMPLE_COLLECTED" | "SAMPLE_REJECTED" | "PROCESSING" | "COMPLETED" | "VERIFIED"
+
+interface LabPanelReadiness {
+  panelId: string
+  panelName: string
+  status: LabPanelStatus
+  statusLabel: string
+  missingCount: number
+  totalCount: number
+  isDirty: boolean
+  isBackendReady: boolean
+  canAutoSave: boolean
+  blocker: string | null
+}
 
 interface ParameterRow {
   id: string
@@ -73,6 +80,7 @@ interface TestPanel {
   sampleType: string
   collectedAt: string
   receivedAt: string
+  status: LabPanelStatus
   parameters: ParameterRow[]
 }
 
@@ -146,6 +154,53 @@ function TrendIcon({ status }: { status: StatusType }) {
   return <Minus className="size-3.5 text-muted-foreground" />
 }
 
+function getPanelStatusLabel(status: LabPanelStatus): string {
+  switch (status) {
+    case "PENDING":
+      return "Awaiting Sample"
+    case "SAMPLE_COLLECTED":
+      return "Sample Collected"
+    case "SAMPLE_REJECTED":
+      return "Sample Rejected"
+    case "PROCESSING":
+      return "Processing"
+    case "COMPLETED":
+      return "Completed"
+    case "VERIFIED":
+      return "Verified"
+  }
+}
+
+function isPanelReadyForFinalize(status: LabPanelStatus): boolean {
+  return status === "COMPLETED" || status === "VERIFIED"
+}
+
+function getPanelStatusBadgeClasses(status: LabPanelStatus): string {
+  switch (status) {
+    case "VERIFIED":
+      return "bg-emerald-50 text-emerald-700 border-emerald-200"
+    case "COMPLETED":
+      return "bg-sky-50 text-sky-700 border-sky-200"
+    case "SAMPLE_REJECTED":
+      return "bg-red-50 text-red-700 border-red-200"
+    default:
+      return "bg-amber-50 text-amber-700 border-amber-200"
+  }
+}
+
+function getPanelIndicatorClasses(readiness: LabPanelReadiness): string {
+  if (readiness.blocker && readiness.missingCount > 0) {
+    return "bg-red-500"
+  }
+  if (readiness.blocker) {
+    return "bg-amber-500"
+  }
+  if (readiness.isDirty) {
+    return "bg-sky-500"
+  }
+  return "bg-emerald-500"
+}
+
 // ─── Component ──────────────────────────────────────────────────
 export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
   const { user } = useAuth()
@@ -164,6 +219,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
       sampleType: p.sampleType,
       collectedAt: p.collectedAt ? new Date(p.collectedAt).toLocaleString() : "Pending",
       receivedAt: p.receivedAt ? new Date(p.receivedAt).toLocaleString() : "Pending",
+      status: p.status,
       parameters: p.items.map((i: any) => ({
         id: i.id || i.parameterName,
         name: i.parameterName,
@@ -181,7 +237,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
   const [selectedPanelId, setSelectedPanelId] = useState<string>("")
   const [panelValues, setPanelValues] = useState<Record<string, Record<string, string>>>({})
   const [savedDraft, setSavedDraft] = useState(false)
-  const isLocked = order?.status === 'FINALIZED'
+  const isLocked = isTerminalLabOrderStatus(order?.status)
   const [finalizeDialogOpen, setFinalizeDialogOpen] = useState(false)
   const [technicianNotes, setTechnicianNotes] = useState("")
 
@@ -202,6 +258,39 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
   }, [testPanels])
 
   const selectedPanel = testPanels.find((p) => p.id === selectedPanelId) || testPanels[0]
+
+  const panelReadiness = useMemo<LabPanelReadiness[]>(() => {
+    return testPanels.map((panel) => {
+      const values = panelValues[panel.id] || {}
+      const missingCount = panel.parameters.filter((parameter) => !(values[parameter.id] ?? "").trim()).length
+      const isDirty = panel.parameters.some((parameter) => (values[parameter.id] ?? "") !== parameter.value)
+      const isBackendReady = isPanelReadyForFinalize(panel.status)
+      const canAutoSave = isDirty && missingCount === 0
+
+      let blocker: string | null = null
+      if (isDirty && missingCount > 0) {
+        blocker = `${missingCount} result${missingCount === 1 ? "" : "s"} still missing`
+      } else if (!isBackendReady && !canAutoSave) {
+        blocker = `Panel status is ${getPanelStatusLabel(panel.status)}`
+      }
+
+      return {
+        panelId: panel.id,
+        panelName: panel.name,
+        status: panel.status,
+        statusLabel: getPanelStatusLabel(panel.status),
+        missingCount,
+        totalCount: panel.parameters.length,
+        isDirty,
+        isBackendReady,
+        canAutoSave,
+        blocker,
+      }
+    })
+  }, [panelValues, testPanels])
+
+  const selectedPanelReadiness = panelReadiness.find((panel) => panel.panelId === selectedPanelId) ?? null
+  const verificationBlockers = panelReadiness.filter((panel) => panel.blocker)
 
   const updateValue = (parameterId: string, value: string) => {
     setPanelValues((prev) => ({
@@ -271,6 +360,26 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
     return { totalAbnormal, totalCritical }
   }, [panelValues])
 
+  const getPanelPayload = (panel: TestPanel) => ({
+    items: panel.parameters.map((parameter) => ({
+      id: parameter.id,
+      parameterName: parameter.name,
+      value: panelValues[panel.id]?.[parameter.id] || "",
+      unit: parameter.unit,
+      refDisplay: parameter.refDisplay,
+      refMin: parameter.refMin !== null ? parameter.refMin : undefined,
+      refMax: parameter.refMax !== null ? parameter.refMax : undefined,
+      criticalMin: parameter.criticalMin !== null ? parameter.criticalMin : undefined,
+      criticalMax: parameter.criticalMax !== null ? parameter.criticalMax : undefined,
+    })),
+  })
+
+  const getApiErrorMessage = (error: unknown, fallback: string) => {
+    if (error instanceof ApiError) return error.message
+    if (error instanceof Error && error.message) return error.message
+    return fallback
+  }
+
   if (isLoading) {
     return (
       <div className="p-4 flex items-center justify-center min-h-[400px]">
@@ -281,25 +390,21 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
 
   const handleSaveDraft = async () => {
     if (!orderId || !selectedPanelId) return
+    if (!selectedPanel || !selectedPanelReadiness) return
+
+    if (selectedPanelReadiness.missingCount > 0) {
+      toast({
+        title: "Panel incomplete",
+        description: `Enter all ${selectedPanelReadiness.totalCount} results before saving ${selectedPanel.name}.`,
+        variant: "destructive"
+      })
+      return
+    }
+
     setIsSaving(true)
 
     try {
-      // Map current values in local state into the format DTO expects
-      const payload = {
-        items: selectedPanel.parameters.map(p => ({
-          id: p.id,
-          parameterName: p.name,
-          value: panelValues[selectedPanelId]?.[p.id] || "",
-          unit: p.unit,
-          refDisplay: p.refDisplay,
-          refMin: p.refMin !== null ? p.refMin : undefined,
-          refMax: p.refMax !== null ? p.refMax : undefined,
-          criticalMin: p.criticalMin !== null ? p.criticalMin : undefined,
-          criticalMax: p.criticalMax !== null ? p.criticalMax : undefined,
-        }))
-      }
-
-      await updateLabPanelResults(selectedPanelId, payload)
+      await updateLabPanelResults(selectedPanelId, getPanelPayload(selectedPanel))
       await mutate() // Refresh order state from backend
 
       setSavedDraft(true)
@@ -310,7 +415,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
     } catch (error) {
       toast({
         title: "Error saving draft",
-        description: "Check your connection and try again.",
+        description: getApiErrorMessage(error, "Unable to save this panel."),
         variant: "destructive"
       })
     } finally {
@@ -319,11 +424,49 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
   }
 
   const handleFinalize = async () => {
-    if (!orderId) return
+    if (!orderId || !order) return
     setIsFinalizing(true)
 
     try {
-      // Save any pending panel changes first if needed, though usually they save draft first
+      const incompleteDirtyPanels = panelReadiness.filter((panel) => panel.isDirty && panel.missingCount > 0)
+      if (incompleteDirtyPanels.length > 0) {
+        const firstBlockedPanel = incompleteDirtyPanels[0]
+        toast({
+          title: "Complete pending results first",
+          description: `${firstBlockedPanel.panelName}: ${firstBlockedPanel.blocker}`,
+          variant: "destructive"
+        })
+        return
+      }
+
+      const dirtyPanelsToSave = testPanels.filter((panel) => {
+        const readiness = panelReadiness.find((item) => item.panelId === panel.id)
+        return readiness?.canAutoSave
+      })
+
+      for (const panel of dirtyPanelsToSave) {
+        await updateLabPanelResults(panel.id, getPanelPayload(panel))
+      }
+
+      await mutate()
+
+      const remainingBlockers = panelReadiness.filter((panel) => {
+        if (panel.isDirty && panel.missingCount === 0) {
+          return false
+        }
+        return Boolean(panel.blocker)
+      })
+
+      if (remainingBlockers.length > 0) {
+        const firstBlockedPanel = remainingBlockers[0]
+        toast({
+          title: "Verification blocked",
+          description: `${firstBlockedPanel.panelName}: ${firstBlockedPanel.blocker}`,
+          variant: "destructive"
+        })
+        return
+      }
+
       await finalizeLabOrder(orderId)
       await mutate()
 
@@ -331,14 +474,14 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
       setSavedDraft(false)
 
       toast({
-        title: "Report Finalized",
+        title: "Report Verified",
         description: "The order is locked and report generated.",
         className: "bg-emerald-50 text-emerald-900 border-emerald-200"
       })
     } catch (error) {
       toast({
         title: "Error finalizing report",
-        description: "Check your connection and try again.",
+        description: getApiErrorMessage(error, "Unable to verify the report."),
         variant: "destructive"
       })
     } finally {
@@ -435,6 +578,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
           <div className="flex flex-col gap-1">
             {testPanels.map((panel) => {
               const isActive = panel.id === selectedPanelId
+              const readiness = panelReadiness.find((item) => item.panelId === panel.id)
               const pValues = panelValues[panel.id] || {}
               let panelHasCritical = false
               let panelHasAbnormal = false
@@ -455,10 +599,19 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                   )}
                 >
                   <FlaskConical className={cn("size-4 shrink-0", isActive ? "text-primary" : "text-muted-foreground")} />
-                  <span className="truncate flex-1">{panel.name.split("(")[0].trim()}</span>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate">{panel.name.split("(")[0].trim()}</span>
+                    {readiness && (
+                      <span className="block text-[10px] font-medium text-muted-foreground">
+                        {readiness.statusLabel}
+                        {readiness.missingCount > 0 ? ` · ${readiness.missingCount} pending` : " · Ready"}
+                        {readiness.isDirty ? " · Unsaved" : ""}
+                      </span>
+                    )}
+                  </div>
                   {panelHasCritical && <span className="size-2.5 rounded-full bg-red-500 shrink-0 animate-pulse" />}
                   {!panelHasCritical && panelHasAbnormal && <span className="size-2.5 rounded-full bg-amber-500 shrink-0" />}
-                  {!panelHasCritical && !panelHasAbnormal && <span className="size-2.5 rounded-full bg-emerald-500 shrink-0" />}
+                  {!panelHasCritical && !panelHasAbnormal && readiness && <span className={cn("size-2.5 rounded-full shrink-0", getPanelIndicatorClasses(readiness))} />}
                 </button>
               )
             })}
@@ -481,6 +634,11 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                   </CardDescription>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
+                  {selectedPanelReadiness && (
+                    <Badge variant="secondary" className={cn("text-[10px] font-medium border", getPanelStatusBadgeClasses(selectedPanelReadiness.status))}>
+                      {selectedPanelReadiness.statusLabel}
+                    </Badge>
+                  )}
                   <div className="flex items-center gap-1.5 text-xs">
                     <span className="size-2 rounded-full bg-emerald-500" />
                     <span className="text-muted-foreground">{summary.normal} Normal</span>
@@ -638,10 +796,16 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                   Draft saved successfully
                 </div>
               )}
-              {order?.status === 'FINALIZED' && (
+              {verificationBlockers.length > 0 && !isLocked && (
+                <div className="flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                  <AlertTriangle className="size-4" />
+                  {verificationBlockers.length} panel{verificationBlockers.length === 1 ? "" : "s"} still block verification
+                </div>
+              )}
+              {order?.status === 'VERIFIED' && (
                 <div className="flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700">
                   <FileCheck2 className="size-4" />
-                  Report Finalized &amp; Verified by {order.verifiedBy?.name || "Lab Technician"}
+                  Report {getLabOrderStatusLabel(order.status)} by {order.verifiedBy?.name || "Lab Technician"}
                 </div>
               )}
             </div>
@@ -683,7 +847,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
                 disabled={isLocked}
               >
                 <FileCheck2 className="size-3.5" />
-                Finalize Report
+                Verify Report
               </Button>
             </div>
           </div>
@@ -696,30 +860,51 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-foreground">
               <FileCheck2 className="size-5 text-primary" />
-              Finalize Lab Report
+              Verify Lab Report
             </DialogTitle>
             <DialogDescription>
-              Once finalized, the report will be locked and sent to the treating physician. Values cannot be edited afterwards.
+              Once verified, the report will be locked and sent to the treating physician. Values cannot be edited afterwards.
             </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-3 py-2">
             <div className="flex items-center justify-between rounded-lg bg-muted/60 px-4 py-3">
-              <span className="text-sm text-foreground font-medium">Test Panel</span>
-              <span className="text-sm text-foreground">{selectedPanel.name}</span>
+              <span className="text-sm text-foreground font-medium">Panels</span>
+              <span className="text-sm text-foreground">{testPanels.length} total</span>
             </div>
-            <div className="flex items-center justify-between rounded-lg bg-muted/60 px-4 py-3">
-              <span className="text-sm text-foreground font-medium">Parameters</span>
-              <span className="text-sm text-foreground">{summary.total} total</span>
-            </div>
-            {summary.critical > 0 && (
+            {allPanelsSummary.totalCritical > 0 && (
               <div className="flex items-center gap-2 rounded-lg bg-red-50 border border-red-200 px-4 py-3">
                 <AlertTriangle className="size-4 text-red-600 shrink-0" />
                 <span className="text-sm text-red-700 font-medium">
-                  {summary.critical} critical value{summary.critical !== 1 ? "s" : ""} will trigger an immediate physician notification.
+                  {allPanelsSummary.totalCritical} critical value{allPanelsSummary.totalCritical !== 1 ? "s" : ""} will trigger an immediate physician notification.
                 </span>
               </div>
             )}
+            <div className="flex flex-col gap-2">
+              {panelReadiness.map((panel) => (
+                <div key={panel.panelId} className="rounded-lg border border-border bg-muted/40 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">{panel.panelName}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {panel.totalCount - panel.missingCount}/{panel.totalCount} results entered
+                        {panel.isDirty ? " · Unsaved changes" : ""}
+                      </p>
+                    </div>
+                    <Badge variant="secondary" className={cn("text-[10px] font-medium border", getPanelStatusBadgeClasses(panel.status))}>
+                      {panel.statusLabel}
+                    </Badge>
+                  </div>
+                  {panel.blocker ? (
+                    <p className="mt-2 text-xs font-medium text-amber-700">{panel.blocker}</p>
+                  ) : panel.canAutoSave ? (
+                    <p className="mt-2 text-xs font-medium text-sky-700">Ready to save during verification</p>
+                  ) : (
+                    <p className="mt-2 text-xs font-medium text-emerald-700">Ready for verification</p>
+                  )}
+                </div>
+              ))}
+            </div>
             <div className="flex flex-col gap-1.5">
               <Label className="text-xs font-semibold">Verified By</Label>
               <div className="flex items-center gap-2 rounded-lg bg-muted/40 border border-border px-3 py-2">
@@ -740,7 +925,7 @@ export function LabResultsContent({ orderId }: { orderId?: string } = {}) {
             </Button>
             <Button size="sm" className="gap-1.5" onClick={handleFinalize} disabled={isFinalizing}>
               <FileCheck2 className="size-3.5" />
-              {isFinalizing ? "Finalizing..." : "Confirm & Finalize"}
+              {isFinalizing ? "Verifying..." : "Confirm & Verify"}
             </Button>
           </DialogFooter>
         </DialogContent>

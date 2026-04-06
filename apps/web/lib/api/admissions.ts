@@ -58,11 +58,11 @@ export function useAdmission(id: string | null | undefined) {
 
 /** GET /patients/:id/admissions — admission history for a patient */
 export function usePatientAdmissions(patientId: string | null | undefined) {
-    const { data, error, isLoading } = useSWR<ApiAdmission[]>(
+    const { data, error, isLoading, mutate } = useSWR<ApiAdmission[]>(
         patientId ? `/patients/${patientId}/admissions` : null,
         fetcher
     )
-    return { admissions: data ?? [], isLoading, error }
+    return { admissions: data ?? [], isLoading, error, mutate }
 }
 
 /**

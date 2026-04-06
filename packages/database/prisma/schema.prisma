@@ -668,6 +668,7 @@ model Appointment {
   updatedAt       DateTime      @updatedAt @map("updated_at")
   consultation    Consultation?
   labOrders       LabOrder[]
+  serviceOrders   ServiceOrder[]
   opVisit         OPVisit?
   bill            Bill?
 
@@ -833,6 +834,7 @@ model OPVisit {
 
   bill          Bill?
   labOrders     LabOrder[]
+  serviceOrders ServiceOrder[]
   consultations Consultation[]
   consents      Consent[]
   prescriptions Prescription[]
@@ -1196,6 +1198,10 @@ model ServiceOrder {
   patient     Patient    @relation(fields: [patientId], references: [id])
   admissionId String?    @map("admission_id")
   admission   Admission? @relation(fields: [admissionId], references: [id])
+  appointmentId String?      @map("appointment_id")
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+  opVisitId     String?      @map("op_visit_id")
+  opVisit       OPVisit?     @relation(fields: [opVisitId], references: [id])
   serviceId   String     @map("service_id")
   service     Service    @relation(fields: [serviceId], references: [id])
   doctorId    String     @map("doctor_id")
@@ -1211,6 +1217,8 @@ model ServiceOrder {
 
   @@index([patientId])
   @@index([admissionId])
+  @@index([appointmentId])
+  @@index([opVisitId])
   @@index([serviceId])
   @@index([status])
   @@map("service_orders")

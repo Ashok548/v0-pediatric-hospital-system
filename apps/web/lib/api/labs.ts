@@ -1,6 +1,9 @@
 import useSWR from "swr";
 import { apiClient } from "@/lib/api-client";
 
+const LAB_LIST_REFRESH_INTERVAL = 15000;
+const LAB_DETAIL_REFRESH_INTERVAL = 5000;
+
 const fetcher = (url: string) => apiClient(url) as Promise<any>;
 
 export interface ApiLabTestProfile {
@@ -38,7 +41,8 @@ export function useLabMasterProfiles() {
 export function usePatientLabOrders(patientId: string | null) {
     const { data, error, isLoading, mutate } = useSWR(
         patientId ? `/labs/orders/patient/${patientId}` : null,
-        fetcher
+        fetcher,
+        { refreshInterval: LAB_LIST_REFRESH_INTERVAL }
     );
     return { orders: data?.data ?? [], isLoading, error, mutate };
 }
@@ -46,7 +50,8 @@ export function usePatientLabOrders(patientId: string | null) {
 export function useAdmissionLabOrders(admissionId: string | null) {
     const { data, error, isLoading, mutate } = useSWR(
         admissionId ? `/labs/orders/admission/${admissionId}` : null,
-        fetcher
+        fetcher,
+        { refreshInterval: LAB_LIST_REFRESH_INTERVAL }
     );
     return { orders: data?.data ?? [], isLoading, error, mutate };
 }
@@ -54,7 +59,8 @@ export function useAdmissionLabOrders(admissionId: string | null) {
 export function useLabOrders() {
     const { data, error, isLoading, mutate } = useSWR(
         '/labs/orders',
-        fetcher
+        fetcher,
+        { refreshInterval: LAB_LIST_REFRESH_INTERVAL }
     );
     return { orders: data?.data ?? [], isLoading, error, mutate };
 }
@@ -62,7 +68,8 @@ export function useLabOrders() {
 export function useLabOrder(orderId: string | null) {
     const { data, error, isLoading, mutate } = useSWR(
         orderId ? `/labs/orders/${orderId}` : null,
-        fetcher
+        fetcher,
+        { refreshInterval: LAB_DETAIL_REFRESH_INTERVAL }
     );
     return { order: data ?? null, isLoading, error, mutate };
 }

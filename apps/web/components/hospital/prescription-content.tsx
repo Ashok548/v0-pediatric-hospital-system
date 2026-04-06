@@ -51,6 +51,7 @@ import { useAdmissionVitals, usePatientGrowth } from "@/lib/api/nicu"
 import type { PaginatedOPVisits } from "@/lib/api/op-visits"
 import { type ApiMedication, createPrescription, usePharmacyInventory } from "@/lib/api/pharmacy"
 import { usePatient } from "@/lib/api/patients"
+import { createServiceOrder } from "@/lib/api/service-orders"
 import { useServices } from "@/lib/api/services"
 import { useAuthStore } from "@/lib/store/auth-store"
 import { appendTranscript } from "@/lib/utils/transcript"
@@ -450,7 +451,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
   }, [opVisits])
 
   const currentWeightKg = useMemo(
-    () => resolveWeightKg(patient?.birthWeight, growthRecords, vitals),
+    () => resolveWeightKg(patient?.birthWeight ?? undefined, growthRecords, vitals),
     [growthRecords, patient?.birthWeight, vitals]
   )
 
@@ -829,9 +830,11 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
     }
 
     const medicationRowsToSave = rows.filter((row) => row.drugName || row.dose || row.instructions)
-    const investigationsToSave = [...labRows, ...scanRows].filter((row) => row.testName || row.notes)
+    const labInvestigationsToSave = labRows.filter((row) => row.testName || row.notes)
+    const imagingOrdersToSave = scanRows.filter((row) => row.testName || row.notes)
+    const labOrdersToSave = labInvestigationsToSave
 
-    if (medicationRowsToSave.length === 0 && investigationsToSave.length === 0) {
+    if (medicationRowsToSave.length === 0 && labOrdersToSave.length === 0 && imagingOrdersToSave.length === 0) {
       toast.error("Add at least one medication or investigation.")
       return
     }
@@ -839,6 +842,14 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
     const incompleteRows = medicationRowsToSave.filter((row) => !row.drugId)
     if (incompleteRows.length > 0) {
       toast.error("Every medication row must be selected from pharmacy inventory before saving.")
+      return
+    }
+
+    const incompleteImagingRows = imagingOrdersToSave.filter(
+      (row) => row.referenceType !== "IMAGING_SERVICE" || !row.referenceId
+    )
+    if (incompleteImagingRows.length > 0) {
+      toast.error("Every inpatient imaging row must be selected from the imaging services list before saving.")
       return
     }
 
@@ -884,8 +895,8 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
         )
       }
 
-      if (investigationsToSave.length > 0) {
-        const technicianNotes = investigationsToSave
+      if (labOrdersToSave.length > 0) {
+        const technicianNotes = labOrdersToSave
           .filter((row) => row.notes.trim())
           .map((row) => `${row.testName}: ${row.notes.trim()}`)
           .join("\n")
@@ -895,7 +906,7 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
             patientId,
             admissionId: activeAdmission?.id || undefined,
             opVisitId: activeAdmission ? undefined : activeOpVisit?.id || undefined,
-            panels: investigationsToSave.map((row) => ({
+            panels: labOrdersToSave.map((row) => ({
               panelName: row.testName,
               category: row.type === "SCAN" ? "IMAGING" : "LAB",
               sampleType: row.sampleType || defaultSampleTypeForInvestigation(row.type),
@@ -904,6 +915,22 @@ export function PrescriptionContent({ patientId }: { patientId?: string } = {}) 
             })),
             technicianNotes: technicianNotes || undefined,
           })
+        )
+      }
+
+      if (imagingOrdersToSave.length > 0) {
+        saveOperations.push(
+          ...imagingOrdersToSave.map((row) =>
+            createServiceOrder({
+              patientId,
+              admissionId: activeAdmission?.id || undefined,
+              opVisitId: activeAdmission ? undefined : activeOpVisit?.id || undefined,
+              serviceId: row.referenceId,
+              quantity: 1,
+              priority: "NORMAL",
+              notes: row.notes || undefined,
+            })
+          )
         )
       }
 

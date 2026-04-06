@@ -269,28 +269,41 @@ export class LabsService {
             const panel = await tx.labResultPanel.findUnique({ where: { id: panelId } });
             if (!panel) throw new NotFoundException(`Panel ${panelId} not found`);
 
-            // FIX #1: synchronous guard using imported BadRequestException
-            this.assertPanelTransition(panel.status as LabPanelStatus, LabPanelStatus.COMPLETED);
+            const panelStatus = panel.status as LabPanelStatus;
+            if (panelStatus === LabPanelStatus.SAMPLE_REJECTED || panelStatus === LabPanelStatus.VERIFIED) {
+                throw new BadRequestException(`Cannot update results for a panel in ${panelStatus} status.`);
+            }
+
+            const now = new Date();
+            const panelUpdateData: any = {
+                status: LabPanelStatus.COMPLETED,
+                items: {
+                    create: dto.items.map(item => ({
+                        parameterName: item.parameterName,
+                        value: item.value || '',
+                        unit: item.unit,
+                        refDisplay: item.refDisplay,
+                        refMin: item.refMin ?? null,
+                        refMax: item.refMax ?? null,
+                        criticalMin: item.criticalMin ?? null,
+                        criticalMax: item.criticalMax ?? null,
+                    }))
+                }
+            };
+
+            if (!panel.collectedAt) {
+                panelUpdateData.collectedAt = now;
+            }
+
+            if (!panel.receivedAt) {
+                panelUpdateData.receivedAt = now;
+            }
 
             await tx.labResultItem.deleteMany({ where: { panelId } });
 
             await tx.labResultPanel.update({
                 where: { id: panelId },
-                data: {
-                    status: LabPanelStatus.COMPLETED,
-                    items: {
-                        create: dto.items.map(item => ({
-                            parameterName: item.parameterName,
-                            value: item.value || '',
-                            unit: item.unit,
-                            refDisplay: item.refDisplay,
-                            refMin: item.refMin ?? null,
-                            refMax: item.refMax ?? null,
-                            criticalMin: item.criticalMin ?? null,
-                            criticalMax: item.criticalMax ?? null,
-                        }))
-                    }
-                }
+                data: panelUpdateData
             });
 
             // FIX #2: read panels inside the SAME transaction → consistent data

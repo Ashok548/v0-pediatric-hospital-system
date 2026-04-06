@@ -82,6 +82,7 @@ export function CreateServiceOrderDialog({
             
             // Revalidate data
             if (admissionId) mutate(`/service-orders/admission/${admissionId}`)
+            mutate(`/service-orders/patient/${patientId}`)
 
             onSuccess?.()
         } catch (error: any) {
